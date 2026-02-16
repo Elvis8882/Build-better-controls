@@ -10,18 +10,27 @@ export type Tournament = {
 };
 
 export type TournamentMember = {
-	id: string;
 	tournament_id: string;
 	user_id: string;
 	role: string;
 	username: string;
 };
 
+export type TournamentGuest = {
+	id: string;
+	tournament_id: string;
+	display_name: string;
+};
+
+export type MatchParticipantDecision = "R" | "OT" | "SO";
+
 export type Match = {
 	id: string;
 	tournament_id: string;
-	home_user_id: string;
-	away_user_id: string;
+	home_user_id: string | null;
+	away_user_id: string | null;
+	home_guest_id: string | null;
+	away_guest_id: string | null;
 	round: number;
 	created_at: string;
 };
@@ -33,6 +42,7 @@ export type MatchResult = {
 	away_score: number | null;
 	home_shots: number | null;
 	away_shots: number | null;
+	decision: MatchParticipantDecision | null;
 	locked: boolean;
 };
 
@@ -97,7 +107,7 @@ export async function getTournament(tournamentId: string): Promise<Tournament | 
 export async function listTournamentMembers(tournamentId: string): Promise<TournamentMember[]> {
 	const { data, error } = await supabase
 		.from("tournament_members")
-		.select("id, tournament_id, user_id, role")
+		.select("tournament_id, user_id, role")
 		.eq("tournament_id", tournamentId)
 		.order("created_at", { ascending: true });
 	throwOnError(error, "Unable to load members");
@@ -120,7 +130,6 @@ export async function listTournamentMembers(tournamentId: string): Promise<Tourn
 	}
 
 	return memberRows.map((member) => ({
-		id: member.id as string,
 		tournament_id: member.tournament_id as string,
 		user_id: member.user_id as string,
 		role: member.role as string,
@@ -128,12 +137,14 @@ export async function listTournamentMembers(tournamentId: string): Promise<Tourn
 	}));
 }
 
-export async function searchProfilesByUsername(query: string): Promise<ProfileOption[]> {
-	if (!query.trim()) return [];
+export async function searchProfilesByUsername(query: string, currentUserId: string): Promise<ProfileOption[]> {
+	const term = query.toLowerCase().trim();
+	if (!term) return [];
 	const { data, error } = await supabase
 		.from("profiles")
 		.select("id, username, role")
-		.ilike("username", `%${query.trim()}%`)
+		.ilike("username_norm", `${term}%`)
+		.neq("id", currentUserId)
 		.limit(10);
 	throwOnError(error, "Unable to search profiles");
 	return (data ?? []) as ProfileOption[];
@@ -151,7 +162,7 @@ export async function inviteMember(tournamentId: string, userId: string): Promis
 export async function listMatchesWithResults(tournamentId: string): Promise<MatchWithResult[]> {
 	const { data: matches, error: matchesError } = await supabase
 		.from("matches")
-		.select("id, tournament_id, home_user_id, away_user_id, round, created_at")
+		.select("id, tournament_id, home_user_id, away_user_id, home_guest_id, away_guest_id, round, created_at")
 		.eq("tournament_id", tournamentId)
 		.order("round", { ascending: true })
 		.order("created_at", { ascending: true });
@@ -165,7 +176,7 @@ export async function listMatchesWithResults(tournamentId: string): Promise<Matc
 	const matchIds = matchRows.map((match) => match.id);
 	const { data: results, error: resultsError } = await supabase
 		.from("match_results")
-		.select("id, match_id, home_score, away_score, home_shots, away_shots, locked")
+		.select("id, match_id, home_score, away_score, home_shots, away_shots, decision, locked")
 		.in("match_id", matchIds);
 	throwOnError(resultsError, "Unable to load match results");
 
@@ -178,6 +189,7 @@ export async function listMatchesWithResults(tournamentId: string): Promise<Matc
 			away_score: result.away_score as number | null,
 			home_shots: result.home_shots as number | null,
 			away_shots: result.away_shots as number | null,
+			decision: (result.decision as MatchParticipantDecision | null) ?? null,
 			locked: Boolean(result.locked),
 		});
 	}
@@ -190,14 +202,22 @@ export async function listMatchesWithResults(tournamentId: string): Promise<Matc
 
 export async function createMatch(
 	tournamentId: string,
-	homeUserId: string,
-	awayUserId: string,
+	home: { userId: string | null; guestId: string | null },
+	away: { userId: string | null; guestId: string | null },
 	round: number,
 ): Promise<void> {
+	const hasValidHome = Boolean(home.userId) !== Boolean(home.guestId);
+	const hasValidAway = Boolean(away.userId) !== Boolean(away.guestId);
+	if (!hasValidHome || !hasValidAway) {
+		throw new Error("Each side must contain exactly one participant (member or guest).");
+	}
+
 	const { error } = await supabase.from("matches").insert({
 		tournament_id: tournamentId,
-		home_user_id: homeUserId,
-		away_user_id: awayUserId,
+		home_user_id: home.userId,
+		away_user_id: away.userId,
+		home_guest_id: home.guestId,
+		away_guest_id: away.guestId,
 		round,
 	});
 	throwOnError(error, "Unable to create match");
@@ -209,6 +229,7 @@ export async function upsertMatchResult(
 	awayScore: number,
 	homeShots: number,
 	awayShots: number,
+	decision: MatchParticipantDecision,
 ): Promise<void> {
 	const { error } = await supabase.from("match_results").upsert(
 		{
@@ -217,10 +238,37 @@ export async function upsertMatchResult(
 			away_score: awayScore,
 			home_shots: homeShots,
 			away_shots: awayShots,
+			decision,
 		},
 		{ onConflict: "match_id" },
 	);
 	throwOnError(error, "Unable to save match result");
+}
+
+export async function listTournamentGuests(tournamentId: string): Promise<TournamentGuest[]> {
+	const { data, error } = await supabase
+		.from("tournament_guests")
+		.select("id, tournament_id, display_name")
+		.eq("tournament_id", tournamentId)
+		.order("created_at", { ascending: true });
+	throwOnError(error, "Unable to load guests");
+	return (data ?? []) as TournamentGuest[];
+}
+
+export async function addTournamentGuest(tournamentId: string, displayName: string): Promise<void> {
+	const { error } = await supabase.from("tournament_guests").insert({
+		tournament_id: tournamentId,
+		display_name: displayName,
+	});
+	throwOnError(error, "Unable to add guest");
+}
+
+export async function removeTournamentGuest(tournamentId: string, guestId: string): Promise<void> {
+	const { error } = await supabase
+		.from("tournament_guests")
+		.delete()
+		.match({ tournament_id: tournamentId, id: guestId });
+	throwOnError(error, "Unable to remove guest");
 }
 
 export async function lockMatchResult(matchId: string): Promise<void> {

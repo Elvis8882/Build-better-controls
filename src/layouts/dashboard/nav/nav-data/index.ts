@@ -1,8 +1,9 @@
+import { useMemo } from "react";
+import { useAuth } from "@/auth/AuthProvider";
 import type { NavItemDataProps } from "@/components/nav/types";
 import { GLOBAL_CONFIG } from "@/global-config";
 import { useUserPermissions } from "@/store/userStore";
 import { checkAny } from "@/utils";
-import { useMemo } from "react";
 import { backendNavData } from "./nav-data-backend";
 import { frontendNavData } from "./nav-data-frontend";
 
@@ -65,8 +66,26 @@ const filterNavData = (permissions: string[]) => {
  * @returns Filtered navigation data
  */
 export const useFilteredNavData = () => {
+	const { isAdmin } = useAuth();
 	const permissions = useUserPermissions();
 	const permissionCodes = useMemo(() => permissions.map((p) => p.code), [permissions]);
-	const filteredNavData = useMemo(() => filterNavData(permissionCodes), [permissionCodes]);
+	const filteredNavData = useMemo(() => {
+		if (GLOBAL_CONFIG.routerMode === "frontend") {
+			const navItems = frontendNavData[0]?.items || [];
+			const items = isAdmin
+				? [
+						...navItems,
+						{
+							title: "Admin Panel",
+							path: "/dashboard/admin",
+						},
+					]
+				: navItems;
+
+			return [{ ...frontendNavData[0], items }];
+		}
+
+		return filterNavData(permissionCodes);
+	}, [isAdmin, permissionCodes]);
 	return filteredNavData;
 };

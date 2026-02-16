@@ -9,7 +9,7 @@ interface Props {
 function Logo({ size = 50, className }: Props) {
 	return (
 		<NavLink to="/" className={cn(className)}>
-			<Icon icon="local:ic-hockey-logo" size={size} color="var(--colors-palette-primary-default)" />
+			<Icon icon="local:ic-hockey-logo" size={size} />
 		</NavLink>
 	);
 }

@@ -29,9 +29,8 @@ export const LANGUAGE_MAP: Partial<Record<Locale, Language>> = {
 
 export default function useLocale() {
 	const { t, i18n } = useTranslation();
-
-	const locale = (i18n.resolvedLanguage || LocalEnum.en_US) as Locale;
-	const language = LANGUAGE_MAP[locale] || LANGUAGE_MAP[LocalEnum.en_US];
+	const locale: Locale = i18n.resolvedLanguage === LocalEnum.zh_CN ? LocalEnum.zh_CN : LocalEnum.en_US;
+	const language: Language = LANGUAGE_MAP[locale];
 
 	/**
 	 * localstorage -> i18nextLng change

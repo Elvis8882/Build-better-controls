@@ -15,7 +15,6 @@ export function getFrontendDashboardRoutes(): RouteObject[] {
 				{ index: true, element: <Navigate to="animate" replace /> },
 				{ path: "animate", element: Component("/pages/components/animate") },
 				{ path: "scroll", element: Component("/pages/components/scroll") },
-				{ path: "multi-language", element: Component("/pages/components/multi-language") },
 				{ path: "icon", element: Component("/pages/components/icon") },
 				{ path: "upload", element: Component("/pages/components/upload") },
 				{ path: "chart", element: Component("/pages/components/chart") },

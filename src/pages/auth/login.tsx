@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Navigate, useNavigate } from "react-router";
 import { useAuth } from "@/auth/AuthProvider";
+import Logo from "@/components/logo";
+import { GLOBAL_CONFIG } from "@/global-config";
 import { Button } from "@/ui/button";
 import { Input } from "@/ui/input";
 
@@ -58,8 +60,11 @@ export default function AuthLoginPage() {
 	return (
 		<div className="min-h-svh flex items-center justify-center p-6 bg-background">
 			<div className="w-full max-w-sm space-y-4 rounded-xl border bg-card p-6 shadow-sm">
-				<h1 className="text-xl font-semibold">Sign in to dashboard</h1>
-				<p className="text-sm text-muted-foreground">Use your username and password.</p>
+				<div className="flex flex-col items-center justify-center text-center gap-2">
+					<Logo size={42} />
+					<h1 className="text-xl font-semibold">{GLOBAL_CONFIG.appName}</h1>
+				</div>
+				<p className="text-sm text-center text-muted-foreground">Use your username and password.</p>
 
 				<div className="space-y-2">
 					<label className="text-sm" htmlFor="username">

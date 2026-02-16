@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Icon } from "@/components/icon";
+import { useSocialStore } from "@/store/socialStore";
 import { Avatar, AvatarFallback } from "@/ui/avatar";
 import { Badge } from "@/ui/badge";
 import { Button } from "@/ui/button";
@@ -35,21 +36,6 @@ const SITE_NOTIFICATIONS: NoticeItem[] = [
 	},
 ];
 
-const FRIEND_REQUESTS: NoticeItem[] = [
-	{
-		id: "friend-1",
-		title: "Alex Morgan sent a friend request",
-		description: "Wants to connect and follow your tournament activity.",
-		time: "12 mins ago",
-	},
-	{
-		id: "friend-2",
-		title: "Taylor Kim sent a friend request",
-		description: "Wants to team up for upcoming qualifiers.",
-		time: "1 hour ago",
-	},
-];
-
 function NoticeList({ items }: { items: NoticeItem[] }) {
 	return (
 		<ScrollArea className="h-[420px] pr-2">
@@ -76,7 +62,7 @@ function NoticeList({ items }: { items: NoticeItem[] }) {
 export default function NoticeButton() {
 	const [drawerOpen, setDrawerOpen] = useState(false);
 	const [notificationItems, setNotificationItems] = useState(SITE_NOTIFICATIONS);
-	const [friendRequestItems, setFriendRequestItems] = useState(FRIEND_REQUESTS);
+	const { friendRequestItems, clearFriendRequests } = useSocialStore();
 	const totalCount = useMemo(
 		() => notificationItems.length + friendRequestItems.length,
 		[friendRequestItems.length, notificationItems.length],
@@ -101,7 +87,7 @@ export default function NoticeButton() {
 							size="sm"
 							onClick={() => {
 								setNotificationItems([]);
-								setFriendRequestItems([]);
+								clearFriendRequests();
 							}}
 						>
 							Mark all as read

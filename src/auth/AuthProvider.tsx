@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabaseClient";
 
 type AuthContextValue = {
 	user: User | null;
+	profile: Profile | null;
 	isAdmin: boolean;
 	loading: boolean;
 	signUp: (username: string, password: string) => Promise<void>;
@@ -12,63 +13,70 @@ type AuthContextValue = {
 	signOut: () => Promise<void>;
 };
 
-const AUTH_EMAIL_DOMAIN = (import.meta.env.VITE_AUTH_EMAIL_DOMAIN as string | undefined) || "nhl.local";
-const LOCAL_ADMIN_SESSION_KEY = "local-admin-session";
-
-const ADMIN_CREDENTIALS = {
-	username: "admin",
-	password: "admin",
+type Profile = {
+	username: string | null;
+	role: string | null;
 };
+
+const AUTH_EMAIL_DOMAIN = (import.meta.env.VITE_AUTH_EMAIL_DOMAIN as string | undefined) || "nhl.local";
 
 function getPseudoEmail(username: string) {
 	return `${username.toLowerCase().trim()}@${AUTH_EMAIL_DOMAIN}`;
-}
-
-function getUsernameFromUser(user: User | null) {
-	if (!user?.email) return "";
-	return user.email.split("@")[0]?.toLowerCase() || "";
-}
-
-function isLocalAdminUser(user: User | null) {
-	const hasLocalAdminSession = localStorage.getItem(LOCAL_ADMIN_SESSION_KEY) === "true";
-	return hasLocalAdminSession && user?.id === "local-admin" && getUsernameFromUser(user) === ADMIN_CREDENTIALS.username;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: PropsWithChildren) {
 	const [user, setUser] = useState<User | null>(null);
+	const [profile, setProfile] = useState<Profile | null>(null);
 	const [loading, setLoading] = useState(true);
+
+	const fetchProfile = useCallback(async (authUser: User | null): Promise<Profile | null> => {
+		if (!authUser) return null;
+
+		const { data, error } = await supabase
+			.from("profiles")
+			.select("username, role")
+			.eq("id", authUser.id)
+			.maybeSingle();
+
+		if (error) {
+			console.error("Unable to fetch user profile", error);
+			return null;
+		}
+
+		return data
+			? {
+					username: data.username,
+					role: data.role,
+				}
+			: null;
+	}, []);
 
 	useEffect(() => {
 		let isMounted = true;
 
-		const isLocalAdminSession = localStorage.getItem(LOCAL_ADMIN_SESSION_KEY) === "true";
-		if (isLocalAdminSession) {
-			setUser({
-				id: "local-admin",
-				email: getPseudoEmail(ADMIN_CREDENTIALS.username),
-				app_metadata: {},
-				user_metadata: { username: ADMIN_CREDENTIALS.username },
-				aud: "authenticated",
-				created_at: new Date().toISOString(),
-			} as User);
-			setLoading(false);
-			return () => {
-				isMounted = false;
-			};
-		}
-
-		supabase.auth.getSession().then(({ data }) => {
+		supabase.auth.getSession().then(async ({ data }) => {
 			if (!isMounted) return;
-			setUser(data.session?.user ?? null);
+
+			const currentUser = data.session?.user ?? null;
+			setUser(currentUser);
+
+			const currentProfile = await fetchProfile(currentUser);
+			if (!isMounted) return;
+			setProfile(currentProfile);
 			setLoading(false);
 		});
 
 		const {
 			data: { subscription },
-		} = supabase.auth.onAuthStateChange((_event, session) => {
-			setUser(session?.user ?? null);
+		} = supabase.auth.onAuthStateChange(async (_event, session) => {
+			const currentUser = session?.user ?? null;
+			setUser(currentUser);
+
+			const currentProfile = await fetchProfile(currentUser);
+			if (!isMounted) return;
+			setProfile(currentProfile);
 			setLoading(false);
 		});
 
@@ -76,7 +84,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
 			isMounted = false;
 			subscription.unsubscribe();
 		};
-	}, []);
+	}, [fetchProfile]);
 
 	const signUp = useCallback(async (username: string, password: string) => {
 		const email = getPseudoEmail(username);
@@ -91,21 +99,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
 	}, []);
 
 	const signIn = useCallback(async (username: string, password: string) => {
-		if (username.trim().toLowerCase() === ADMIN_CREDENTIALS.username && password === ADMIN_CREDENTIALS.password) {
-			localStorage.setItem(LOCAL_ADMIN_SESSION_KEY, "true");
-			setUser({
-				id: "local-admin",
-				email: getPseudoEmail(ADMIN_CREDENTIALS.username),
-				app_metadata: {},
-				user_metadata: { username: ADMIN_CREDENTIALS.username },
-				aud: "authenticated",
-				created_at: new Date().toISOString(),
-			} as User);
-			return;
-		}
-
-		localStorage.removeItem(LOCAL_ADMIN_SESSION_KEY);
-
 		const email = getPseudoEmail(username);
 		const { error } = await supabase.auth.signInWithPassword({
 			email,
@@ -115,28 +108,23 @@ export function AuthProvider({ children }: PropsWithChildren) {
 	}, []);
 
 	const signOut = useCallback(async () => {
-		if (localStorage.getItem(LOCAL_ADMIN_SESSION_KEY) === "true") {
-			localStorage.removeItem(LOCAL_ADMIN_SESSION_KEY);
-			setUser(null);
-			return;
-		}
-
 		const { error } = await supabase.auth.signOut();
 		if (error) throw error;
 	}, []);
 
-	const isAdmin = isLocalAdminUser(user);
+	const isAdmin = profile?.role === "admin";
 
 	const value = useMemo(
 		() => ({
 			user,
+			profile,
 			isAdmin,
 			loading,
 			signUp,
 			signIn,
 			signOut,
 		}),
-		[user, isAdmin, loading, signUp, signIn, signOut],
+		[user, profile, isAdmin, loading, signUp, signIn, signOut],
 	);
 
 	return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

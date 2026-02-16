@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useAuth } from "@/auth/AuthProvider";
+import { Icon } from "@/components/icon";
 import type { NavItemDataProps } from "@/components/nav/types";
 import { GLOBAL_CONFIG } from "@/global-config";
 import { useUserPermissions } from "@/store/userStore";
@@ -72,15 +73,12 @@ export const useFilteredNavData = () => {
 	const filteredNavData = useMemo(() => {
 		if (GLOBAL_CONFIG.routerMode === "frontend") {
 			const navItems = frontendNavData[0]?.items || [];
-			const items = isAdmin
-				? [
-						...navItems,
-						{
-							title: "Admin Panel",
-							path: "/dashboard/admin",
-						},
-					]
-				: navItems;
+			const adminPanelItem: NavItemDataProps = {
+				title: "Admin Panel",
+				path: "/dashboard/admin",
+				icon: <Icon icon="local:ic-admin-panel" size="24" />,
+			};
+			const items = isAdmin ? [...navItems, adminPanelItem] : navItems;
 
 			return [{ ...frontendNavData[0], items }];
 		}

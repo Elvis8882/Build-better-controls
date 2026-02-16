@@ -18,7 +18,7 @@ import {
 export default function AccountDropdown() {
 	const { replace } = useRouter();
 	const { signOut } = useAuth();
-	const { username, email, avatar } = useUserInfo();
+	const { username, avatar } = useUserInfo();
 	const { t } = useTranslation();
 	const logout = async () => {
 		try {
@@ -42,15 +42,11 @@ export default function AccountDropdown() {
 					<img className="h-10 w-10 rounded-full" src={avatar} alt="" />
 					<div className="flex flex-col items-start">
 						<div className="text-text-primary text-sm font-medium">{username}</div>
-						<div className="text-text-secondary text-xs">{email}</div>
 					</div>
 				</div>
 				<DropdownMenuSeparator />
 				<DropdownMenuItem asChild>
-					<NavLink to="/management/user/profile">{t("sys.nav.user.profile")}</NavLink>
-				</DropdownMenuItem>
-				<DropdownMenuItem asChild>
-					<NavLink to="/management/user/account">{t("sys.nav.user.account")}</NavLink>
+					<NavLink to="/dashboard/management/user/profile">{t("sys.nav.user.profile")}</NavLink>
 				</DropdownMenuItem>
 				<DropdownMenuSeparator />
 				<DropdownMenuItem className="font-bold text-warning" onClick={logout}>

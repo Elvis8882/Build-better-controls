@@ -12,7 +12,7 @@ type Language = {
 	antdLocal: AntdLocal;
 };
 
-export const LANGUAGE_MAP: Partial<Record<Locale, Language>> = {
+export const LANGUAGE_MAP: Record<Locale, Language> = {
 	[LocalEnum.zh_CN]: {
 		locale: LocalEnum.zh_CN,
 		label: "English",

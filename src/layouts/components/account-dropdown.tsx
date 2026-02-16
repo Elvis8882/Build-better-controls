@@ -1,8 +1,14 @@
-import { useLoginStateContext } from "@/pages/sys/login/providers/login-provider";
+import { useAuth } from "@/auth/AuthProvider";
 import { useRouter } from "@/routes/hooks";
-import { useUserActions, useUserInfo } from "@/store/userStore";
+import { useUserInfo } from "@/store/userStore";
 import { Button } from "@/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/ui/dropdown-menu";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from "@/ui/dropdown-menu";
 import { useTranslation } from "react-i18next";
 import { NavLink } from "react-router";
 
@@ -11,14 +17,12 @@ import { NavLink } from "react-router";
  */
 export default function AccountDropdown() {
 	const { replace } = useRouter();
+	const { signOut } = useAuth();
 	const { username, email, avatar } = useUserInfo();
-	const { clearUserInfoAndToken } = useUserActions();
-	const { backToLogin } = useLoginStateContext();
 	const { t } = useTranslation();
-	const logout = () => {
+	const logout = async () => {
 		try {
-			clearUserInfoAndToken();
-			backToLogin();
+			await signOut();
 		} catch (error) {
 			console.log(error);
 		} finally {

@@ -1,4 +1,4 @@
-export default function LandingPage() {
+export default function MainPage() {
 	return (
 		<div style={{ padding: 24 }}>
 			<h1>Main</h1>

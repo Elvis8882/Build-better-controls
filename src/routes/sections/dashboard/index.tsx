@@ -14,13 +14,12 @@ const getRoutes = (): RouteObject[] => {
 
 export const dashboardRoutes: RouteObject[] = [
 	{
-		element: <RequireAuth />,
-		children: [
-			{
-				path: "dashboard",
-				element: <DashboardLayout />,
-				children: [{ index: true, element: <Navigate to="tournaments" replace /> }, ...getRoutes()],
-			},
-		],
+		path: "dashboard",
+		element: (
+			<LoginAuthGuard>
+				<DashboardLayout />
+			</LoginAuthGuard>
+		),
+		children: [{ index: true, element: <Navigate to="tournaments" replace /> }, ...getRoutes()],
 	},
 ];

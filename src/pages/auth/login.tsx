@@ -13,7 +13,7 @@ export default function AuthLoginPage() {
 	const [isSubmitting, setIsSubmitting] = useState(false);
 
 	if (!loading && user) {
-		return <Navigate to="/dashboard/tournaments" replace />;
+		return <Navigate to="/dashboard/main" replace />;
 	}
 
 	const handleSignIn = async () => {
@@ -26,7 +26,7 @@ export default function AuthLoginPage() {
 		try {
 			await signIn(username, password);
 			setStatus("Signed in successfully.");
-			navigate("/dashboard/tournaments", { replace: true });
+			navigate("/dashboard/main", { replace: true });
 		} catch (error) {
 			setStatus(error instanceof Error ? error.message : "Unable to sign in.");
 		} finally {

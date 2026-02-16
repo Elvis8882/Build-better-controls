@@ -14,7 +14,7 @@ function LoginRoute() {
 	}
 
 	if (user) {
-		return <Navigate to="/dashboard/tournaments" replace />;
+		return <Navigate to="/dashboard/main" replace />;
 	}
 
 	return <LoginPage />;

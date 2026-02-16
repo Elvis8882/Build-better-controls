@@ -19,7 +19,7 @@ export const dashboardRoutes: RouteObject[] = [
 			{
 				path: "dashboard",
 				element: <DashboardLayout />,
-				children: [{ index: true, element: <Navigate to="tournaments" replace /> }, ...getRoutes()],
+				children: [{ index: true, element: <Navigate to="main" replace /> }, ...getRoutes()],
 			},
 		],
 	},

@@ -4,6 +4,7 @@ import { cn } from "@/utils";
 import AccountDropdown from "../components/account-dropdown";
 import BreadCrumb from "../components/bread-crumb";
 import NoticeButton from "../components/notice";
+import SearchCenter from "../components/search-center";
 
 interface HeaderProps {
 	leftSlot?: ReactNode;
@@ -28,6 +29,7 @@ export default function Header({ leftSlot }: HeaderProps) {
 			</div>
 
 			<div className="flex items-center gap-1">
+				<SearchCenter />
 				<NoticeButton />
 				<AccountDropdown />
 			</div>

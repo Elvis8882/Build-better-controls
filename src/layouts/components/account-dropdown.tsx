@@ -17,9 +17,12 @@ import {
  */
 export default function AccountDropdown() {
 	const { replace } = useRouter();
-	const { signOut } = useAuth();
-	const { username, avatar } = useUserInfo();
+	const { signOut, profile } = useAuth();
+	const { username: storedUsername, avatar } = useUserInfo();
 	const { t } = useTranslation();
+	const displayUsername = profile?.username || storedUsername || "Guest";
+	const displayRole = profile?.role || "user";
+
 	const logout = async () => {
 		try {
 			await signOut();
@@ -41,7 +44,8 @@ export default function AccountDropdown() {
 				<div className="flex items-center gap-2 p-2">
 					<img className="h-10 w-10 rounded-full" src={avatar} alt="" />
 					<div className="flex flex-col items-start">
-						<div className="text-text-primary text-sm font-medium">{username}</div>
+						<div className="text-text-primary text-sm font-medium">{displayUsername}</div>
+						<div className="text-xs text-muted-foreground lowercase">{displayRole}</div>
 					</div>
 				</div>
 				<DropdownMenuSeparator />

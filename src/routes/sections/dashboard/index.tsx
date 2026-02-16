@@ -1,6 +1,6 @@
+import RequireAuth from "@/auth/RequireAuth";
 import { GLOBAL_CONFIG } from "@/global-config";
 import DashboardLayout from "@/layouts/dashboard";
-import LoginAuthGuard from "@/routes/components/login-auth-guard";
 import { Navigate, type RouteObject } from "react-router";
 import { getBackendDashboardRoutes } from "./backend";
 import { getFrontendDashboardRoutes } from "./frontend";
@@ -14,12 +14,13 @@ const getRoutes = (): RouteObject[] => {
 
 export const dashboardRoutes: RouteObject[] = [
 	{
-		path: "dashboard",
-		element: (
-			<LoginAuthGuard>
-				<DashboardLayout />
-			</LoginAuthGuard>
-		),
-		children: [{ index: true, element: <Navigate to="tournaments" replace /> }, ...getRoutes()],
+		element: <RequireAuth />,
+		children: [
+			{
+				path: "dashboard",
+				element: <DashboardLayout />,
+				children: [{ index: true, element: <Navigate to="tournaments" replace /> }, ...getRoutes()],
+			},
+		],
 	},
 ];

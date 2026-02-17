@@ -331,8 +331,8 @@ export async function listParticipants(tournamentId: string): Promise<Tournament
 			"id, tournament_id, user_id, guest_id, display_name, team_id, locked, team:teams(id, code, name, short_name, team_pool, primary_color, secondary_color, text_color, overall, offense, defense, goalie)",
 		)
 		.eq("tournament_id", tournamentId)
-		.order("role", { ascending: true })
-		.order("user_id", { ascending: true });
+		.order("display_name", { ascending: true })
+		.order("created_at", { ascending: true });
 	throwOnError(error, "Unable to load participants");
 
 	return ((data ?? []) as Array<TournamentParticipant & { team: Team | Team[] | null }>).map((participant) => ({

@@ -77,7 +77,23 @@ export type TournamentParticipant = {
 	guest_id: string | null;
 	display_name: string;
 	team_id: string | null;
+	team: Team | null;
 	locked: boolean;
+};
+
+export type Team = {
+	id: string;
+	code: string;
+	name: string;
+	short_name: string;
+	team_pool: TeamPool;
+	primary_color: string;
+	secondary_color: string | null;
+	text_color: string;
+	overall: number;
+	offense: number;
+	defense: number;
+	goalie: number;
 };
 
 export type TournamentGroup = {
@@ -93,6 +109,11 @@ export type GroupStanding = {
 	participant_id: string;
 	display_name: string;
 	team_id: string | null;
+	team_code: string | null;
+	team_short_name: string | null;
+	team_primary_color: string | null;
+	team_secondary_color: string | null;
+	team_text_color: string | null;
 	points: number;
 	goal_diff: number;
 	shots_diff: number;
@@ -190,7 +211,8 @@ export async function listTournamentMembers(tournamentId: string): Promise<Tourn
 		.from("tournament_members")
 		.select("tournament_id, user_id, role")
 		.eq("tournament_id", tournamentId)
-		.order("created_at", { ascending: true });
+		.order("role", { ascending: true })
+		.order("user_id", { ascending: true });
 	throwOnError(error, "Unable to load members");
 
 	const memberRows = data ?? [];
@@ -243,11 +265,30 @@ export async function inviteMember(tournamentId: string, userId: string): Promis
 export async function listParticipants(tournamentId: string): Promise<TournamentParticipant[]> {
 	const { data, error } = await supabase
 		.from("tournament_participants")
-		.select("id, tournament_id, user_id, guest_id, display_name, team_id, locked")
+		.select(
+			"id, tournament_id, user_id, guest_id, display_name, team_id, locked, team:teams(id, code, name, short_name, team_pool, primary_color, secondary_color, text_color, overall, offense, defense, goalie)",
+		)
 		.eq("tournament_id", tournamentId)
-		.order("created_at", { ascending: true });
+		.order("role", { ascending: true })
+		.order("user_id", { ascending: true });
 	throwOnError(error, "Unable to load participants");
-	return (data ?? []) as TournamentParticipant[];
+
+	return ((data ?? []) as Array<TournamentParticipant & { team: Team | Team[] | null }>).map((participant) => ({
+		...participant,
+		team: Array.isArray(participant.team) ? (participant.team[0] ?? null) : participant.team,
+	}));
+}
+
+export async function fetchTeamsByPool(teamPool: TeamPool): Promise<Team[]> {
+	const { data, error } = await supabase
+		.from("teams")
+		.select(
+			"id, code, name, short_name, team_pool, primary_color, secondary_color, text_color, overall, offense, defense, goalie",
+		)
+		.eq("team_pool", teamPool)
+		.order("name", { ascending: true });
+	throwOnError(error, "Unable to load teams");
+	return (data ?? []) as Team[];
 }
 
 export async function createParticipant(
@@ -296,7 +337,9 @@ export async function generatePlayoffs(tournamentId: string): Promise<void> {
 export async function listGroupStandings(tournamentId: string): Promise<GroupStanding[]> {
 	const { data, error } = await supabase
 		.from("v_group_standings")
-		.select("tournament_id, group_id, group_code, participant_id, display_name, team_id, points, goal_diff, shots_diff")
+		.select(
+			"tournament_id, group_id, group_code, participant_id, display_name, team_id, team_code, team_short_name, team_primary_color, team_secondary_color, team_text_color, points, goal_diff, shots_diff",
+		)
 		.eq("tournament_id", tournamentId)
 		.order("group_code", { ascending: true })
 		.order("points", { ascending: false })
@@ -396,7 +439,8 @@ export async function listTournamentGuests(tournamentId: string): Promise<Tourna
 		.from("tournament_guests")
 		.select("id, tournament_id, display_name")
 		.eq("tournament_id", tournamentId)
-		.order("created_at", { ascending: true });
+		.order("role", { ascending: true })
+		.order("user_id", { ascending: true });
 	throwOnError(error, "Unable to load guests");
 	return (data ?? []) as TournamentGuest[];
 }

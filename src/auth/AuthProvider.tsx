@@ -26,6 +26,8 @@ function getPseudoEmail(username: string) {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+const LOGIN_ROUTE = "/auth/login";
+
 export function AuthProvider({ children }: PropsWithChildren) {
 	const [user, setUser] = useState<User | null>(null);
 	const [profile, setProfile] = useState<Profile | null>(null);
@@ -56,8 +58,16 @@ export function AuthProvider({ children }: PropsWithChildren) {
 	useEffect(() => {
 		let isMounted = true;
 
-		supabase.auth.getSession().then(async ({ data }) => {
+		supabase.auth.getSession().then(async ({ data, error }) => {
 			if (!isMounted) return;
+
+			if (error) {
+				console.error("Unable to get current session", error);
+				setUser(null);
+				setProfile(null);
+				setLoading(false);
+				return;
+			}
 
 			const currentUser = data.session?.user ?? null;
 			setUser(currentUser);
@@ -70,9 +80,24 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
 		const {
 			data: { subscription },
-		} = supabase.auth.onAuthStateChange(async (_event, session) => {
+		} = supabase.auth.onAuthStateChange(async (event, session) => {
 			const currentUser = session?.user ?? null;
+
+			if (event === "SIGNED_OUT" || !session) {
+				setUser(null);
+				setProfile(null);
+				setLoading(false);
+				if (window.location.pathname !== LOGIN_ROUTE) {
+					window.location.assign(LOGIN_ROUTE);
+				}
+				return;
+			}
+
 			setUser(currentUser);
+
+			if (event === "TOKEN_REFRESHED") {
+				console.info("Supabase token refreshed");
+			}
 
 			const currentProfile = await fetchProfile(currentUser);
 			if (!isMounted) return;

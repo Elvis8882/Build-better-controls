@@ -211,7 +211,8 @@ export async function listTournamentMembers(tournamentId: string): Promise<Tourn
 		.from("tournament_members")
 		.select("tournament_id, user_id, role")
 		.eq("tournament_id", tournamentId)
-		.order("created_at", { ascending: true });
+		.order("role", { ascending: true })
+		.order("user_id", { ascending: true });
 	throwOnError(error, "Unable to load members");
 
 	const memberRows = data ?? [];
@@ -268,7 +269,8 @@ export async function listParticipants(tournamentId: string): Promise<Tournament
 			"id, tournament_id, user_id, guest_id, display_name, team_id, locked, team:teams(id, code, name, short_name, team_pool, primary_color, secondary_color, text_color, overall, offense, defense, goalie)",
 		)
 		.eq("tournament_id", tournamentId)
-		.order("created_at", { ascending: true });
+		.order("role", { ascending: true })
+		.order("user_id", { ascending: true });
 	throwOnError(error, "Unable to load participants");
 
 	return ((data ?? []) as Array<TournamentParticipant & { team: Team | Team[] | null }>).map((participant) => ({
@@ -437,7 +439,8 @@ export async function listTournamentGuests(tournamentId: string): Promise<Tourna
 		.from("tournament_guests")
 		.select("id, tournament_id, display_name")
 		.eq("tournament_id", tournamentId)
-		.order("created_at", { ascending: true });
+		.order("role", { ascending: true })
+		.order("user_id", { ascending: true });
 	throwOnError(error, "Unable to load guests");
 	return (data ?? []) as TournamentGuest[];
 }

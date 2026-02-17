@@ -1,4 +1,4 @@
-import { type Dispatch, type SetStateAction, useCallback, useEffect, useMemo, useState } from "react";
+import { type Dispatch, type SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router";
 import { toast } from "sonner";
 import { useAuth } from "@/auth/AuthProvider";
@@ -223,12 +223,23 @@ export default function TournamentDetailPage() {
 	);
 	const isHostOrAdmin = isAdmin || Boolean(hostMembership);
 
+	const hasTriggeredAutoPlayoff = useRef(false);
+	const displayParticipants = useMemo(() => {
+		if (!tournament) return participants;
+		return participants.map((participant) => {
+			if (participant.user_id !== tournament.created_by) return participant;
+			if (participant.display_name.includes("(Host)")) return participant;
+			return { ...participant, display_name: `${participant.display_name} (Host)` };
+		});
+	}, [participants, tournament]);
 	const teamById = useMemo(() => new Map(teams.map((team) => [team.id, team])), [teams]);
-	const assignedTeams = new Set(participants.map((participant) => participant.team_id).filter(Boolean));
+	const assignedTeams = new Set(displayParticipants.map((participant) => participant.team_id).filter(Boolean));
 	const slots = tournament?.default_participants ?? 0;
 	const allLockedWithTeams =
-		participants.length === slots && participants.every((participant) => participant.locked && participant.team_id);
+		displayParticipants.length === slots &&
+		displayParticipants.every((participant) => participant.locked && participant.team_id);
 	const allGroupMatchesLocked = groupMatches.length > 0 && groupMatches.every((match) => match.result?.locked);
+	const canGeneratePlayoffs = tournament?.preset_id === "playoffs_only" ? allLockedWithTeams : allGroupMatchesLocked;
 
 	const loadAll = useCallback(async () => {
 		if (!id) return;
@@ -282,9 +293,57 @@ export default function TournamentDetailPage() {
 		}
 	}, [id]);
 
+	const onGeneratePlayoffs = useCallback(async () => {
+		if (!id || !isHostOrAdmin || !canGeneratePlayoffs) return;
+		setSaving(true);
+		try {
+			await generatePlayoffs(id);
+			await loadAll();
+			toast.success("Playoff bracket and schedule generated.");
+		} catch (error) {
+			toast.error((error as Error).message);
+		} finally {
+			setSaving(false);
+		}
+	}, [id, isHostOrAdmin, canGeneratePlayoffs, loadAll]);
+
 	useEffect(() => {
 		void loadAll();
 	}, [loadAll]);
+
+	useEffect(() => {
+		if (!id) return;
+		hasTriggeredAutoPlayoff.current = false;
+	}, [id]);
+
+	useEffect(() => {
+		if (!id || !tournament || !isHostOrAdmin) return;
+		const hostParticipantExists = participants.some((participant) => participant.user_id === tournament.created_by);
+		if (hostParticipantExists || participants.length >= slots) return;
+		const hostMember = members.find((member) => member.user_id === tournament.created_by);
+		if (!hostMember?.username) return;
+
+		setSaving(true);
+		void createParticipant(id, {
+			userId: tournament.created_by,
+			displayName: `${hostMember.username} (Host)`,
+		})
+			.then(loadAll)
+			.catch((error) => toast.error((error as Error).message))
+			.finally(() => setSaving(false));
+	}, [id, isHostOrAdmin, members, participants, slots, tournament, loadAll]);
+
+	useEffect(() => {
+		if (!id || !isHostOrAdmin || saving || playoffMatches.length > 0 || !canGeneratePlayoffs) return;
+		if (hasTriggeredAutoPlayoff.current) return;
+		hasTriggeredAutoPlayoff.current = true;
+		void onGeneratePlayoffs();
+	}, [id, isHostOrAdmin, saving, playoffMatches.length, canGeneratePlayoffs, onGeneratePlayoffs]);
+
+	useEffect(() => {
+		if (!canGeneratePlayoffs || playoffMatches.length > 0) return;
+		hasTriggeredAutoPlayoff.current = false;
+	}, [canGeneratePlayoffs, playoffMatches.length]);
 
 	const runSearchProfiles = async () => {
 		if (!user?.id) return;
@@ -300,7 +359,9 @@ export default function TournamentDetailPage() {
 			await inviteMember(id, selectedInviteUserId);
 			await createParticipant(id, {
 				userId: selectedInviteUserId,
-				displayName: inviteOptions.find((item) => item.id === selectedInviteUserId)?.username ?? selectedInviteUserId,
+				displayName:
+					(inviteOptions.find((item) => item.id === selectedInviteUserId)?.username ?? selectedInviteUserId) +
+					(selectedInviteUserId === tournament?.created_by ? " (Host)" : ""),
 			});
 			await loadAll();
 			setInviteQuery("");
@@ -417,20 +478,6 @@ export default function TournamentDetailPage() {
 		}
 	};
 
-	const onGeneratePlayoffs = async () => {
-		if (!id || !isHostOrAdmin) return;
-		setSaving(true);
-		try {
-			await generatePlayoffs(id);
-			await loadAll();
-			toast.success("Playoff bracket generated.");
-		} catch (error) {
-			toast.error((error as Error).message);
-		} finally {
-			setSaving(false);
-		}
-	};
-
 	if (loading) return <div className="p-6 text-sm text-muted-foreground">Loading tournament...</div>;
 	if (!tournament) return <div className="p-6 text-sm text-muted-foreground">Tournament not found.</div>;
 
@@ -451,13 +498,13 @@ export default function TournamentDetailPage() {
 				</p>
 			</div>
 
-			<Tabs defaultValue={tournament.preset_id === "playoffs_only" ? "playoff" : "group"}>
+			<Tabs defaultValue="setup">
 				<TabsList>
-					{tournament.preset_id !== "playoffs_only" && <TabsTrigger value="group">Group stage</TabsTrigger>}
+					<TabsTrigger value="setup">Setup</TabsTrigger>
 					<TabsTrigger value="playoff">Playoff bracket</TabsTrigger>
 				</TabsList>
 
-				<TabsContent value="group" className="space-y-4">
+				<TabsContent value="setup" className="space-y-4">
 					<section className="space-y-3 rounded-lg border p-4">
 						<h2 className="text-lg font-semibold">Participant + team assignment</h2>
 						<p className="text-sm text-muted-foreground">Fill all slots, pick unique teams, then lock each row.</p>
@@ -471,7 +518,7 @@ export default function TournamentDetailPage() {
 									</tr>
 								</thead>
 								<tbody>
-									{participants.map((participant) => (
+									{displayParticipants.map((participant) => (
 										<tr key={participant.id} className="border-b">
 											<td className="px-2 py-2">{participant.display_name}</td>
 											<td className="px-2 py-2">
@@ -512,8 +559,10 @@ export default function TournamentDetailPage() {
 								</tbody>
 							</table>
 						</div>
-						{isHostOrAdmin && participants.length < slots && (
-							<p className="text-xs text-muted-foreground">{slots - participants.length} unfilled slots remaining.</p>
+						{isHostOrAdmin && displayParticipants.length < slots && (
+							<p className="text-xs text-muted-foreground">
+								{slots - displayParticipants.length} unfilled slots remaining.
+							</p>
 						)}
 						{isHostOrAdmin && (
 							<div className="grid gap-3 rounded-md border p-3 md:grid-cols-2">
@@ -538,7 +587,7 @@ export default function TournamentDetailPage() {
 										))}
 									</select>
 									<Button
-										disabled={saving || !selectedInviteUserId || participants.length >= slots}
+										disabled={saving || !selectedInviteUserId || displayParticipants.length >= slots}
 										onClick={() => void onInvite()}
 									>
 										Invite + assign slot
@@ -562,7 +611,7 @@ export default function TournamentDetailPage() {
 													<Button
 														size="sm"
 														variant="outline"
-														disabled={participants.length >= slots}
+														disabled={displayParticipants.length >= slots}
 														onClick={() => void onAssignGuestToSlot(guest.id)}
 													>
 														Assign
@@ -579,18 +628,20 @@ export default function TournamentDetailPage() {
 						)}
 						<div className="flex gap-2">
 							<Button
-								disabled={!allLockedWithTeams || groups.length > 0 || saving}
+								disabled={
+									!allLockedWithTeams || groups.length > 0 || saving || tournament.preset_id === "playoffs_only"
+								}
 								onClick={() => void onGenerateGroups()}
 							>
 								Generate groups + group schedule
 							</Button>
-							{allLockedWithTeams && groups.length === 0 && (
+							{tournament.preset_id !== "playoffs_only" && allLockedWithTeams && groups.length === 0 && (
 								<p className="text-sm text-muted-foreground">All rows locked. Generate groups to continue.</p>
 							)}
 						</div>
 					</section>
 
-					{groups.length > 0 && (
+					{tournament.preset_id !== "playoffs_only" && groups.length > 0 && (
 						<section className="space-y-3 rounded-lg border p-4">
 							<h2 className="text-lg font-semibold">Group standings</h2>
 							<div className="grid gap-3 md:grid-cols-2">
@@ -624,23 +675,25 @@ export default function TournamentDetailPage() {
 						</section>
 					)}
 
-					<MatchTable
-						title="Group stage games"
-						matches={groupMatches}
-						saving={saving}
-						resultDrafts={resultDrafts}
-						setResultDrafts={setResultDrafts}
-						onSaveResult={onSaveResult}
-						onLockResult={onLockResult}
-						isHostOrAdmin={isHostOrAdmin}
-						userId={user?.id}
-					/>
-					{isHostOrAdmin && (
+					{tournament.preset_id !== "playoffs_only" && (
+						<MatchTable
+							title="Group stage games"
+							matches={groupMatches}
+							saving={saving}
+							resultDrafts={resultDrafts}
+							setResultDrafts={setResultDrafts}
+							onSaveResult={onSaveResult}
+							onLockResult={onLockResult}
+							isHostOrAdmin={isHostOrAdmin}
+							userId={user?.id}
+						/>
+					)}
+					{isHostOrAdmin && tournament.preset_id === "playoffs_only" && (
 						<Button
-							disabled={!allGroupMatchesLocked || playoffMatches.length > 0 || saving}
+							disabled={!allLockedWithTeams || playoffMatches.length > 0 || saving}
 							onClick={() => void onGeneratePlayoffs()}
 						>
-							Generate playoff bracket
+							Generate playoff bracket + schedule
 						</Button>
 					)}
 				</TabsContent>

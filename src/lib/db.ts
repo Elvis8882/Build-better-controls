@@ -537,6 +537,8 @@ export async function listMatchesWithResults(tournamentId: string, stage?: Match
 		const homeParticipant = Array.isArray(match.home_participant) ? match.home_participant[0] : match.home_participant;
 		const awayParticipant = Array.isArray(match.away_participant) ? match.away_participant[0] : match.away_participant;
 
+		const placeholderName = match.stage === "PLAYOFF" ? "TBD" : "BYE";
+
 		return {
 			id: match.id,
 			tournament_id: match.tournament_id,
@@ -546,8 +548,8 @@ export async function listMatchesWithResults(tournamentId: string, stage?: Match
 			created_at: match.created_at,
 			stage: match.stage,
 			bracket_type: match.bracket_type,
-			home_participant_name: homeParticipant?.display_name ?? "BYE",
-			away_participant_name: awayParticipant?.display_name ?? "BYE",
+			home_participant_name: homeParticipant?.display_name ?? placeholderName,
+			away_participant_name: awayParticipant?.display_name ?? placeholderName,
 			home_team_id: homeParticipant?.team_id ?? null,
 			away_team_id: awayParticipant?.team_id ?? null,
 			result: resultMap.get(match.id) ?? null,

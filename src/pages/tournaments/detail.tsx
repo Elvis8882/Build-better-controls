@@ -43,6 +43,14 @@ type EditableResult = {
 	decision: MatchParticipantDecision;
 };
 
+type ParsedResult = {
+	homeScore: number;
+	awayScore: number;
+	homeShots: number;
+	awayShots: number;
+	decision: MatchParticipantDecision;
+};
+
 const defaultResult: EditableResult = {
 	home_score: "",
 	away_score: "",
@@ -67,13 +75,21 @@ function TeamPill({ team, fallback }: { team?: Team | null; fallback: string }) 
 	);
 }
 
+function hexToRgba(color: string, alpha: number) {
+	const hex = color.replace("#", "");
+	if (hex.length !== 6) return `rgba(31, 41, 55, ${alpha})`;
+	const red = Number.parseInt(hex.slice(0, 2), 16);
+	const green = Number.parseInt(hex.slice(2, 4), 16);
+	const blue = Number.parseInt(hex.slice(4, 6), 16);
+	return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}
+
 function MatchTable({
 	title,
 	matches,
 	saving,
 	resultDrafts,
 	setResultDrafts,
-	onSaveResult,
 	onLockResult,
 	isHostOrAdmin,
 	teamById,
@@ -84,7 +100,6 @@ function MatchTable({
 	saving: boolean;
 	resultDrafts: Record<string, EditableResult>;
 	setResultDrafts: Dispatch<SetStateAction<Record<string, EditableResult>>>;
-	onSaveResult: (matchId: string) => Promise<void>;
 	onLockResult: (matchId: string) => Promise<void>;
 	isHostOrAdmin: boolean;
 	teamById: Map<string, Team>;
@@ -104,7 +119,7 @@ function MatchTable({
 	});
 
 	const displayTeam = (participantName: string, teamId: string | null) => {
-		if (participantName === "BYE") return "BYE";
+		if (participantName === "BYE" || participantName === "TBD") return participantName;
 		const team = teamId ? teamById.get(teamId) : undefined;
 		return team?.name ?? participantName;
 	};
@@ -119,6 +134,8 @@ function MatchTable({
 					{orderedMatches.map((match, index) => {
 						const draft = resultDrafts[match.id] ?? defaultResult;
 						const disabled = !canEdit(match);
+						const homeTeam = match.home_team_id ? teamById.get(match.home_team_id) : undefined;
+						const awayTeam = match.away_team_id ? teamById.get(match.away_team_id) : undefined;
 						return (
 							<div key={match.id} className="rounded-lg border bg-card p-4 shadow-sm">
 								<div className="mb-3 flex items-center justify-between gap-3">
@@ -129,16 +146,23 @@ function MatchTable({
 									</div>
 								</div>
 								<div className="grid gap-4 md:grid-cols-[1fr_auto_1fr] md:items-end">
-									<div className="space-y-2 rounded-md border p-3">
-										<p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Home team</p>
-										<p className="text-base font-semibold">
+									<div
+										className="space-y-2 rounded-md border p-3"
+										style={{ backgroundColor: hexToRgba(homeTeam?.primary_color || "#1f2937", 0.15) }}
+									>
+										<p className="text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+											Home Team
+										</p>
+										<p className="text-center text-base font-semibold">
 											{displayTeam(match.home_participant_name, match.home_team_id)}
 										</p>
 										<div className="grid grid-cols-2 gap-2">
-											<div className="space-y-1 text-xs text-muted-foreground">
-												<span>Score</span>
+											<div className="space-y-1 text-center text-xs text-muted-foreground">
+												<span className="block">Score</span>
 												<Input
 													type="number"
+													min={0}
+													className="mx-auto w-16 text-center"
 													disabled={disabled}
 													value={draft.home_score}
 													onChange={(event) =>
@@ -149,10 +173,12 @@ function MatchTable({
 													}
 												/>
 											</div>
-											<div className="space-y-1 text-xs text-muted-foreground">
-												<span>SOG</span>
+											<div className="space-y-1 text-center text-xs text-muted-foreground">
+												<span className="block">SOG</span>
 												<Input
 													type="number"
+													min={0}
+													className="mx-auto w-16 text-center"
 													disabled={disabled}
 													value={draft.home_shots}
 													onChange={(event) =>
@@ -168,7 +194,6 @@ function MatchTable({
 									<div className="space-y-2 text-center">
 										<p className="text-2xl font-black">VS</p>
 										<div className="space-y-1 text-xs text-muted-foreground">
-											<span>Decision</span>
 											<select
 												className="h-10 w-24 rounded-md border bg-transparent px-3 text-sm"
 												disabled={disabled}
@@ -186,16 +211,23 @@ function MatchTable({
 											</select>
 										</div>
 									</div>
-									<div className="space-y-2 rounded-md border p-3">
-										<p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Away team</p>
-										<p className="text-base font-semibold">
+									<div
+										className="space-y-2 rounded-md border p-3"
+										style={{ backgroundColor: hexToRgba(awayTeam?.primary_color || "#1f2937", 0.15) }}
+									>
+										<p className="text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+											Away Team
+										</p>
+										<p className="text-center text-base font-semibold">
 											{displayTeam(match.away_participant_name, match.away_team_id)}
 										</p>
 										<div className="grid grid-cols-2 gap-2">
-											<div className="space-y-1 text-xs text-muted-foreground">
-												<span>Score</span>
+											<div className="space-y-1 text-center text-xs text-muted-foreground">
+												<span className="block">Score</span>
 												<Input
 													type="number"
+													min={0}
+													className="mx-auto w-16 text-center"
 													disabled={disabled}
 													value={draft.away_score}
 													onChange={(event) =>
@@ -206,10 +238,12 @@ function MatchTable({
 													}
 												/>
 											</div>
-											<div className="space-y-1 text-xs text-muted-foreground">
-												<span>SOG</span>
+											<div className="space-y-1 text-center text-xs text-muted-foreground">
+												<span className="block">SOG</span>
 												<Input
 													type="number"
+													min={0}
+													className="mx-auto w-16 text-center"
 													disabled={disabled}
 													value={draft.away_shots}
 													onChange={(event) =>
@@ -224,11 +258,8 @@ function MatchTable({
 									</div>
 								</div>
 								<div className="mt-3 flex gap-2">
-									<Button variant="outline" disabled={saving || disabled} onClick={() => void onSaveResult(match.id)}>
-										Save
-									</Button>
 									<Button
-										disabled={saving || !match.result || disabled || match.result.locked}
+										disabled={saving || disabled || Boolean(match.result?.locked)}
 										onClick={() => void onLockResult(match.id)}
 									>
 										Lock in
@@ -263,6 +294,7 @@ export default function TournamentDetailPage() {
 	const [resultDrafts, setResultDrafts] = useState<Record<string, EditableResult>>({});
 	const [editingParticipantIds, setEditingParticipantIds] = useState<Set<string>>(new Set());
 	const [participantFilters, setParticipantFilters] = useState<Record<string, Team["ovr_tier"] | "ALL">>({});
+	const [activeTab, setActiveTab] = useState<"setup" | "group" | "playoff">("setup");
 
 	const isAdmin = profile?.role === "admin";
 	const hostMembership = useMemo(
@@ -318,6 +350,35 @@ export default function TournamentDetailPage() {
 		tournament?.preset_id === "full_tournament" && (groups.length > 0 || groupMatches.length > 0);
 	const playoffAvailable = playoffMatches.length > 0;
 
+	const mergeResultDrafts = useCallback((matches: MatchWithResult[]) => {
+		setResultDrafts((previous) => {
+			const next = { ...previous };
+			for (const match of matches) {
+				next[match.id] = {
+					home_score: match.result?.home_score != null ? String(match.result.home_score) : "",
+					away_score: match.result?.away_score != null ? String(match.result.away_score) : "",
+					home_shots: match.result?.home_shots != null ? String(match.result.home_shots) : "",
+					away_shots: match.result?.away_shots != null ? String(match.result.away_shots) : "",
+					decision: match.result?.decision ?? "R",
+				};
+			}
+			return next;
+		});
+	}, []);
+
+	const refreshGameSections = useCallback(async () => {
+		if (!id) return;
+		const [standingData, groupMatchData, playoffMatchData] = await Promise.all([
+			listGroupStandings(id),
+			listMatchesWithResults(id, "GROUP"),
+			listMatchesWithResults(id, "PLAYOFF"),
+		]);
+		setStandings(standingData);
+		setGroupMatches(groupMatchData);
+		setPlayoffMatches(playoffMatchData);
+		mergeResultDrafts([...groupMatchData, ...playoffMatchData]);
+	}, [id, mergeResultDrafts]);
+
 	const loadAll = useCallback(async () => {
 		if (!id) return;
 		try {
@@ -349,23 +410,13 @@ export default function TournamentDetailPage() {
 			setGroupMatches(groupMatchData);
 			setPlayoffMatches(playoffMatchData);
 			setTeams(teamData);
-			const drafts: Record<string, EditableResult> = {};
-			for (const match of [...groupMatchData, ...playoffMatchData]) {
-				drafts[match.id] = {
-					home_score: match.result?.home_score != null ? String(match.result.home_score) : "",
-					away_score: match.result?.away_score != null ? String(match.result.away_score) : "",
-					home_shots: match.result?.home_shots != null ? String(match.result.home_shots) : "",
-					away_shots: match.result?.away_shots != null ? String(match.result.away_shots) : "",
-					decision: match.result?.decision ?? "R",
-				};
-			}
-			setResultDrafts(drafts);
+			mergeResultDrafts([...groupMatchData, ...playoffMatchData]);
 		} catch (error) {
 			toast.error((error as Error).message);
 		} finally {
 			setLoading(false);
 		}
-	}, [id]);
+	}, [id, mergeResultDrafts]);
 
 	const onGeneratePlayoffs = useCallback(async () => {
 		if (!id || !isHostOrAdmin || !canGeneratePlayoffs) return;
@@ -498,37 +549,59 @@ export default function TournamentDetailPage() {
 		}
 	};
 
-	const onSaveResult = async (matchId: string) => {
+	const parseResultDraft = (matchId: string): ParsedResult | null => {
 		const draft = resultDrafts[matchId] ?? defaultResult;
 		if ([draft.home_score, draft.away_score, draft.home_shots, draft.away_shots].some((value) => value.trim() === "")) {
-			toast.warning("Fill in score and SOG for both teams before saving.");
-			return;
+			toast.warning("Fill in score and SOG for both teams before locking in.");
+			return null;
 		}
+
+		const parsed = {
+			homeScore: Number(draft.home_score),
+			awayScore: Number(draft.away_score),
+			homeShots: Number(draft.home_shots),
+			awayShots: Number(draft.away_shots),
+			decision: draft.decision,
+		};
+
+		if (
+			[parsed.homeScore, parsed.awayScore, parsed.homeShots, parsed.awayShots].some(
+				(value) => !Number.isFinite(value) || value < 0,
+			)
+		) {
+			toast.warning("Scores and SOG must be non-negative numbers.");
+			return null;
+		}
+
+		if (parsed.homeShots < parsed.homeScore || parsed.awayShots < parsed.awayScore) {
+			toast.warning("SOG cannot be lower than score for either team.");
+			return null;
+		}
+
+		if (parsed.homeScore === parsed.awayScore) {
+			toast.warning("Games must end with a winner. Ties are not allowed.");
+			return null;
+		}
+
+		return parsed;
+	};
+
+	const onLockResult = async (matchId: string) => {
+		const parsed = parseResultDraft(matchId);
+		if (!parsed) return;
 
 		setSaving(true);
 		try {
 			await upsertMatchResult(
 				matchId,
-				Number(draft.home_score),
-				Number(draft.away_score),
-				Number(draft.home_shots),
-				Number(draft.away_shots),
-				draft.decision,
+				parsed.homeScore,
+				parsed.awayScore,
+				parsed.homeShots,
+				parsed.awayShots,
+				parsed.decision,
 			);
-			await loadAll();
-			toast.success("Result saved.");
-		} catch (error) {
-			toast.error((error as Error).message);
-		} finally {
-			setSaving(false);
-		}
-	};
-
-	const onLockResult = async (matchId: string) => {
-		setSaving(true);
-		try {
 			await lockMatchResult(matchId);
-			await loadAll();
+			await refreshGameSections();
 			toast.success("Result locked.");
 		} catch (error) {
 			toast.error((error as Error).message);
@@ -587,7 +660,7 @@ export default function TournamentDetailPage() {
 				</p>
 			</div>
 
-			<Tabs defaultValue="setup">
+			<Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "setup" | "group" | "playoff")}>
 				<TabsList>
 					<TabsTrigger value="setup">Setup</TabsTrigger>
 					{tournament.preset_id === "full_tournament" && (
@@ -796,17 +869,21 @@ export default function TournamentDetailPage() {
 													</tr>
 												</thead>
 												<tbody>
-													{(standingsByGroup[group.group_code] ?? []).map((row) => (
-														<tr key={row.participant_id} className="border-b">
-															<td className="py-1">
-																<TeamPill
-																	team={row.team_id ? teamById.get(row.team_id) : null}
-																	fallback={row.display_name}
-																/>
-															</td>
-															<td className="py-1 text-right">{row.points}</td>
-														</tr>
-													))}
+													{(standingsByGroup[group.group_code] ?? []).map((row) => {
+														const rowTeam = row.team_id ? teamById.get(row.team_id) : null;
+														return (
+															<tr
+																key={row.participant_id}
+																className="border-b"
+																style={{ backgroundColor: hexToRgba(rowTeam?.primary_color || "#1f2937", 0.1) }}
+															>
+																<td className="py-1">
+																	<TeamPill team={rowTeam} fallback={row.display_name} />
+																</td>
+																<td className="py-1 text-right font-semibold">{row.points}</td>
+															</tr>
+														);
+													})}
 												</tbody>
 											</table>
 										</div>
@@ -821,7 +898,6 @@ export default function TournamentDetailPage() {
 							saving={saving}
 							resultDrafts={resultDrafts}
 							setResultDrafts={setResultDrafts}
-							onSaveResult={onSaveResult}
 							onLockResult={onLockResult}
 							isHostOrAdmin={isHostOrAdmin}
 							teamById={teamById}
@@ -840,9 +916,9 @@ export default function TournamentDetailPage() {
 									<p className="text-sm text-muted-foreground">Not generated yet.</p>
 								) : (
 									winners.map((match) => (
-										<div key={match.id} className="mb-2 rounded-lg border p-3 text-sm shadow-sm">
+										<div key={match.id} className="mb-3 rounded-lg border-2 bg-muted/20 p-3 text-sm shadow-sm">
 											<p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Round {match.round}</p>
-											<div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+											<div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 rounded-md border bg-background p-2">
 												<div>
 													<p className="text-xs text-muted-foreground">Home</p>
 													<p className="font-medium">
@@ -869,9 +945,9 @@ export default function TournamentDetailPage() {
 									<p className="text-sm text-muted-foreground">Not generated yet.</p>
 								) : (
 									losers.map((match) => (
-										<div key={match.id} className="mb-2 rounded-lg border p-3 text-sm shadow-sm">
+										<div key={match.id} className="mb-3 rounded-lg border-2 bg-muted/20 p-3 text-sm shadow-sm">
 											<p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Round {match.round}</p>
-											<div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+											<div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 rounded-md border bg-background p-2">
 												<div>
 													<p className="text-xs text-muted-foreground">Home</p>
 													<p className="font-medium">
@@ -901,7 +977,6 @@ export default function TournamentDetailPage() {
 						saving={saving}
 						resultDrafts={resultDrafts}
 						setResultDrafts={setResultDrafts}
-						onSaveResult={onSaveResult}
 						onLockResult={onLockResult}
 						isHostOrAdmin={isHostOrAdmin}
 						teamById={teamById}

@@ -5,6 +5,7 @@ import { useAuth } from "@/auth/AuthProvider";
 import {
 	addTournamentGuest,
 	createParticipant,
+	fetchTeamsByPool,
 	type GroupStanding,
 	generateGroupsAndMatches,
 	generatePlayoffs,
@@ -27,6 +28,7 @@ import {
 	type TournamentGuest,
 	type TournamentMember,
 	type TournamentParticipant,
+	type Team,
 	updateParticipant,
 	upsertMatchResult,
 } from "@/lib/db";
@@ -34,59 +36,6 @@ import { Badge } from "@/ui/badge";
 import { Button } from "@/ui/button";
 import { Input } from "@/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/ui/tabs";
-
-const NHL_TEAMS = [
-	"BOS",
-	"BUF",
-	"CAR",
-	"CBJ",
-	"DET",
-	"FLA",
-	"MTL",
-	"NJD",
-	"NYI",
-	"NYR",
-	"OTT",
-	"PHI",
-	"PIT",
-	"TBL",
-	"TOR",
-	"WSH",
-	"CHI",
-	"COL",
-	"DAL",
-	"MIN",
-	"NSH",
-	"STL",
-	"UTA",
-	"WPG",
-	"ANA",
-	"CGY",
-	"EDM",
-	"LAK",
-	"SJS",
-	"SEA",
-	"VAN",
-	"VGK",
-];
-const INTL_TEAMS = [
-	"CAN",
-	"USA",
-	"SWE",
-	"FIN",
-	"CZE",
-	"SVK",
-	"GER",
-	"SUI",
-	"LAT",
-	"NOR",
-	"DEN",
-	"AUT",
-	"FRA",
-	"ITA",
-	"GBR",
-	"POL",
-];
 
 type EditableResult = {
 	home_score: string;
@@ -103,6 +52,22 @@ const defaultResult: EditableResult = {
 	away_shots: "0",
 	decision: "R",
 };
+
+function TeamPill({ team, fallback }: { team?: Team | null; fallback: string }) {
+	if (!team) return <span>{fallback}</span>;
+	return (
+		<span
+			className="inline-flex items-center rounded px-2 py-0.5 text-xs font-semibold"
+			style={{
+				backgroundColor: team.primary_color || "#1f2937",
+				color: team.text_color || "#ffffff",
+				border: `1px solid ${team.secondary_color || team.primary_color || "#4b5563"}`,
+			}}
+		>
+			{team.short_name || team.code}
+		</span>
+	);
+}
 
 function MatchTable({
 	title,
@@ -239,6 +204,7 @@ export default function TournamentDetailPage() {
 	const [members, setMembers] = useState<TournamentMember[]>([]);
 	const [guests, setGuests] = useState<TournamentGuest[]>([]);
 	const [participants, setParticipants] = useState<TournamentParticipant[]>([]);
+	const [teams, setTeams] = useState<Team[]>([]);
 	const [groups, setGroups] = useState<{ id: string; tournament_id: string; group_code: string }[]>([]);
 	const [standings, setStandings] = useState<GroupStanding[]>([]);
 	const [groupMatches, setGroupMatches] = useState<MatchWithResult[]>([]);
@@ -257,8 +223,7 @@ export default function TournamentDetailPage() {
 	);
 	const isHostOrAdmin = isAdmin || Boolean(hostMembership);
 
-	const teamPool = tournament?.team_pool ?? "NHL";
-	const teams = teamPool === "INTL" ? INTL_TEAMS : NHL_TEAMS;
+	const teamById = useMemo(() => new Map(teams.map((team) => [team.id, team])), [teams]);
 	const assignedTeams = new Set(participants.map((participant) => participant.team_id).filter(Boolean));
 	const slots = tournament?.default_participants ?? 0;
 	const allLockedWithTeams =
@@ -278,6 +243,7 @@ export default function TournamentDetailPage() {
 				standingData,
 				groupMatchData,
 				playoffMatchData,
+				teamData,
 			] = await Promise.all([
 				getTournament(id),
 				listTournamentMembers(id),
@@ -287,6 +253,7 @@ export default function TournamentDetailPage() {
 				listGroupStandings(id),
 				listMatchesWithResults(id, "GROUP"),
 				listMatchesWithResults(id, "PLAYOFF"),
+				getTournament(id).then((tournamentRow) => fetchTeamsByPool(tournamentRow?.team_pool ?? "NHL")),
 			]);
 			setTournament(tournamentData);
 			setMembers(memberData);
@@ -296,6 +263,7 @@ export default function TournamentDetailPage() {
 			setStandings(standingData);
 			setGroupMatches(groupMatchData);
 			setPlayoffMatches(playoffMatchData);
+			setTeams(teamData);
 			const drafts: Record<string, EditableResult> = {};
 			for (const match of [...groupMatchData, ...playoffMatchData]) {
 				drafts[match.id] = {
@@ -426,10 +394,12 @@ export default function TournamentDetailPage() {
 	};
 
 	const onRandomizeTeam = async (participantId: string) => {
-		const available = teams.filter((team) => !assignedTeams.has(team));
+		const available = teams.filter((team) => !assignedTeams.has(team.id));
 		if (available.length === 0) return toast.error("No unassigned teams left in pool.");
 		const pick = available[Math.floor(Math.random() * available.length)];
-		await updateParticipant(participantId, pick);
+		const pickId = pick?.id;
+		if (!pickId) return;
+		await updateParticipant(participantId, pickId);
 		await loadAll();
 	};
 
@@ -516,11 +486,11 @@ export default function TournamentDetailPage() {
 													<option value="">Select team</option>
 													{teams.map((team) => (
 														<option
-															key={team}
-															value={team}
-															disabled={assignedTeams.has(team) && participant.team_id !== team}
+															key={team.id}
+															value={team.id}
+															disabled={assignedTeams.has(team.id) && participant.team_id !== team.id}
 														>
-															{team}
+															{team.name}
 														</option>
 													))}
 												</select>
@@ -637,7 +607,12 @@ export default function TournamentDetailPage() {
 											<tbody>
 												{(standingsByGroup[group.group_code] ?? []).map((row) => (
 													<tr key={row.participant_id} className="border-b">
-														<td className="py-1">{row.team_id ?? row.display_name}</td>
+														<td className="py-1">
+															<TeamPill
+																team={row.team_id ? teamById.get(row.team_id) : null}
+																fallback={row.display_name}
+															/>
+														</td>
 														<td className="py-1 text-right">{row.points}</td>
 													</tr>
 												))}
@@ -681,7 +656,16 @@ export default function TournamentDetailPage() {
 								) : (
 									winners.map((match) => (
 										<div key={match.id} className="mb-2 rounded border p-2 text-sm">
-											R{match.round}: {match.home_participant_name} vs {match.away_participant_name}
+											R{match.round}:{" "}
+											<TeamPill
+												team={match.home_team_id ? teamById.get(match.home_team_id) : null}
+												fallback={match.home_participant_name}
+											/>{" "}
+											vs{" "}
+											<TeamPill
+												team={match.away_team_id ? teamById.get(match.away_team_id) : null}
+												fallback={match.away_participant_name}
+											/>
 											{match.home_participant_name === "BYE" || match.away_participant_name === "BYE" ? " (BYE)" : ""}
 										</div>
 									))
@@ -694,7 +678,16 @@ export default function TournamentDetailPage() {
 								) : (
 									losers.map((match) => (
 										<div key={match.id} className="mb-2 rounded border p-2 text-sm">
-											R{match.round}: {match.home_participant_name} vs {match.away_participant_name}
+											R{match.round}:{" "}
+											<TeamPill
+												team={match.home_team_id ? teamById.get(match.home_team_id) : null}
+												fallback={match.home_participant_name}
+											/>{" "}
+											vs{" "}
+											<TeamPill
+												team={match.away_team_id ? teamById.get(match.away_team_id) : null}
+												fallback={match.away_participant_name}
+											/>
 										</div>
 									))
 								)}

@@ -44,10 +44,10 @@ type EditableResult = {
 };
 
 const defaultResult: EditableResult = {
-	home_score: "0",
-	away_score: "0",
-	home_shots: "0",
-	away_shots: "0",
+	home_score: "",
+	away_score: "",
+	home_shots: "",
+	away_shots: "",
 	decision: "R",
 };
 
@@ -76,6 +76,7 @@ function MatchTable({
 	onSaveResult,
 	onLockResult,
 	isHostOrAdmin,
+	teamById,
 	userId,
 }: {
 	title: string;
@@ -86,6 +87,7 @@ function MatchTable({
 	onSaveResult: (matchId: string) => Promise<void>;
 	onLockResult: (matchId: string) => Promise<void>;
 	isHostOrAdmin: boolean;
+	teamById: Map<string, Team>;
 	userId?: string;
 }) {
 	const canEdit = (match: MatchWithResult) => {
@@ -94,87 +96,134 @@ function MatchTable({
 		return true;
 	};
 
+	const orderedMatches = [...matches].sort((left, right) => {
+		if (left.round !== right.round) return left.round - right.round;
+		const leftKey = `${left.home_participant_name}-${left.away_participant_name}`;
+		const rightKey = `${right.home_participant_name}-${right.away_participant_name}`;
+		return leftKey.localeCompare(rightKey);
+	});
+
+	const displayTeam = (participantName: string, teamId: string | null) => {
+		if (participantName === "BYE") return "BYE";
+		const team = teamId ? teamById.get(teamId) : undefined;
+		return team?.name ?? participantName;
+	};
+
 	return (
-		<section className="space-y-3 rounded-lg border p-4">
-			<h3 className="text-lg font-semibold">{title}</h3>
-			{matches.length === 0 ? (
+		<section className="space-y-4 rounded-lg border p-4">
+			<h3 className="text-xl font-semibold">{title}</h3>
+			{orderedMatches.length === 0 ? (
 				<p className="text-sm text-muted-foreground">No matches yet.</p>
 			) : (
-				<div className="space-y-3">
-					{matches.map((match) => {
+				<div className="space-y-4">
+					{orderedMatches.map((match, index) => {
 						const draft = resultDrafts[match.id] ?? defaultResult;
 						const disabled = !canEdit(match);
 						return (
-							<div key={match.id} className="space-y-2 rounded-md border p-3">
-								<div className="flex flex-wrap items-center gap-2 text-sm">
-									<span className="font-medium">
-										R{match.round} • {match.home_participant_name} ({match.home_team_id ?? "TBD"}) vs{" "}
-										{match.away_participant_name} ({match.away_team_id ?? "TBD"})
-									</span>
-									{match.result?.locked && <Badge>Locked</Badge>}
+							<div key={match.id} className="rounded-lg border bg-card p-4 shadow-sm">
+								<div className="mb-3 flex items-center justify-between gap-3">
+									<h4 className="text-lg font-bold">Game {index + 1}</h4>
+									<div className="flex items-center gap-2 text-xs text-muted-foreground">
+										<span>Round {match.round}</span>
+										{match.result?.locked && <Badge>Locked</Badge>}
+									</div>
 								</div>
-								<div className="grid gap-2 md:grid-cols-5">
-									<Input
-										type="number"
-										disabled={disabled}
-										value={draft.home_score}
-										onChange={(event) =>
-											setResultDrafts((previous) => ({
-												...previous,
-												[match.id]: { ...draft, home_score: event.target.value },
-											}))
-										}
-									/>
-									<Input
-										type="number"
-										disabled={disabled}
-										value={draft.away_score}
-										onChange={(event) =>
-											setResultDrafts((previous) => ({
-												...previous,
-												[match.id]: { ...draft, away_score: event.target.value },
-											}))
-										}
-									/>
-									<Input
-										type="number"
-										disabled={disabled}
-										value={draft.home_shots}
-										onChange={(event) =>
-											setResultDrafts((previous) => ({
-												...previous,
-												[match.id]: { ...draft, home_shots: event.target.value },
-											}))
-										}
-									/>
-									<Input
-										type="number"
-										disabled={disabled}
-										value={draft.away_shots}
-										onChange={(event) =>
-											setResultDrafts((previous) => ({
-												...previous,
-												[match.id]: { ...draft, away_shots: event.target.value },
-											}))
-										}
-									/>
-									<select
-										className="h-10 rounded-md border bg-transparent px-3 text-sm"
-										disabled={disabled}
-										value={draft.decision}
-										onChange={(event) =>
-											setResultDrafts((previous) => ({
-												...previous,
-												[match.id]: { ...draft, decision: event.target.value as MatchParticipantDecision },
-											}))
-										}
-									>
-										<option value="R">R</option>
-										<option value="OT">OT</option>
-										<option value="SO">SO</option>
-									</select>
+								<div className="grid gap-4 md:grid-cols-[1fr_auto_1fr] md:items-end">
+									<div className="space-y-2 rounded-md border p-3">
+										<p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Home team</p>
+										<p className="text-base font-semibold">
+											{displayTeam(match.home_participant_name, match.home_team_id)}
+										</p>
+										<div className="grid grid-cols-2 gap-2">
+											<div className="space-y-1 text-xs text-muted-foreground">
+												<span>Score</span>
+												<Input
+													type="number"
+													disabled={disabled}
+													value={draft.home_score}
+													onChange={(event) =>
+														setResultDrafts((previous) => ({
+															...previous,
+															[match.id]: { ...draft, home_score: event.target.value },
+														}))
+													}
+												/>
+											</div>
+											<div className="space-y-1 text-xs text-muted-foreground">
+												<span>SOG</span>
+												<Input
+													type="number"
+													disabled={disabled}
+													value={draft.home_shots}
+													onChange={(event) =>
+														setResultDrafts((previous) => ({
+															...previous,
+															[match.id]: { ...draft, home_shots: event.target.value },
+														}))
+													}
+												/>
+											</div>
+										</div>
+									</div>
+									<div className="space-y-2 text-center">
+										<p className="text-2xl font-black">VS</p>
+										<div className="space-y-1 text-xs text-muted-foreground">
+											<span>Decision</span>
+											<select
+												className="h-10 w-24 rounded-md border bg-transparent px-3 text-sm"
+												disabled={disabled}
+												value={draft.decision}
+												onChange={(event) =>
+													setResultDrafts((previous) => ({
+														...previous,
+														[match.id]: { ...draft, decision: event.target.value as MatchParticipantDecision },
+													}))
+												}
+											>
+												<option value="R">R</option>
+												<option value="OT">OT</option>
+												<option value="SO">SO</option>
+											</select>
+										</div>
+									</div>
+									<div className="space-y-2 rounded-md border p-3">
+										<p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Away team</p>
+										<p className="text-base font-semibold">
+											{displayTeam(match.away_participant_name, match.away_team_id)}
+										</p>
+										<div className="grid grid-cols-2 gap-2">
+											<div className="space-y-1 text-xs text-muted-foreground">
+												<span>Score</span>
+												<Input
+													type="number"
+													disabled={disabled}
+													value={draft.away_score}
+													onChange={(event) =>
+														setResultDrafts((previous) => ({
+															...previous,
+															[match.id]: { ...draft, away_score: event.target.value },
+														}))
+													}
+												/>
+											</div>
+											<div className="space-y-1 text-xs text-muted-foreground">
+												<span>SOG</span>
+												<Input
+													type="number"
+													disabled={disabled}
+													value={draft.away_shots}
+													onChange={(event) =>
+														setResultDrafts((previous) => ({
+															...previous,
+															[match.id]: { ...draft, away_shots: event.target.value },
+														}))
+													}
+												/>
+											</div>
+										</div>
+									</div>
 								</div>
-								<div className="flex gap-2">
+								<div className="mt-3 flex gap-2">
 									<Button variant="outline" disabled={saving || disabled} onClick={() => void onSaveResult(match.id)}>
 										Save
 									</Button>
@@ -303,10 +352,10 @@ export default function TournamentDetailPage() {
 			const drafts: Record<string, EditableResult> = {};
 			for (const match of [...groupMatchData, ...playoffMatchData]) {
 				drafts[match.id] = {
-					home_score: String(match.result?.home_score ?? 0),
-					away_score: String(match.result?.away_score ?? 0),
-					home_shots: String(match.result?.home_shots ?? 0),
-					away_shots: String(match.result?.away_shots ?? 0),
+					home_score: match.result?.home_score != null ? String(match.result.home_score) : "",
+					away_score: match.result?.away_score != null ? String(match.result.away_score) : "",
+					home_shots: match.result?.home_shots != null ? String(match.result.home_shots) : "",
+					away_shots: match.result?.away_shots != null ? String(match.result.away_shots) : "",
 					decision: match.result?.decision ?? "R",
 				};
 			}
@@ -451,6 +500,11 @@ export default function TournamentDetailPage() {
 
 	const onSaveResult = async (matchId: string) => {
 		const draft = resultDrafts[matchId] ?? defaultResult;
+		if ([draft.home_score, draft.away_score, draft.home_shots, draft.away_shots].some((value) => value.trim() === "")) {
+			toast.warning("Fill in score and SOG for both teams before saving.");
+			return;
+		}
+
 		setSaving(true);
 		try {
 			await upsertMatchResult(
@@ -770,6 +824,7 @@ export default function TournamentDetailPage() {
 							onSaveResult={onSaveResult}
 							onLockResult={onLockResult}
 							isHostOrAdmin={isHostOrAdmin}
+							teamById={teamById}
 							userId={user?.id}
 						/>
 					</TabsContent>
@@ -785,18 +840,25 @@ export default function TournamentDetailPage() {
 									<p className="text-sm text-muted-foreground">Not generated yet.</p>
 								) : (
 									winners.map((match) => (
-										<div key={match.id} className="mb-2 rounded border p-2 text-sm">
-											R{match.round}:{" "}
-											<TeamPill
-												team={match.home_team_id ? teamById.get(match.home_team_id) : null}
-												fallback={match.home_participant_name}
-											/>{" "}
-											vs{" "}
-											<TeamPill
-												team={match.away_team_id ? teamById.get(match.away_team_id) : null}
-												fallback={match.away_participant_name}
-											/>
-											{match.home_participant_name === "BYE" || match.away_participant_name === "BYE" ? " (BYE)" : ""}
+										<div key={match.id} className="mb-2 rounded-lg border p-3 text-sm shadow-sm">
+											<p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Round {match.round}</p>
+											<div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+												<div>
+													<p className="text-xs text-muted-foreground">Home</p>
+													<p className="font-medium">
+														{(match.home_team_id ? teamById.get(match.home_team_id)?.name : null) ??
+															match.home_participant_name}
+													</p>
+												</div>
+												<p className="text-center text-lg font-black">VS</p>
+												<div className="text-right">
+													<p className="text-xs text-muted-foreground">Away</p>
+													<p className="font-medium">
+														{(match.away_team_id ? teamById.get(match.away_team_id)?.name : null) ??
+															match.away_participant_name}
+													</p>
+												</div>
+											</div>
 										</div>
 									))
 								)}
@@ -807,17 +869,25 @@ export default function TournamentDetailPage() {
 									<p className="text-sm text-muted-foreground">Not generated yet.</p>
 								) : (
 									losers.map((match) => (
-										<div key={match.id} className="mb-2 rounded border p-2 text-sm">
-											R{match.round}:{" "}
-											<TeamPill
-												team={match.home_team_id ? teamById.get(match.home_team_id) : null}
-												fallback={match.home_participant_name}
-											/>{" "}
-											vs{" "}
-											<TeamPill
-												team={match.away_team_id ? teamById.get(match.away_team_id) : null}
-												fallback={match.away_participant_name}
-											/>
+										<div key={match.id} className="mb-2 rounded-lg border p-3 text-sm shadow-sm">
+											<p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Round {match.round}</p>
+											<div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+												<div>
+													<p className="text-xs text-muted-foreground">Home</p>
+													<p className="font-medium">
+														{(match.home_team_id ? teamById.get(match.home_team_id)?.name : null) ??
+															match.home_participant_name}
+													</p>
+												</div>
+												<p className="text-center text-lg font-black">VS</p>
+												<div className="text-right">
+													<p className="text-xs text-muted-foreground">Away</p>
+													<p className="font-medium">
+														{(match.away_team_id ? teamById.get(match.away_team_id)?.name : null) ??
+															match.away_participant_name}
+													</p>
+												</div>
+											</div>
 										</div>
 									))
 								)}
@@ -834,6 +904,7 @@ export default function TournamentDetailPage() {
 						onSaveResult={onSaveResult}
 						onLockResult={onLockResult}
 						isHostOrAdmin={isHostOrAdmin}
+						teamById={teamById}
 						userId={user?.id}
 					/>
 				</TabsContent>

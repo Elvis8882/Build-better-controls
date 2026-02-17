@@ -499,8 +499,14 @@ export async function listMatchesWithResults(tournamentId: string, stage?: Match
 
 	const matchRows = (matches ?? []) as Array<
 		Match & {
-			home_participant: Array<{ display_name: string; team_id: string | null }> | null;
-			away_participant: Array<{ display_name: string; team_id: string | null }> | null;
+			home_participant:
+				| { display_name: string; team_id: string | null }
+				| Array<{ display_name: string; team_id: string | null }>
+				| null;
+			away_participant:
+				| { display_name: string; team_id: string | null }
+				| Array<{ display_name: string; team_id: string | null }>
+				| null;
 		}
 	>;
 	if (matchRows.length === 0) {
@@ -527,21 +533,26 @@ export async function listMatchesWithResults(tournamentId: string, stage?: Match
 		});
 	}
 
-	return matchRows.map((match) => ({
-		id: match.id,
-		tournament_id: match.tournament_id,
-		home_participant_id: match.home_participant_id,
-		away_participant_id: match.away_participant_id,
-		round: match.round,
-		created_at: match.created_at,
-		stage: match.stage,
-		bracket_type: match.bracket_type,
-		home_participant_name: match.home_participant?.[0]?.display_name ?? "BYE",
-		away_participant_name: match.away_participant?.[0]?.display_name ?? "BYE",
-		home_team_id: match.home_participant?.[0]?.team_id ?? null,
-		away_team_id: match.away_participant?.[0]?.team_id ?? null,
-		result: resultMap.get(match.id) ?? null,
-	}));
+	return matchRows.map((match) => {
+		const homeParticipant = Array.isArray(match.home_participant) ? match.home_participant[0] : match.home_participant;
+		const awayParticipant = Array.isArray(match.away_participant) ? match.away_participant[0] : match.away_participant;
+
+		return {
+			id: match.id,
+			tournament_id: match.tournament_id,
+			home_participant_id: match.home_participant_id,
+			away_participant_id: match.away_participant_id,
+			round: match.round,
+			created_at: match.created_at,
+			stage: match.stage,
+			bracket_type: match.bracket_type,
+			home_participant_name: homeParticipant?.display_name ?? "BYE",
+			away_participant_name: awayParticipant?.display_name ?? "BYE",
+			home_team_id: homeParticipant?.team_id ?? null,
+			away_team_id: awayParticipant?.team_id ?? null,
+			result: resultMap.get(match.id) ?? null,
+		};
+	});
 }
 
 export async function upsertMatchResult(

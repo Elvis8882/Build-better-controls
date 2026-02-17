@@ -23,12 +23,15 @@ if (import.meta.env.DEV) {
 }
 
 function App({ children }: { children: React.ReactNode }) {
+	const showVercelAnalytics =
+		import.meta.env.PROD && typeof window !== "undefined" && !window.location.hostname.includes("pages.dev");
+
 	return (
 		<HelmetProvider>
 			<QueryClientProvider client={new QueryClient()}>
 				<AuthProvider>
 					<ThemeProvider adapters={[AntdAdapter]}>
-						<VercelAnalytics debug={import.meta.env.PROD} />
+						{showVercelAnalytics && <VercelAnalytics debug={import.meta.env.PROD} />}
 						<Helmet>
 							<title>{GLOBAL_CONFIG.appName}</title>
 							<link rel="icon" href={Logo} />

@@ -1,14 +1,21 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
+import {
+	createTournament,
+	listTournaments,
+	sanitizeGroupCount,
+	type TeamPool,
+	type Tournament,
+	type TournamentPreset,
+} from "@/lib/db";
 import { Button } from "@/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/ui/dialog";
 import { Input } from "@/ui/input";
-import { createTournament, listTournaments, type Tournament } from "@/lib/db";
 
-const PRESET_OPTIONS = [
-	{ label: "Classic 1", value: "classic_1" },
-	{ label: "Classic 2", value: "classic_2" },
+const PRESET_OPTIONS: Array<{ label: string; value: TournamentPreset }> = [
+	{ label: "Playoffs only", value: "playoffs_only" },
+	{ label: "Full tournament", value: "full_tournament" },
 ];
 
 export default function TournamentsPage() {
@@ -17,8 +24,18 @@ export default function TournamentsPage() {
 	const [saving, setSaving] = useState(false);
 	const [openCreate, setOpenCreate] = useState(false);
 	const [name, setName] = useState("");
-	const [presetId, setPresetId] = useState(PRESET_OPTIONS[0].value);
+	const [presetId, setPresetId] = useState<TournamentPreset>(PRESET_OPTIONS[0].value);
+	const [teamPool, setTeamPool] = useState<TeamPool>("NHL");
+	const [defaultParticipants, setDefaultParticipants] = useState(8);
+	const [groupCountInput, setGroupCountInput] = useState(2);
 	const [tournaments, setTournaments] = useState<Tournament[]>([]);
+
+	const groupResolution = useMemo(() => {
+		if (presetId !== "full_tournament") {
+			return { groupCount: null, note: null, error: null };
+		}
+		return sanitizeGroupCount(defaultParticipants, groupCountInput);
+	}, [presetId, defaultParticipants, groupCountInput]);
 
 	const loadTournaments = useCallback(async () => {
 		try {
@@ -41,9 +58,23 @@ export default function TournamentsPage() {
 			toast.warning("Tournament name is required.");
 			return;
 		}
+		if (defaultParticipants < 2 || defaultParticipants > 24) {
+			toast.warning("Participants must be between 2 and 24.");
+			return;
+		}
+		if (presetId === "full_tournament" && groupResolution.error) {
+			toast.error(groupResolution.error);
+			return;
+		}
 		try {
 			setSaving(true);
-			const createdTournament = await createTournament(name.trim(), presetId);
+			const createdTournament = await createTournament({
+				name: name.trim(),
+				presetId,
+				teamPool,
+				defaultParticipants,
+				groupCount: presetId === "full_tournament" ? groupResolution.groupCount : null,
+			});
 			toast.success("Tournament created.");
 			setOpenCreate(false);
 			setName("");
@@ -125,7 +156,7 @@ export default function TournamentsPage() {
 							<select
 								className="h-10 w-full rounded-md border bg-transparent px-3 text-sm"
 								value={presetId}
-								onChange={(event) => setPresetId(event.target.value)}
+								onChange={(event) => setPresetId(event.target.value as TournamentPreset)}
 							>
 								{PRESET_OPTIONS.map((option) => (
 									<option key={option.value} value={option.value}>
@@ -134,12 +165,47 @@ export default function TournamentsPage() {
 								))}
 							</select>
 						</div>
+						<div className="space-y-1">
+							<p className="text-sm">Default participants</p>
+							<Input
+								type="number"
+								min={2}
+								max={24}
+								value={defaultParticipants}
+								onChange={(event) => setDefaultParticipants(Number(event.target.value))}
+							/>
+						</div>
+						<div className="space-y-1">
+							<p className="text-sm">Team pool</p>
+							<select
+								className="h-10 w-full rounded-md border bg-transparent px-3 text-sm"
+								value={teamPool}
+								onChange={(event) => setTeamPool(event.target.value as TeamPool)}
+							>
+								<option value="NHL">NHL</option>
+								<option value="INTL">International</option>
+							</select>
+						</div>
+						{presetId === "full_tournament" && (
+							<div className="space-y-1">
+								<p className="text-sm">Group count</p>
+								<Input
+									type="number"
+									min={1}
+									max={4}
+									value={groupCountInput}
+									onChange={(event) => setGroupCountInput(Math.max(1, Math.min(4, Number(event.target.value) || 1)))}
+								/>
+								{groupResolution.note && <p className="text-xs text-amber-600">{groupResolution.note}</p>}
+								{groupResolution.error && <p className="text-xs text-red-600">{groupResolution.error}</p>}
+							</div>
+						)}
 					</div>
 					<DialogFooter>
 						<Button variant="outline" onClick={() => setOpenCreate(false)} disabled={saving}>
 							Cancel
 						</Button>
-						<Button onClick={onCreate} disabled={saving}>
+						<Button onClick={onCreate} disabled={saving || Boolean(groupResolution.error)}>
 							{saving ? "Creating..." : "Create"}
 						</Button>
 					</DialogFooter>

@@ -197,7 +197,9 @@ $$;
 alter table public.teams
 	add column if not exists ovr_tier text;
 
-create or replace function public.recalculate_team_ovr_tiers()
+drop function if exists public.recalculate_team_ovr_tiers();
+
+create function public.recalculate_team_ovr_tiers()
 returns integer
 language sql
 security definer
@@ -214,8 +216,8 @@ as $$
 		update public.teams t
 		set ovr_tier = case
 			when r.rank_by_ovr <= 5 then 'Top 5'
-			when r.rank_by_ovr = 10 then 'Top 10'
 			when r.rank_by_ovr > r.pool_size - 5 then 'Bottom Tier'
+			when r.rank_by_ovr <= 10 then 'Top 10'
 			else 'Middle Tier'
 		end
 		from ranked r

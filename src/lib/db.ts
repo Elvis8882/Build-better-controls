@@ -17,6 +17,7 @@ export type Tournament = {
 	default_participants: number;
 	group_count: number | null;
 	stage: TournamentStage;
+	hosted_by: string;
 };
 
 export type TournamentMember = {
@@ -94,6 +95,13 @@ export type Team = {
 	offense: number;
 	defense: number;
 	goalie: number;
+	ovr_tier: "Top 5" | "Top 10" | "Middle Tier" | "Bottom Tier";
+};
+
+export type TeamRatingUpdate = {
+	offense: number;
+	defense: number;
+	goalie: number;
 };
 
 export type TournamentGroup = {
@@ -160,7 +168,26 @@ export async function listTournaments(): Promise<Tournament[]> {
 		.select("id, name, status, created_at, preset_id, created_by, team_pool, default_participants, group_count, stage")
 		.order("created_at", { ascending: false });
 	throwOnError(error, "Unable to load tournaments");
-	return (data ?? []) as Tournament[];
+
+	const rows = (data ?? []) as Array<Omit<Tournament, "hosted_by">>;
+	const creatorIds = [...new Set(rows.map((item) => item.created_by).filter(Boolean))];
+	let usernameById = new Map<string, string>();
+
+	if (creatorIds.length > 0) {
+		const { data: profileData, error: profileError } = await supabase
+			.from("profiles")
+			.select("id, username")
+			.in("id", creatorIds);
+		throwOnError(profileError, "Unable to load tournament hosts");
+		usernameById = new Map(
+			(profileData ?? []).map((profile) => [profile.id as string, (profile.username as string) ?? "unknown"]),
+		);
+	}
+
+	return rows.map((item) => ({
+		...item,
+		hosted_by: usernameById.get(item.created_by) ?? "unknown",
+	}));
 }
 
 export async function createTournament(payload: {
@@ -193,7 +220,10 @@ export async function createTournament(payload: {
 		.single();
 
 	throwOnError(error, "Unable to create tournament");
-	return data as Tournament;
+	return {
+		...(data as Omit<Tournament, "hosted_by">),
+		hosted_by: "unknown",
+	};
 }
 
 export async function deleteTournament(tournamentId: string): Promise<void> {
@@ -265,7 +295,18 @@ export async function getTournament(tournamentId: string): Promise<Tournament | 
 		.eq("id", tournamentId)
 		.maybeSingle();
 	throwOnError(error, "Unable to load tournament");
-	return (data as Tournament | null) ?? null;
+	if (!data) return null;
+	const tournament = data as Omit<Tournament, "hosted_by">;
+	const { data: profileData, error: profileError } = await supabase
+		.from("profiles")
+		.select("username")
+		.eq("id", tournament.created_by)
+		.maybeSingle();
+	throwOnError(profileError, "Unable to load tournament host");
+	return {
+		...tournament,
+		hosted_by: (profileData?.username as string | undefined) ?? "unknown",
+	};
 }
 
 export async function listTournamentMembers(tournamentId: string): Promise<TournamentMember[]> {
@@ -328,7 +369,7 @@ export async function listParticipants(tournamentId: string): Promise<Tournament
 	const { data, error } = await supabase
 		.from("tournament_participants")
 		.select(
-			"id, tournament_id, user_id, guest_id, display_name, team_id, locked, team:teams(id, code, name, short_name, team_pool, primary_color, secondary_color, text_color, overall, offense, defense, goalie)",
+			"id, tournament_id, user_id, guest_id, display_name, team_id, locked, team:teams(id, code, name, short_name, team_pool, primary_color, secondary_color, text_color, overall, offense, defense, goalie, ovr_tier)",
 		)
 		.eq("tournament_id", tournamentId)
 		.order("display_name", { ascending: true })
@@ -345,12 +386,38 @@ export async function fetchTeamsByPool(teamPool: TeamPool): Promise<Team[]> {
 	const { data, error } = await supabase
 		.from("teams")
 		.select(
-			"id, code, name, short_name, team_pool, primary_color, secondary_color, text_color, overall, offense, defense, goalie",
+			"id, code, name, short_name, team_pool, primary_color, secondary_color, text_color, overall, offense, defense, goalie, ovr_tier",
 		)
 		.eq("team_pool", teamPool)
 		.order("name", { ascending: true });
 	throwOnError(error, "Unable to load teams");
 	return (data ?? []) as Team[];
+}
+
+export async function listTeams(): Promise<Team[]> {
+	const { data, error } = await supabase
+		.from("teams")
+		.select(
+			"id, code, name, short_name, team_pool, primary_color, secondary_color, text_color, overall, offense, defense, goalie, ovr_tier",
+		)
+		.order("overall", { ascending: false })
+		.order("name", { ascending: true });
+	throwOnError(error, "Unable to load teams");
+	return (data ?? []) as Team[];
+}
+
+export async function updateTeamRatings(teamId: string, payload: TeamRatingUpdate): Promise<void> {
+	const computedOverall = Math.round((payload.offense + payload.defense + payload.goalie) / 3);
+	const { error } = await supabase
+		.from("teams")
+		.update({
+			overall: computedOverall,
+			offense: payload.offense,
+			defense: payload.defense,
+			goalie: payload.goalie,
+		})
+		.eq("id", teamId);
+	throwOnError(error, "Unable to update team ratings");
 }
 
 export async function createParticipant(
@@ -374,6 +441,11 @@ export async function updateParticipant(participantId: string, teamId: string | 
 export async function lockParticipant(participantId: string): Promise<void> {
 	const { error } = await supabase.from("tournament_participants").update({ locked: true }).eq("id", participantId);
 	throwOnError(error, "Unable to lock participant");
+}
+
+export async function removeParticipant(participantId: string): Promise<void> {
+	const { error } = await supabase.from("tournament_participants").delete().eq("id", participantId);
+	throwOnError(error, "Unable to clear participant slot");
 }
 
 export async function listGroups(tournamentId: string): Promise<TournamentGroup[]> {
@@ -506,12 +578,17 @@ export async function listTournamentGuests(tournamentId: string): Promise<Tourna
 	return (data ?? []) as TournamentGuest[];
 }
 
-export async function addTournamentGuest(tournamentId: string, displayName: string): Promise<void> {
-	const { error } = await supabase.from("tournament_guests").insert({
-		tournament_id: tournamentId,
-		display_name: displayName,
-	});
+export async function addTournamentGuest(tournamentId: string, displayName: string): Promise<TournamentGuest> {
+	const { data, error } = await supabase
+		.from("tournament_guests")
+		.insert({
+			tournament_id: tournamentId,
+			display_name: displayName,
+		})
+		.select("id, tournament_id, display_name")
+		.single();
 	throwOnError(error, "Unable to add guest");
+	return data as TournamentGuest;
 }
 
 export async function removeTournamentGuest(tournamentId: string, guestId: string): Promise<void> {

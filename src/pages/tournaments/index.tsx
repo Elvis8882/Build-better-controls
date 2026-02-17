@@ -126,6 +126,7 @@ export default function TournamentsPage() {
 					<thead className="bg-muted/50 text-muted-foreground">
 						<tr>
 							<th className="px-4 py-3">Name</th>
+							<th className="px-4 py-3">Hosted by</th>
 							<th className="px-4 py-3">Status</th>
 							<th className="px-4 py-3">Created</th>
 							<th className="px-4 py-3">Actions</th>
@@ -134,13 +135,13 @@ export default function TournamentsPage() {
 					<tbody>
 						{loading ? (
 							<tr>
-								<td className="px-4 py-3" colSpan={4}>
+								<td className="px-4 py-3" colSpan={5}>
 									Loading tournaments...
 								</td>
 							</tr>
 						) : tournaments.length === 0 ? (
 							<tr>
-								<td className="px-4 py-3" colSpan={4}>
+								<td className="px-4 py-3" colSpan={5}>
 									No tournaments yet.
 								</td>
 							</tr>
@@ -148,6 +149,7 @@ export default function TournamentsPage() {
 							tournaments.map((tournament) => (
 								<tr key={tournament.id} className="border-t">
 									<td className="px-4 py-3 font-medium">{tournament.name}</td>
+									<td className="px-4 py-3">{tournament.hosted_by}</td>
 									<td className="px-4 py-3">{tournament.status ?? "active"}</td>
 									<td className="px-4 py-3">{new Date(tournament.created_at).toLocaleString()}</td>
 									<td className="px-4 py-3">

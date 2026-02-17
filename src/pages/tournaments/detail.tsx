@@ -236,7 +236,11 @@ export default function TournamentDetailPage() {
 		const map: Record<Team["ovr_tier"] | "ALL", Team[]> = {
 			ALL: teams,
 			"Top 5": teams.filter((team) => team.ovr_tier === "Top 5"),
+<<<<<<< codex/fix-unique-constraint-errors-for-tournament-participants
 			"Top 10": teams.filter((team) => team.ovr_tier === "Top 5" || team.ovr_tier === "Top 10"),
+=======
+			"Top 10": teams.filter((team) => team.ovr_tier === "Top 10"),
+>>>>>>> main
 			"Middle Tier": teams.filter((team) => team.ovr_tier === "Middle Tier"),
 			"Bottom Tier": teams.filter((team) => team.ovr_tier === "Bottom Tier"),
 		};

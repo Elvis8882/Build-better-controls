@@ -225,10 +225,17 @@ export default function TournamentDetailPage() {
 	const hasTriggeredAutoPlayoff = useRef(false);
 	const displayParticipants = useMemo(() => {
 		if (!tournament) return participants;
-		return participants.map((participant) => {
+		const withHostLabel = participants.map((participant) => {
 			if (participant.user_id !== tournament.created_by) return participant;
 			if (participant.display_name.includes("(Host)")) return participant;
 			return { ...participant, display_name: `${participant.display_name} (Host)` };
+		});
+		return [...withHostLabel].sort((left, right) => {
+			const leftIsHost = left.user_id === tournament.created_by;
+			const rightIsHost = right.user_id === tournament.created_by;
+			if (leftIsHost && !rightIsHost) return -1;
+			if (!leftIsHost && rightIsHost) return 1;
+			return new Date(left.created_at).getTime() - new Date(right.created_at).getTime();
 		});
 	}, [participants, tournament]);
 	const teamById = useMemo(() => new Map(teams.map((team) => [team.id, team])), [teams]);
@@ -373,23 +380,41 @@ export default function TournamentDetailPage() {
 		hasTriggeredAutoPlayoff.current = false;
 	}, [canGeneratePlayoffs, playoffMatches.length]);
 
-	const runSearchProfiles = async () => {
+	useEffect(() => {
 		if (!user?.id) return;
-		const data = await searchProfilesByUsername(inviteQuery, user.id);
-		setInviteOptions(data);
-		if (data.length > 0 && !selectedInviteUserId) setSelectedInviteUserId(data[0].id);
-	};
+		const term = inviteQuery.trim();
+		if (!term) {
+			setInviteOptions([]);
+			setSelectedInviteUserId("");
+			return;
+		}
+		const timer = window.setTimeout(() => {
+			void searchProfilesByUsername(term, user.id)
+				.then((data) => {
+					setInviteOptions(data);
+					const exactMatch = data.find((option) => option.username.toLowerCase() === term.toLowerCase());
+					setSelectedInviteUserId(exactMatch?.id ?? "");
+				})
+				.catch((error) => toast.error((error as Error).message));
+		}, 250);
+		return () => window.clearTimeout(timer);
+	}, [inviteQuery, user?.id]);
 
 	const onInvite = async () => {
-		if (!id || !selectedInviteUserId || !isHostOrAdmin) return;
+		if (!id || !isHostOrAdmin) return;
+		const pickedOption =
+			inviteOptions.find((item) => item.id === selectedInviteUserId) ??
+			inviteOptions.find((item) => item.username.toLowerCase() === inviteQuery.trim().toLowerCase());
+		if (!pickedOption) {
+			toast.warning("Select a valid registered user.");
+			return;
+		}
 		setSaving(true);
 		try {
-			await inviteMember(id, selectedInviteUserId);
+			await inviteMember(id, pickedOption.id);
 			await createParticipant(id, {
-				userId: selectedInviteUserId,
-				displayName:
-					(inviteOptions.find((item) => item.id === selectedInviteUserId)?.username ?? selectedInviteUserId) +
-					(selectedInviteUserId === tournament?.created_by ? " (Host)" : ""),
+				userId: pickedOption.id,
+				displayName: pickedOption.username + (pickedOption.id === tournament?.created_by ? " (Host)" : ""),
 			});
 			await loadAll();
 			setInviteQuery("");
@@ -523,7 +548,7 @@ export default function TournamentDetailPage() {
 
 				<TabsContent value="setup" className="space-y-4">
 					<section className="space-y-3 rounded-lg border p-4">
-						<h2 className="text-lg font-semibold">Participant + team assignment</h2>
+						<h2 className="text-lg font-semibold">Participants</h2>
 						<p className="text-sm text-muted-foreground">Fill all slots, pick unique teams, then lock each row.</p>
 						<div className="overflow-x-auto">
 							<table className="w-full min-w-[700px] text-sm">
@@ -658,32 +683,27 @@ export default function TournamentDetailPage() {
 								<div className="space-y-2">
 									<h4 className="font-medium">Invite registered user</h4>
 									<div className="flex gap-2">
-										<Input value={inviteQuery} onChange={(event) => setInviteQuery(event.target.value)} />
-										<Button variant="outline" onClick={() => void runSearchProfiles()}>
-											Search
+										<Input
+											value={inviteQuery}
+											onChange={(event) => {
+												setInviteQuery(event.target.value);
+												setSelectedInviteUserId("");
+											}}
+											placeholder="Search by nickname"
+											list="invite-user-options"
+										/>
+										<Button disabled={saving || displayParticipants.length >= slots} onClick={() => void onInvite()}>
+											Add
 										</Button>
 									</div>
-									<select
-										className="h-10 w-full rounded-md border bg-transparent px-3 text-sm"
-										value={selectedInviteUserId}
-										onChange={(event) => setSelectedInviteUserId(event.target.value)}
-									>
-										<option value="">Select user</option>
+									<datalist id="invite-user-options">
 										{inviteOptions.map((option) => (
-											<option key={option.id} value={option.id}>
-												{option.username}
-											</option>
+											<option key={option.id} value={option.username} />
 										))}
-									</select>
-									<Button
-										disabled={saving || !selectedInviteUserId || displayParticipants.length >= slots}
-										onClick={() => void onInvite()}
-									>
-										Invite + assign slot
-									</Button>
+									</datalist>
 								</div>
 								<div className="space-y-2">
-									<h4 className="font-medium">Guests</h4>
+									<h4 className="font-medium">Guest</h4>
 									<div className="flex gap-2">
 										<Input
 											value={newGuestName}

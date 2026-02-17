@@ -196,6 +196,68 @@ export async function createTournament(payload: {
 	return data as Tournament;
 }
 
+export async function deleteTournament(tournamentId: string): Promise<void> {
+	const { data: matchRows, error: matchesError } = await supabase
+		.from("matches")
+		.select("id")
+		.eq("tournament_id", tournamentId);
+	throwOnError(matchesError, "Unable to load tournament matches for deletion");
+
+	const matchIds = (matchRows ?? []).map((match) => match.id as string);
+	if (matchIds.length > 0) {
+		const { error: matchResultsError } = await supabase.from("match_results").delete().in("match_id", matchIds);
+		throwOnError(matchResultsError, "Unable to delete match results");
+	}
+
+	const { error: matchesDeleteError } = await supabase.from("matches").delete().eq("tournament_id", tournamentId);
+	throwOnError(matchesDeleteError, "Unable to delete matches");
+
+	const { data: groupRows, error: groupsError } = await supabase
+		.from("tournament_groups")
+		.select("id")
+		.eq("tournament_id", tournamentId);
+	throwOnError(groupsError, "Unable to load tournament groups for deletion");
+
+	const groupIds = (groupRows ?? []).map((group) => group.id as string);
+	if (groupIds.length > 0) {
+		const { error: groupMembersDeleteError } = await supabase
+			.from("tournament_group_members")
+			.delete()
+			.in("group_id", groupIds);
+		throwOnError(groupMembersDeleteError, "Unable to delete group members");
+	}
+
+	const { error: groupsDeleteError } = await supabase
+		.from("tournament_groups")
+		.delete()
+		.eq("tournament_id", tournamentId);
+	throwOnError(groupsDeleteError, "Unable to delete groups");
+
+	const { error: participantsDeleteError } = await supabase
+		.from("tournament_participants")
+		.delete()
+		.eq("tournament_id", tournamentId);
+	throwOnError(participantsDeleteError, "Unable to delete participants");
+
+	const { error: membersDeleteError } = await supabase
+		.from("tournament_members")
+		.delete()
+		.eq("tournament_id", tournamentId);
+	throwOnError(membersDeleteError, "Unable to delete members");
+
+	const { error: picksDeleteError } = await supabase.from("team_picks").delete().eq("tournament_id", tournamentId);
+	throwOnError(picksDeleteError, "Unable to delete team picks");
+
+	const { error: guestsDeleteError } = await supabase
+		.from("tournament_guests")
+		.delete()
+		.eq("tournament_id", tournamentId);
+	throwOnError(guestsDeleteError, "Unable to delete guests");
+
+	const { error } = await supabase.from("tournaments").delete().eq("id", tournamentId);
+	throwOnError(error, "Unable to delete tournament");
+}
+
 export async function getTournament(tournamentId: string): Promise<Tournament | null> {
 	const { data, error } = await supabase
 		.from("tournaments")
@@ -269,8 +331,8 @@ export async function listParticipants(tournamentId: string): Promise<Tournament
 			"id, tournament_id, user_id, guest_id, display_name, team_id, locked, team:teams(id, code, name, short_name, team_pool, primary_color, secondary_color, text_color, overall, offense, defense, goalie)",
 		)
 		.eq("tournament_id", tournamentId)
-		.order("role", { ascending: true })
-		.order("user_id", { ascending: true });
+		.order("display_name", { ascending: true })
+		.order("created_at", { ascending: true });
 	throwOnError(error, "Unable to load participants");
 
 	return ((data ?? []) as Array<TournamentParticipant & { team: Team | Team[] | null }>).map((participant) => ({
@@ -439,8 +501,7 @@ export async function listTournamentGuests(tournamentId: string): Promise<Tourna
 		.from("tournament_guests")
 		.select("id, tournament_id, display_name")
 		.eq("tournament_id", tournamentId)
-		.order("role", { ascending: true })
-		.order("user_id", { ascending: true });
+		.order("display_name", { ascending: true });
 	throwOnError(error, "Unable to load guests");
 	return (data ?? []) as TournamentGuest[];
 }

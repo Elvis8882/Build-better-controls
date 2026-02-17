@@ -47,7 +47,6 @@ export type Match = {
 };
 
 export type MatchResult = {
-	id: string;
 	match_id: string;
 	home_score: number | null;
 	away_score: number | null;
@@ -80,6 +79,7 @@ export type TournamentParticipant = {
 	team_id: string | null;
 	team: Team | null;
 	locked: boolean;
+	created_at: string;
 };
 
 export type Team = {
@@ -369,10 +369,9 @@ export async function listParticipants(tournamentId: string): Promise<Tournament
 	const { data, error } = await supabase
 		.from("tournament_participants")
 		.select(
-			"id, tournament_id, user_id, guest_id, display_name, team_id, locked, team:teams(id, code, name, short_name, team_pool, primary_color, secondary_color, text_color, overall, offense, defense, goalie, ovr_tier)",
+			"id, tournament_id, user_id, guest_id, display_name, team_id, locked, created_at, team:teams(id, code, name, short_name, team_pool, primary_color, secondary_color, text_color, overall, offense, defense, goalie, ovr_tier)",
 		)
 		.eq("tournament_id", tournamentId)
-		.order("display_name", { ascending: true })
 		.order("created_at", { ascending: true });
 	throwOnError(error, "Unable to load participants");
 
@@ -511,14 +510,13 @@ export async function listMatchesWithResults(tournamentId: string, stage?: Match
 	const matchIds = matchRows.map((match) => match.id);
 	const { data: results, error: resultsError } = await supabase
 		.from("match_results")
-		.select("id, match_id, home_score, away_score, home_shots, away_shots, decision, locked")
+		.select("match_id, home_score, away_score, home_shots, away_shots, decision, locked")
 		.in("match_id", matchIds);
 	throwOnError(resultsError, "Unable to load match results");
 
 	const resultMap = new Map<string, MatchResult>();
 	for (const result of results ?? []) {
 		resultMap.set(result.match_id as string, {
-			id: result.id as string,
 			match_id: result.match_id as string,
 			home_score: result.home_score as number | null,
 			away_score: result.away_score as number | null,

@@ -28,9 +28,9 @@ export default function TournamentsPage() {
 	const [deletingTournamentId, setDeletingTournamentId] = useState<string | null>(null);
 	const [openCreate, setOpenCreate] = useState(false);
 	const [name, setName] = useState("");
-	const [presetId, setPresetId] = useState<TournamentPreset>(PRESET_OPTIONS[0].value);
+	const [presetId, setPresetId] = useState<TournamentPreset>("full_tournament");
 	const [teamPool, setTeamPool] = useState<TeamPool>("NHL");
-	const [defaultParticipants, setDefaultParticipants] = useState(8);
+	const [defaultParticipants, setDefaultParticipants] = useState(4);
 	const [groupCountInput, setGroupCountInput] = useState(2);
 	const [tournaments, setTournaments] = useState<Tournament[]>([]);
 

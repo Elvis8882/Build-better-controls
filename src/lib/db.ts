@@ -95,6 +95,13 @@ export type Team = {
 	offense: number;
 	defense: number;
 	goalie: number;
+	ovr_tier: "Top 5" | "Top 10" | "Middle Tier" | "Bottom Tier";
+};
+
+export type TeamRatingUpdate = {
+	offense: number;
+	defense: number;
+	goalie: number;
 };
 
 export type TournamentGroup = {
@@ -362,7 +369,7 @@ export async function listParticipants(tournamentId: string): Promise<Tournament
 	const { data, error } = await supabase
 		.from("tournament_participants")
 		.select(
-			"id, tournament_id, user_id, guest_id, display_name, team_id, locked, team:teams(id, code, name, short_name, team_pool, primary_color, secondary_color, text_color, overall, offense, defense, goalie)",
+			"id, tournament_id, user_id, guest_id, display_name, team_id, locked, team:teams(id, code, name, short_name, team_pool, primary_color, secondary_color, text_color, overall, offense, defense, goalie, ovr_tier)",
 		)
 		.eq("tournament_id", tournamentId)
 		.order("display_name", { ascending: true })
@@ -379,12 +386,38 @@ export async function fetchTeamsByPool(teamPool: TeamPool): Promise<Team[]> {
 	const { data, error } = await supabase
 		.from("teams")
 		.select(
-			"id, code, name, short_name, team_pool, primary_color, secondary_color, text_color, overall, offense, defense, goalie",
+			"id, code, name, short_name, team_pool, primary_color, secondary_color, text_color, overall, offense, defense, goalie, ovr_tier",
 		)
 		.eq("team_pool", teamPool)
 		.order("name", { ascending: true });
 	throwOnError(error, "Unable to load teams");
 	return (data ?? []) as Team[];
+}
+
+export async function listTeams(): Promise<Team[]> {
+	const { data, error } = await supabase
+		.from("teams")
+		.select(
+			"id, code, name, short_name, team_pool, primary_color, secondary_color, text_color, overall, offense, defense, goalie, ovr_tier",
+		)
+		.order("overall", { ascending: false })
+		.order("name", { ascending: true });
+	throwOnError(error, "Unable to load teams");
+	return (data ?? []) as Team[];
+}
+
+export async function updateTeamRatings(teamId: string, payload: TeamRatingUpdate): Promise<void> {
+	const computedOverall = Math.round((payload.offense + payload.defense + payload.goalie) / 3);
+	const { error } = await supabase
+		.from("teams")
+		.update({
+			overall: computedOverall,
+			offense: payload.offense,
+			defense: payload.defense,
+			goalie: payload.goalie,
+		})
+		.eq("id", teamId);
+	throwOnError(error, "Unable to update team ratings");
 }
 
 export async function createParticipant(
@@ -408,6 +441,11 @@ export async function updateParticipant(participantId: string, teamId: string | 
 export async function lockParticipant(participantId: string): Promise<void> {
 	const { error } = await supabase.from("tournament_participants").update({ locked: true }).eq("id", participantId);
 	throwOnError(error, "Unable to lock participant");
+}
+
+export async function removeParticipant(participantId: string): Promise<void> {
+	const { error } = await supabase.from("tournament_participants").delete().eq("id", participantId);
+	throwOnError(error, "Unable to clear participant slot");
 }
 
 export async function listGroups(tournamentId: string): Promise<TournamentGroup[]> {
@@ -540,12 +578,17 @@ export async function listTournamentGuests(tournamentId: string): Promise<Tourna
 	return (data ?? []) as TournamentGuest[];
 }
 
-export async function addTournamentGuest(tournamentId: string, displayName: string): Promise<void> {
-	const { error } = await supabase.from("tournament_guests").insert({
-		tournament_id: tournamentId,
-		display_name: displayName,
-	});
+export async function addTournamentGuest(tournamentId: string, displayName: string): Promise<TournamentGuest> {
+	const { data, error } = await supabase
+		.from("tournament_guests")
+		.insert({
+			tournament_id: tournamentId,
+			display_name: displayName,
+		})
+		.select("id, tournament_id, display_name")
+		.single();
 	throwOnError(error, "Unable to add guest");
+	return data as TournamentGuest;
 }
 
 export async function removeTournamentGuest(tournamentId: string, guestId: string): Promise<void> {

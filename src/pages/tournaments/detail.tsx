@@ -15,17 +15,15 @@ import {
 	listGroups,
 	listMatchesWithResults,
 	listParticipants,
-	listTournamentGuests,
 	listTournamentMembers,
 	lockMatchResult,
 	lockParticipant,
 	type MatchParticipantDecision,
 	type MatchWithResult,
 	type ProfileOption,
-	removeTournamentGuest,
+	removeParticipant,
 	searchProfilesByUsername,
 	type Tournament,
-	type TournamentGuest,
 	type TournamentMember,
 	type TournamentParticipant,
 	type Team,
@@ -202,7 +200,6 @@ export default function TournamentDetailPage() {
 	const [loading, setLoading] = useState(true);
 	const [tournament, setTournament] = useState<Tournament | null>(null);
 	const [members, setMembers] = useState<TournamentMember[]>([]);
-	const [guests, setGuests] = useState<TournamentGuest[]>([]);
 	const [participants, setParticipants] = useState<TournamentParticipant[]>([]);
 	const [teams, setTeams] = useState<Team[]>([]);
 	const [groups, setGroups] = useState<{ id: string; tournament_id: string; group_code: string }[]>([]);
@@ -215,6 +212,8 @@ export default function TournamentDetailPage() {
 	const [newGuestName, setNewGuestName] = useState("");
 	const [saving, setSaving] = useState(false);
 	const [resultDrafts, setResultDrafts] = useState<Record<string, EditableResult>>({});
+	const [editingParticipantIds, setEditingParticipantIds] = useState<Set<string>>(new Set());
+	const [participantFilters, setParticipantFilters] = useState<Record<string, Team["ovr_tier"] | "ALL">>({});
 
 	const isAdmin = profile?.role === "admin";
 	const hostMembership = useMemo(
@@ -233,13 +232,35 @@ export default function TournamentDetailPage() {
 		});
 	}, [participants, tournament]);
 	const teamById = useMemo(() => new Map(teams.map((team) => [team.id, team])), [teams]);
+	const teamsByTier = useMemo(() => {
+		const map: Record<Team["ovr_tier"] | "ALL", Team[]> = {
+			ALL: teams,
+			"Top 5": teams.filter((team) => team.ovr_tier === "Top 5"),
+			"Top 10": teams.filter((team) => team.ovr_tier === "Top 10"),
+			"Middle Tier": teams.filter((team) => team.ovr_tier === "Middle Tier"),
+			"Bottom Tier": teams.filter((team) => team.ovr_tier === "Bottom Tier"),
+		};
+		return map;
+	}, [teams]);
 	const assignedTeams = new Set(displayParticipants.map((participant) => participant.team_id).filter(Boolean));
 	const slots = tournament?.default_participants ?? 0;
+	const placeholderRows = useMemo(
+		() =>
+			Array.from({ length: Math.max(0, slots - displayParticipants.length) }, (_, index) => ({
+				id: `placeholder-${index}`,
+				label: `Empty slot ${displayParticipants.length + index + 1}`,
+			})),
+		[displayParticipants.length, slots],
+	);
 	const allLockedWithTeams =
 		displayParticipants.length === slots &&
 		displayParticipants.every((participant) => participant.locked && participant.team_id);
 	const allGroupMatchesLocked = groupMatches.length > 0 && groupMatches.every((match) => match.result?.locked);
 	const canGeneratePlayoffs = tournament?.preset_id === "playoffs_only" ? allLockedWithTeams : allGroupMatchesLocked;
+	const canGenerateGroups = tournament?.preset_id === "full_tournament" && allLockedWithTeams && groups.length === 0;
+	const groupStageAvailable =
+		tournament?.preset_id === "full_tournament" && (groups.length > 0 || groupMatches.length > 0);
+	const playoffAvailable = playoffMatches.length > 0;
 
 	const loadAll = useCallback(async () => {
 		if (!id) return;
@@ -248,7 +269,6 @@ export default function TournamentDetailPage() {
 			const [
 				tournamentData,
 				memberData,
-				guestData,
 				participantData,
 				groupData,
 				standingData,
@@ -258,7 +278,6 @@ export default function TournamentDetailPage() {
 			] = await Promise.all([
 				getTournament(id),
 				listTournamentMembers(id),
-				listTournamentGuests(id),
 				listParticipants(id),
 				listGroups(id),
 				listGroupStandings(id),
@@ -268,7 +287,6 @@ export default function TournamentDetailPage() {
 			]);
 			setTournament(tournamentData);
 			setMembers(memberData);
-			setGuests(guestData);
 			setParticipants(participantData);
 			setGroups(groupData);
 			setStandings(standingData);
@@ -334,6 +352,16 @@ export default function TournamentDetailPage() {
 	}, [id, isHostOrAdmin, members, participants, slots, tournament, loadAll]);
 
 	useEffect(() => {
+		if (!id || !isHostOrAdmin || saving || !canGenerateGroups) return;
+		setSaving(true);
+		void generateGroupsAndMatches(id)
+			.then(loadAll)
+			.then(() => toast.success("Groups and group schedule generated."))
+			.catch((error) => toast.error((error as Error).message))
+			.finally(() => setSaving(false));
+	}, [id, isHostOrAdmin, saving, canGenerateGroups, loadAll]);
+
+	useEffect(() => {
 		if (!id || !isHostOrAdmin || saving || playoffMatches.length > 0 || !canGeneratePlayoffs) return;
 		if (hasTriggeredAutoPlayoff.current) return;
 		hasTriggeredAutoPlayoff.current = true;
@@ -377,42 +405,18 @@ export default function TournamentDetailPage() {
 
 	const onAddGuest = async () => {
 		if (!id || !newGuestName.trim() || !isHostOrAdmin) return;
+		if (participants.length >= slots) {
+			toast.warning("No empty slots available.");
+			return;
+		}
 		setSaving(true);
 		try {
-			await addTournamentGuest(id, newGuestName.trim());
+			const guestName = newGuestName.trim();
+			const guest = await addTournamentGuest(id, guestName);
+			await createParticipant(id, { guestId: guest.id, displayName: `${guestName} (Guest)` });
 			await loadAll();
 			setNewGuestName("");
-			toast.success("Guest added.");
-		} catch (error) {
-			toast.error((error as Error).message);
-		} finally {
-			setSaving(false);
-		}
-	};
-
-	const onAssignGuestToSlot = async (guestId: string) => {
-		if (!id || !isHostOrAdmin) return;
-		const guest = guests.find((item) => item.id === guestId);
-		if (!guest) return;
-		setSaving(true);
-		try {
-			await createParticipant(id, { guestId, displayName: `${guest.display_name} (Guest)` });
-			await loadAll();
-			toast.success("Guest assigned.");
-		} catch (error) {
-			toast.error((error as Error).message);
-		} finally {
-			setSaving(false);
-		}
-	};
-
-	const onDeleteGuest = async (guestId: string) => {
-		if (!id || !isHostOrAdmin) return;
-		setSaving(true);
-		try {
-			await removeTournamentGuest(id, guestId);
-			await loadAll();
-			toast.success("Guest removed.");
+			toast.success("Guest added to participant list.");
 		} catch (error) {
 			toast.error((error as Error).message);
 		} finally {
@@ -455,7 +459,8 @@ export default function TournamentDetailPage() {
 	};
 
 	const onRandomizeTeam = async (participantId: string) => {
-		const available = teams.filter((team) => !assignedTeams.has(team.id));
+		const filterTier = participantFilters[participantId] ?? "ALL";
+		const available = (teamsByTier[filterTier] ?? teams).filter((team) => !assignedTeams.has(team.id));
 		if (available.length === 0) return toast.error("No unassigned teams left in pool.");
 		const pick = available[Math.floor(Math.random() * available.length)];
 		const pickId = pick?.id;
@@ -464,13 +469,18 @@ export default function TournamentDetailPage() {
 		await loadAll();
 	};
 
-	const onGenerateGroups = async () => {
-		if (!id || !isHostOrAdmin) return;
+	const onClearParticipant = async (participant: TournamentParticipant) => {
+		if (!isHostOrAdmin) return;
 		setSaving(true);
 		try {
-			await generateGroupsAndMatches(id);
+			await removeParticipant(participant.id);
+			setEditingParticipantIds((previous) => {
+				const next = new Set(previous);
+				next.delete(participant.id);
+				return next;
+			});
 			await loadAll();
-			toast.success("Groups and group schedule generated.");
+			toast.success("Participant slot cleared.");
 		} catch (error) {
 			toast.error((error as Error).message);
 		} finally {
@@ -501,7 +511,14 @@ export default function TournamentDetailPage() {
 			<Tabs defaultValue="setup">
 				<TabsList>
 					<TabsTrigger value="setup">Setup</TabsTrigger>
-					<TabsTrigger value="playoff">Playoff bracket</TabsTrigger>
+					{tournament.preset_id === "full_tournament" && (
+						<TabsTrigger value="group" disabled={!groupStageAvailable}>
+							Group stage
+						</TabsTrigger>
+					)}
+					<TabsTrigger value="playoff" disabled={!playoffAvailable}>
+						Playoff bracket
+					</TabsTrigger>
 				</TabsList>
 
 				<TabsContent value="setup" className="space-y-4">
@@ -513,7 +530,9 @@ export default function TournamentDetailPage() {
 								<thead>
 									<tr className="border-b">
 										<th className="px-2 py-2 text-left">Participant</th>
+										<th className="px-2 py-2 text-left">Filter</th>
 										<th className="px-2 py-2 text-left">Team</th>
+										<th className="px-2 py-2 text-left">Stats</th>
 										<th className="px-2 py-2 text-left">Actions</th>
 									</tr>
 								</thead>
@@ -524,14 +543,43 @@ export default function TournamentDetailPage() {
 											<td className="px-2 py-2">
 												<select
 													className="h-9 rounded-md border px-2"
-													disabled={participant.locked && !isHostOrAdmin}
-													value={participant.team_id ?? ""}
+													disabled={participant.locked && !editingParticipantIds.has(participant.id)}
+													value={participantFilters[participant.id] ?? "ALL"}
 													onChange={(event) =>
-														void updateParticipant(participant.id, event.target.value || null).then(loadAll)
+														setParticipantFilters((previous) => ({
+															...previous,
+															[participant.id]: event.target.value as Team["ovr_tier"] | "ALL",
+														}))
 													}
 												>
+													<option value="ALL">All</option>
+													<option value="Top 5">Top 5</option>
+													<option value="Top 10">Top 10</option>
+													<option value="Middle Tier">Middle Tier</option>
+													<option value="Bottom Tier">Bottom Tier</option>
+												</select>
+											</td>
+											<td className="px-2 py-2">
+												<select
+													className="h-9 rounded-md border px-2"
+													disabled={participant.locked && !editingParticipantIds.has(participant.id)}
+													value={participant.team_id ?? ""}
+													onChange={(event) => {
+														void updateParticipant(participant.id, event.target.value || null).then(async () => {
+															if (editingParticipantIds.has(participant.id)) {
+																await lockParticipant(participant.id);
+																setEditingParticipantIds((previous) => {
+																	const next = new Set(previous);
+																	next.delete(participant.id);
+																	return next;
+																});
+															}
+															await loadAll();
+														});
+													}}
+												>
 													<option value="">Select team</option>
-													{teams.map((team) => (
+													{(teamsByTier[participantFilters[participant.id] ?? "ALL"] ?? teams).map((team) => (
 														<option
 															key={team.id}
 															value={team.id}
@@ -542,18 +590,59 @@ export default function TournamentDetailPage() {
 													))}
 												</select>
 											</td>
+											<td className="px-2 py-2 text-xs text-muted-foreground">
+												{participant.team
+													? `OVR: ${participant.team.overall}, OFF: ${participant.team.offense}, DEF: ${participant.team.defense}, GOA: ${participant.team.goalie}`
+													: "-"}
+											</td>
 											<td className="flex gap-2 px-2 py-2">
 												<Button size="sm" variant="outline" onClick={() => void onRandomizeTeam(participant.id)}>
 													🎲 Team
 												</Button>
 												<Button
 													size="sm"
-													disabled={participant.locked || !participant.team_id}
+													disabled={
+														participant.locked || !participant.team_id || editingParticipantIds.has(participant.id)
+													}
 													onClick={() => void lockParticipant(participant.id).then(loadAll)}
 												>
 													{participant.locked ? "Locked" : "Lock in"}
 												</Button>
+												{participant.locked && isHostOrAdmin && (
+													<Button
+														size="sm"
+														variant="outline"
+														disabled={saving}
+														onClick={() =>
+															setEditingParticipantIds((previous) => {
+																const next = new Set(previous);
+																next.add(participant.id);
+																return next;
+															})
+														}
+													>
+														Edit
+													</Button>
+												)}
+												<Button
+													size="icon"
+													variant="ghost"
+													disabled={saving}
+													onClick={() => void onClearParticipant(participant)}
+													title="Clear slot"
+												>
+													×
+												</Button>
 											</td>
+										</tr>
+									))}
+									{placeholderRows.map((row) => (
+										<tr key={row.id} className="border-b border-dashed bg-muted/20">
+											<td className="px-2 py-3 text-sm text-muted-foreground">{row.label}</td>
+											<td className="px-2 py-3 text-sm text-muted-foreground">-</td>
+											<td className="px-2 py-3 text-sm text-muted-foreground">-</td>
+											<td className="px-2 py-3 text-sm text-muted-foreground">-</td>
+											<td className="px-2 py-3 text-sm text-muted-foreground">Waiting for participant</td>
 										</tr>
 									))}
 								</tbody>
@@ -564,7 +653,7 @@ export default function TournamentDetailPage() {
 								{slots - displayParticipants.length} unfilled slots remaining.
 							</p>
 						)}
-						{isHostOrAdmin && (
+						{isHostOrAdmin && displayParticipants.length < slots && (
 							<div className="grid gap-3 rounded-md border p-3 md:grid-cols-2">
 								<div className="space-y-2">
 									<h4 className="font-medium">Invite registered user</h4>
@@ -603,79 +692,55 @@ export default function TournamentDetailPage() {
 										/>
 										<Button onClick={() => void onAddGuest()}>Add</Button>
 									</div>
-									<ul className="space-y-2">
-										{guests.map((guest) => (
-											<li key={guest.id} className="flex items-center justify-between rounded border px-2 py-1">
-												<span>{guest.display_name}</span>
-												<div className="flex gap-2">
-													<Button
-														size="sm"
-														variant="outline"
-														disabled={displayParticipants.length >= slots}
-														onClick={() => void onAssignGuestToSlot(guest.id)}
-													>
-														Assign
-													</Button>
-													<Button size="sm" variant="outline" onClick={() => void onDeleteGuest(guest.id)}>
-														Delete
-													</Button>
-												</div>
-											</li>
-										))}
-									</ul>
+									<p className="text-xs text-muted-foreground">Guest is added directly into participant slots.</p>
 								</div>
 							</div>
 						)}
-						<div className="flex gap-2">
-							<Button
-								disabled={
-									!allLockedWithTeams || groups.length > 0 || saving || tournament.preset_id === "playoffs_only"
-								}
-								onClick={() => void onGenerateGroups()}
-							>
-								Generate groups + group schedule
-							</Button>
-							{tournament.preset_id !== "playoffs_only" && allLockedWithTeams && groups.length === 0 && (
-								<p className="text-sm text-muted-foreground">All rows locked. Generate groups to continue.</p>
-							)}
-						</div>
+						{tournament.preset_id !== "playoffs_only" && allLockedWithTeams && groups.length === 0 && (
+							<p className="text-sm text-muted-foreground">Generating groups and schedule automatically...</p>
+						)}
+						{tournament.preset_id === "playoffs_only" && allLockedWithTeams && playoffMatches.length === 0 && (
+							<p className="text-sm text-muted-foreground">Generating playoff bracket automatically...</p>
+						)}
 					</section>
+				</TabsContent>
 
-					{tournament.preset_id !== "playoffs_only" && groups.length > 0 && (
-						<section className="space-y-3 rounded-lg border p-4">
-							<h2 className="text-lg font-semibold">Group standings</h2>
-							<div className="grid gap-3 md:grid-cols-2">
-								{groups.map((group) => (
-									<div key={group.id} className="rounded border p-3">
-										<h4 className="mb-2 font-medium">Group {group.group_code}</h4>
-										<table className="w-full text-sm">
-											<thead>
-												<tr className="border-b">
-													<th className="py-1 text-left">Team</th>
-													<th className="py-1 text-right">Points</th>
-												</tr>
-											</thead>
-											<tbody>
-												{(standingsByGroup[group.group_code] ?? []).map((row) => (
-													<tr key={row.participant_id} className="border-b">
-														<td className="py-1">
-															<TeamPill
-																team={row.team_id ? teamById.get(row.team_id) : null}
-																fallback={row.display_name}
-															/>
-														</td>
-														<td className="py-1 text-right">{row.points}</td>
+				{tournament.preset_id !== "playoffs_only" && (
+					<TabsContent value="group" className="space-y-4">
+						{groups.length > 0 && (
+							<section className="space-y-3 rounded-lg border p-4">
+								<h2 className="text-lg font-semibold">Group standings</h2>
+								<div className="grid gap-3 md:grid-cols-2">
+									{groups.map((group) => (
+										<div key={group.id} className="rounded border p-3">
+											<h4 className="mb-2 font-medium">Group {group.group_code}</h4>
+											<table className="w-full text-sm">
+												<thead>
+													<tr className="border-b">
+														<th className="py-1 text-left">Team</th>
+														<th className="py-1 text-right">Points</th>
 													</tr>
-												))}
-											</tbody>
-										</table>
-									</div>
-								))}
-							</div>
-						</section>
-					)}
+												</thead>
+												<tbody>
+													{(standingsByGroup[group.group_code] ?? []).map((row) => (
+														<tr key={row.participant_id} className="border-b">
+															<td className="py-1">
+																<TeamPill
+																	team={row.team_id ? teamById.get(row.team_id) : null}
+																	fallback={row.display_name}
+																/>
+															</td>
+															<td className="py-1 text-right">{row.points}</td>
+														</tr>
+													))}
+												</tbody>
+											</table>
+										</div>
+									))}
+								</div>
+							</section>
+						)}
 
-					{tournament.preset_id !== "playoffs_only" && (
 						<MatchTable
 							title="Group stage games"
 							matches={groupMatches}
@@ -687,16 +752,8 @@ export default function TournamentDetailPage() {
 							isHostOrAdmin={isHostOrAdmin}
 							userId={user?.id}
 						/>
-					)}
-					{isHostOrAdmin && tournament.preset_id === "playoffs_only" && (
-						<Button
-							disabled={!allLockedWithTeams || playoffMatches.length > 0 || saving}
-							onClick={() => void onGeneratePlayoffs()}
-						>
-							Generate playoff bracket + schedule
-						</Button>
-					)}
-				</TabsContent>
+					</TabsContent>
+				)}
 
 				<TabsContent value="playoff" className="space-y-4">
 					<section className="rounded-lg border p-4">

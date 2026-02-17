@@ -17,6 +17,7 @@ export type Tournament = {
 	default_participants: number;
 	group_count: number | null;
 	stage: TournamentStage;
+	hosted_by: string;
 };
 
 export type TournamentMember = {
@@ -160,7 +161,26 @@ export async function listTournaments(): Promise<Tournament[]> {
 		.select("id, name, status, created_at, preset_id, created_by, team_pool, default_participants, group_count, stage")
 		.order("created_at", { ascending: false });
 	throwOnError(error, "Unable to load tournaments");
-	return (data ?? []) as Tournament[];
+
+	const rows = (data ?? []) as Array<Omit<Tournament, "hosted_by">>;
+	const creatorIds = [...new Set(rows.map((item) => item.created_by).filter(Boolean))];
+	let usernameById = new Map<string, string>();
+
+	if (creatorIds.length > 0) {
+		const { data: profileData, error: profileError } = await supabase
+			.from("profiles")
+			.select("id, username")
+			.in("id", creatorIds);
+		throwOnError(profileError, "Unable to load tournament hosts");
+		usernameById = new Map(
+			(profileData ?? []).map((profile) => [profile.id as string, (profile.username as string) ?? "unknown"]),
+		);
+	}
+
+	return rows.map((item) => ({
+		...item,
+		hosted_by: usernameById.get(item.created_by) ?? "unknown",
+	}));
 }
 
 export async function createTournament(payload: {
@@ -193,7 +213,10 @@ export async function createTournament(payload: {
 		.single();
 
 	throwOnError(error, "Unable to create tournament");
-	return data as Tournament;
+	return {
+		...(data as Omit<Tournament, "hosted_by">),
+		hosted_by: "unknown",
+	};
 }
 
 export async function deleteTournament(tournamentId: string): Promise<void> {
@@ -265,7 +288,18 @@ export async function getTournament(tournamentId: string): Promise<Tournament | 
 		.eq("id", tournamentId)
 		.maybeSingle();
 	throwOnError(error, "Unable to load tournament");
-	return (data as Tournament | null) ?? null;
+	if (!data) return null;
+	const tournament = data as Omit<Tournament, "hosted_by">;
+	const { data: profileData, error: profileError } = await supabase
+		.from("profiles")
+		.select("username")
+		.eq("id", tournament.created_by)
+		.maybeSingle();
+	throwOnError(profileError, "Unable to load tournament host");
+	return {
+		...tournament,
+		hosted_by: (profileData?.username as string | undefined) ?? "unknown",
+	};
 }
 
 export async function listTournamentMembers(tournamentId: string): Promise<TournamentMember[]> {

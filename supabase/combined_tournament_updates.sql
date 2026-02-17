@@ -29,11 +29,17 @@ alter table public.tournament_members
 -- 2) match user columns + generation function compatibility
 alter table public.matches
 	add column if not exists home_user_id uuid,
-	add column if not exists away_user_id uuid;
+	add column if not exists away_user_id uuid,
+	add column if not exists home_guest_id uuid,
+	add column if not exists away_guest_id uuid;
 
 alter table public.matches
 	alter column home_user_id drop not null,
 	alter column away_user_id drop not null;
+
+alter table public.matches
+	drop constraint if exists matches_home_identity_check,
+	drop constraint if exists matches_away_identity_check;
 
 create or replace function public.generate_group_stage(p_tournament_id uuid)
 returns void
@@ -69,8 +75,18 @@ begin
 	for r in select id from public.tournament_groups where tournament_id = p_tournament_id loop
 		for p1 in select participant_id from public.tournament_group_members where group_id = r.id loop
 			for p2 in select participant_id from public.tournament_group_members where group_id = r.id and participant_id > p1.participant_id loop
-				insert into public.matches(tournament_id, home_participant_id, away_participant_id, home_user_id, away_user_id, round, stage)
-				select p_tournament_id, p1.participant_id, p2.participant_id, hp.user_id, ap.user_id, 1, 'GROUP'
+				insert into public.matches(
+					tournament_id,
+					home_participant_id,
+					away_participant_id,
+					home_user_id,
+					away_user_id,
+					home_guest_id,
+					away_guest_id,
+					round,
+					stage
+				)
+				select p_tournament_id, p1.participant_id, p2.participant_id, hp.user_id, ap.user_id, hp.guest_id, ap.guest_id, 1, 'GROUP'
 				from public.tournament_participants hp
 				join public.tournament_participants ap on ap.id = p2.participant_id
 				where hp.id = p1.participant_id;
@@ -119,13 +135,35 @@ begin
 	i := 1;
 	while i <= seed_count loop
 		if i = seed_count then
-			insert into public.matches(tournament_id, home_participant_id, away_participant_id, home_user_id, away_user_id, stage, bracket_type, round)
-			select p_tournament_id, hp.id, null, hp.user_id, null, 'PLAYOFF', 'WINNERS', 1
+			insert into public.matches(
+				tournament_id,
+				home_participant_id,
+				away_participant_id,
+				home_user_id,
+				away_user_id,
+				home_guest_id,
+				away_guest_id,
+				stage,
+				bracket_type,
+				round
+			)
+			select p_tournament_id, hp.id, null, hp.user_id, null, hp.guest_id, null, 'PLAYOFF', 'WINNERS', 1
 			from public.tournament_participants hp
 			where hp.id = seeded[i];
 		else
-			insert into public.matches(tournament_id, home_participant_id, away_participant_id, home_user_id, away_user_id, stage, bracket_type, round)
-			select p_tournament_id, hp.id, ap.id, hp.user_id, ap.user_id, 'PLAYOFF', 'WINNERS', 1
+			insert into public.matches(
+				tournament_id,
+				home_participant_id,
+				away_participant_id,
+				home_user_id,
+				away_user_id,
+				home_guest_id,
+				away_guest_id,
+				stage,
+				bracket_type,
+				round
+			)
+			select p_tournament_id, hp.id, ap.id, hp.user_id, ap.user_id, hp.guest_id, ap.guest_id, 'PLAYOFF', 'WINNERS', 1
 			from public.tournament_participants hp
 			join public.tournament_participants ap on ap.id = seeded[seed_count-i+1]
 			where hp.id = seeded[i];
@@ -136,8 +174,19 @@ begin
 	for r in
 		select participant_id from public.v_group_standings where tournament_id = p_tournament_id order by points asc, goal_diff asc limit greatest(2, floor(seed_count/2)::int)
 	loop
-		insert into public.matches(tournament_id, home_participant_id, away_participant_id, home_user_id, away_user_id, stage, bracket_type, round)
-		select p_tournament_id, hp.id, null, hp.user_id, null, 'PLAYOFF', 'LOSERS', 1
+		insert into public.matches(
+			tournament_id,
+			home_participant_id,
+			away_participant_id,
+			home_user_id,
+			away_user_id,
+			home_guest_id,
+			away_guest_id,
+			stage,
+			bracket_type,
+			round
+		)
+		select p_tournament_id, hp.id, null, hp.user_id, null, hp.guest_id, null, 'PLAYOFF', 'LOSERS', 1
 		from public.tournament_participants hp
 		where hp.id = r.participant_id;
 	end loop;
@@ -149,24 +198,31 @@ alter table public.teams
 	add column if not exists ovr_tier text;
 
 create or replace function public.recalculate_team_ovr_tiers()
-returns void
+returns integer
 language sql
 security definer
 set search_path = public
 as $$
 	with ranked as (
-		select id, row_number() over (order by overall desc, name asc) as rank_by_ovr
+		select
+			id,
+			team_pool,
+			row_number() over (partition by team_pool order by overall desc, name asc) as rank_by_ovr,
+			count(*) over (partition by team_pool) as pool_size
 		from public.teams
+	), updated as (
+		update public.teams t
+		set ovr_tier = case
+			when r.rank_by_ovr <= 5 then 'Top 5'
+			when r.rank_by_ovr = 10 then 'Top 10'
+			when r.rank_by_ovr > r.pool_size - 5 then 'Bottom Tier'
+			else 'Middle Tier'
+		end
+		from ranked r
+		where r.id = t.id
+		returning 1
 	)
-	update public.teams t
-	set ovr_tier = case
-		when r.rank_by_ovr <= 5 then 'Top 5'
-		when r.rank_by_ovr <= 10 then 'Top 10'
-		when r.rank_by_ovr <= 25 then 'Middle Tier'
-		else 'Bottom Tier'
-	end
-	from ranked r
-	where r.id = t.id;
+	select count(*)::integer from updated;
 $$;
 
 select public.recalculate_team_ovr_tiers();

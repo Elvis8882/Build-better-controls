@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
+import { useAuth } from "@/auth/AuthProvider";
 import {
 	createTournament,
+	deleteTournament,
 	listTournaments,
 	sanitizeGroupCount,
 	type TeamPool,
@@ -20,8 +22,10 @@ const PRESET_OPTIONS: Array<{ label: string; value: TournamentPreset }> = [
 
 export default function TournamentsPage() {
 	const navigate = useNavigate();
+	const { isAdmin } = useAuth();
 	const [loading, setLoading] = useState(true);
 	const [saving, setSaving] = useState(false);
+	const [deletingTournamentId, setDeletingTournamentId] = useState<string | null>(null);
 	const [openCreate, setOpenCreate] = useState(false);
 	const [name, setName] = useState("");
 	const [presetId, setPresetId] = useState<TournamentPreset>(PRESET_OPTIONS[0].value);
@@ -86,6 +90,27 @@ export default function TournamentsPage() {
 		}
 	};
 
+	const onDelete = async (tournament: Tournament) => {
+		if (!isAdmin) {
+			toast.error("Only admins can delete tournaments.");
+			return;
+		}
+
+		const shouldDelete = window.confirm(`Delete \"${tournament.name}\"? This cannot be undone.`);
+		if (!shouldDelete) return;
+
+		try {
+			setDeletingTournamentId(tournament.id);
+			await deleteTournament(tournament.id);
+			setTournaments((current) => current.filter((item) => item.id !== tournament.id));
+			toast.success("Tournament deleted.");
+		} catch (error) {
+			toast.error((error as Error).message);
+		} finally {
+			setDeletingTournamentId(null);
+		}
+	};
+
 	return (
 		<div className="space-y-4 p-4 md:p-6">
 			<div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -126,13 +151,25 @@ export default function TournamentsPage() {
 									<td className="px-4 py-3">{tournament.status ?? "active"}</td>
 									<td className="px-4 py-3">{new Date(tournament.created_at).toLocaleString()}</td>
 									<td className="px-4 py-3">
-										<Button
-											variant="outline"
-											size="sm"
-											onClick={() => navigate(`/dashboard/tournaments/${tournament.id}`)}
-										>
-											Open
-										</Button>
+										<div className="flex items-center gap-2">
+											<Button
+												variant="outline"
+												size="sm"
+												onClick={() => navigate(`/dashboard/tournaments/${tournament.id}`)}
+											>
+												Open
+											</Button>
+											{isAdmin && (
+												<Button
+													variant="destructive"
+													size="sm"
+													onClick={() => onDelete(tournament)}
+													disabled={deletingTournamentId === tournament.id}
+												>
+													{deletingTournamentId === tournament.id ? "Deleting..." : "Delete"}
+												</Button>
+											)}
+										</div>
 									</td>
 								</tr>
 							))

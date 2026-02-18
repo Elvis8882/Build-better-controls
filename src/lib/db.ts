@@ -134,6 +134,17 @@ export type GroupStanding = {
 	shots_diff: number;
 };
 
+export type PlayerTeamStat = {
+	team_id: string;
+	team_name: string;
+	games_played: number;
+	shots_made: number;
+	goals_made: number;
+	shots_received: number;
+	goals_received: number;
+	goalie_save_rate: number;
+};
+
 function throwOnError(error: { message: string } | null, fallbackMessage: string): void {
 	if (error) {
 		const message = `${error.message ?? ""}`;
@@ -665,4 +676,150 @@ export async function removeTournamentGuest(tournamentId: string, guestId: strin
 export async function lockMatchResult(matchId: string): Promise<void> {
 	const { error } = await supabase.from("match_results").update({ locked: true }).eq("match_id", matchId);
 	throwOnError(error, "Unable to lock result");
+}
+
+export async function listUserTeamStats(userId: string): Promise<PlayerTeamStat[]> {
+	const { data: participantsData, error: participantsError } = await supabase
+		.from("tournament_participants")
+		.select("id, team_id, team:teams(id, name)")
+		.eq("user_id", userId)
+		.not("team_id", "is", null);
+	throwOnError(participantsError, "Unable to load player participants");
+
+	const participants = (participantsData ?? []) as Array<{
+		id: string;
+		team_id: string;
+		team: { id: string; name: string } | Array<{ id: string; name: string }> | null;
+	}>;
+
+	if (participants.length === 0) {
+		return [];
+	}
+
+	const participantToTeam = new Map<string, { team_id: string; team_name: string }>();
+	for (const participant of participants) {
+		const team = Array.isArray(participant.team) ? participant.team[0] : participant.team;
+		if (!participant.team_id || !team) continue;
+		participantToTeam.set(participant.id, { team_id: participant.team_id, team_name: team.name });
+	}
+
+	const participantIds = [...participantToTeam.keys()];
+	if (participantIds.length === 0) {
+		return [];
+	}
+
+	const participantsFilter = participantIds.join(",");
+	const { data: matchesData, error: matchesError } = await supabase
+		.from("matches")
+		.select("id, home_participant_id, away_participant_id")
+		.or(`home_participant_id.in.(${participantsFilter}),away_participant_id.in.(${participantsFilter})`);
+	throwOnError(matchesError, "Unable to load player matches");
+
+	const matches = (matchesData ?? []) as Array<{
+		id: string;
+		home_participant_id: string | null;
+		away_participant_id: string | null;
+	}>;
+
+	if (matches.length === 0) {
+		return [];
+	}
+
+	const matchIds = matches.map((match) => match.id);
+	const { data: resultsData, error: resultsError } = await supabase
+		.from("match_results")
+		.select("match_id, home_score, away_score, home_shots, away_shots")
+		.in("match_id", matchIds);
+	throwOnError(resultsError, "Unable to load player match results");
+
+	const resultsByMatch = new Map<
+		string,
+		{
+			home_score: number;
+			away_score: number;
+			home_shots: number;
+			away_shots: number;
+		}
+	>();
+
+	for (const result of resultsData ?? []) {
+		if (
+			typeof result.home_score !== "number" ||
+			typeof result.away_score !== "number" ||
+			typeof result.home_shots !== "number" ||
+			typeof result.away_shots !== "number"
+		) {
+			continue;
+		}
+
+		resultsByMatch.set(result.match_id as string, {
+			home_score: result.home_score,
+			away_score: result.away_score,
+			home_shots: result.home_shots,
+			away_shots: result.away_shots,
+		});
+	}
+
+	const aggregates = new Map<string, PlayerTeamStat>();
+
+	for (const match of matches) {
+		const result = resultsByMatch.get(match.id);
+		if (!result) continue;
+
+		const isHome = match.home_participant_id ? participantToTeam.get(match.home_participant_id) : null;
+		const isAway = match.away_participant_id ? participantToTeam.get(match.away_participant_id) : null;
+
+		if (!isHome && !isAway) continue;
+
+		const row = isHome
+			? {
+					team_id: isHome.team_id,
+					team_name: isHome.team_name,
+					shots_made: result.home_shots,
+					goals_made: result.home_score,
+					shots_received: result.away_shots,
+					goals_received: result.away_score,
+				}
+			: isAway
+				? {
+						team_id: isAway.team_id,
+						team_name: isAway.team_name,
+						shots_made: result.away_shots,
+						goals_made: result.away_score,
+						shots_received: result.home_shots,
+						goals_received: result.home_score,
+					}
+				: null;
+
+		if (!row) continue;
+
+		const current = aggregates.get(row.team_id) ?? {
+			team_id: row.team_id,
+			team_name: row.team_name,
+			games_played: 0,
+			shots_made: 0,
+			goals_made: 0,
+			shots_received: 0,
+			goals_received: 0,
+			goalie_save_rate: 0,
+		};
+
+		current.games_played += 1;
+		current.shots_made += row.shots_made;
+		current.goals_made += row.goals_made;
+		current.shots_received += row.shots_received;
+		current.goals_received += row.goals_received;
+
+		aggregates.set(row.team_id, current);
+	}
+
+	return [...aggregates.values()]
+		.map((stat) => ({
+			...stat,
+			goalie_save_rate:
+				stat.shots_received > 0
+					? Number(((stat.shots_received - stat.goals_received) / stat.shots_received).toFixed(3))
+					: 0,
+		}))
+		.sort((a, b) => b.games_played - a.games_played || a.team_name.localeCompare(b.team_name));
 }

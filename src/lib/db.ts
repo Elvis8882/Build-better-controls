@@ -134,6 +134,25 @@ export type GroupStanding = {
 	shots_diff: number;
 };
 
+export type PlayerTeamStat = {
+	team_id: string;
+	team_code: string;
+	team_pool: TeamPool;
+	team_name: string;
+	games_played: number;
+	wins: number;
+	shots_made: number;
+	goals_made: number;
+	shots_received: number;
+	goals_received: number;
+	goalie_save_rate: number;
+};
+
+export type RegisteredProfile = {
+	id: string;
+	username: string;
+};
+
 function throwOnError(error: { message: string } | null, fallbackMessage: string): void {
 	if (error) {
 		const message = `${error.message ?? ""}`;
@@ -389,6 +408,21 @@ export async function searchProfilesByUsername(query: string, currentUserId: str
 		.limit(10);
 	throwOnError(error, "Unable to search profiles");
 	return (data ?? []) as ProfileOption[];
+}
+
+export async function searchRegisteredProfiles(query: string): Promise<RegisteredProfile[]> {
+	const term = query.toLowerCase().trim();
+	if (!term) return [];
+
+	const { data, error } = await supabase
+		.from("profiles")
+		.select("id, username")
+		.ilike("username_norm", `${term}%`)
+		.order("username", { ascending: true })
+		.limit(10);
+	throwOnError(error, "Unable to search profiles");
+
+	return (data ?? []) as RegisteredProfile[];
 }
 
 export async function inviteMember(tournamentId: string, userId: string): Promise<void> {
@@ -665,4 +699,215 @@ export async function removeTournamentGuest(tournamentId: string, guestId: strin
 export async function lockMatchResult(matchId: string): Promise<void> {
 	const { error } = await supabase.from("match_results").update({ locked: true }).eq("match_id", matchId);
 	throwOnError(error, "Unable to lock result");
+}
+
+export async function listUserTeamStats(userId: string): Promise<PlayerTeamStat[]> {
+	const { data: participantsData, error: participantsError } = await supabase
+		.from("tournament_participants")
+		.select("id, team_id, team:teams(id, code, name, team_pool)")
+		.eq("user_id", userId)
+		.not("team_id", "is", null);
+	throwOnError(participantsError, "Unable to load player participants");
+
+	const participants = (participantsData ?? []) as Array<{
+		id: string;
+		team_id: string;
+		team:
+			| { id: string; code: string; name: string; team_pool: TeamPool }
+			| Array<{ id: string; code: string; name: string; team_pool: TeamPool }>
+			| null;
+	}>;
+
+	if (participants.length === 0) {
+		return [];
+	}
+
+	const participantToTeam = new Map<
+		string,
+		{ team_id: string; team_code: string; team_pool: TeamPool; team_name: string }
+	>();
+	for (const participant of participants) {
+		const team = Array.isArray(participant.team) ? participant.team[0] : participant.team;
+		if (!participant.team_id || !team) continue;
+		participantToTeam.set(participant.id, {
+			team_id: participant.team_id,
+			team_code: team.code,
+			team_pool: team.team_pool,
+			team_name: team.name,
+		});
+	}
+
+	const participantIds = [...participantToTeam.keys()];
+	if (participantIds.length === 0) {
+		return [];
+	}
+
+	const participantsFilter = participantIds.join(",");
+	const { data: matchesData, error: matchesError } = await supabase
+		.from("matches")
+		.select("id, tournament_id, stage, bracket_type, round, next_match_id, home_participant_id, away_participant_id")
+		.or(`home_participant_id.in.(${participantsFilter}),away_participant_id.in.(${participantsFilter})`);
+	throwOnError(matchesError, "Unable to load player matches");
+
+	const matches = (matchesData ?? []) as Array<{
+		id: string;
+		tournament_id: string;
+		stage: MatchStage;
+		bracket_type: BracketType | null;
+		round: number;
+		next_match_id: string | null;
+		home_participant_id: string | null;
+		away_participant_id: string | null;
+	}>;
+
+	if (matches.length === 0) {
+		return [];
+	}
+
+	const matchIds = matches.map((match) => match.id);
+	const { data: resultsData, error: resultsError } = await supabase
+		.from("match_results")
+		.select("match_id, home_score, away_score, home_shots, away_shots")
+		.in("match_id", matchIds);
+	throwOnError(resultsError, "Unable to load player match results");
+
+	const resultsByMatch = new Map<
+		string,
+		{
+			home_score: number;
+			away_score: number;
+			home_shots: number;
+			away_shots: number;
+		}
+	>();
+
+	for (const result of resultsData ?? []) {
+		if (
+			typeof result.home_score !== "number" ||
+			typeof result.away_score !== "number" ||
+			typeof result.home_shots !== "number" ||
+			typeof result.away_shots !== "number"
+		) {
+			continue;
+		}
+
+		resultsByMatch.set(result.match_id as string, {
+			home_score: result.home_score,
+			away_score: result.away_score,
+			home_shots: result.home_shots,
+			away_shots: result.away_shots,
+		});
+	}
+
+	const aggregates = new Map<string, PlayerTeamStat>();
+
+	for (const match of matches) {
+		const result = resultsByMatch.get(match.id);
+		if (!result) continue;
+
+		const isHome = match.home_participant_id ? participantToTeam.get(match.home_participant_id) : null;
+		const isAway = match.away_participant_id ? participantToTeam.get(match.away_participant_id) : null;
+
+		if (!isHome && !isAway) continue;
+
+		const row = isHome
+			? {
+					team_id: isHome.team_id,
+					team_code: isHome.team_code,
+					team_pool: isHome.team_pool,
+					team_name: isHome.team_name,
+					shots_made: result.home_shots,
+					goals_made: result.home_score,
+					shots_received: result.away_shots,
+					goals_received: result.away_score,
+				}
+			: isAway
+				? {
+						team_id: isAway.team_id,
+						team_code: isAway.team_code,
+						team_pool: isAway.team_pool,
+						team_name: isAway.team_name,
+						shots_made: result.away_shots,
+						goals_made: result.away_score,
+						shots_received: result.home_shots,
+						goals_received: result.home_score,
+					}
+				: null;
+
+		if (!row) continue;
+
+		const current = aggregates.get(row.team_id) ?? {
+			team_id: row.team_id,
+			team_code: row.team_code,
+			team_pool: row.team_pool,
+			team_name: row.team_name,
+			games_played: 0,
+			wins: 0,
+			shots_made: 0,
+			goals_made: 0,
+			shots_received: 0,
+			goals_received: 0,
+			goalie_save_rate: 0,
+		};
+
+		current.games_played += 1;
+		current.shots_made += row.shots_made;
+		current.goals_made += row.goals_made;
+		current.shots_received += row.shots_received;
+		current.goals_received += row.goals_received;
+
+		aggregates.set(row.team_id, current);
+	}
+
+	const tournamentWinnerByParticipantId = new Map<string, Set<string>>();
+	const finalsByTournament = new Map<string, typeof matches>();
+
+	for (const match of matches) {
+		if (match.stage !== "PLAYOFF" || match.bracket_type === "LOSERS") continue;
+		if (!resultsByMatch.has(match.id)) continue;
+		if (match.next_match_id !== null) continue;
+
+		const current = finalsByTournament.get(match.tournament_id) ?? [];
+		current.push(match);
+		finalsByTournament.set(match.tournament_id, current);
+	}
+
+	for (const [tournamentId, finals] of finalsByTournament.entries()) {
+		const finalRound = Math.max(...finals.map((item) => item.round));
+		const candidates = finals.filter((item) => item.round === finalRound);
+
+		for (const finalMatch of candidates) {
+			const result = resultsByMatch.get(finalMatch.id);
+			if (!result || result.home_score === result.away_score) continue;
+
+			const winnerParticipantId =
+				result.home_score > result.away_score ? finalMatch.home_participant_id : finalMatch.away_participant_id;
+			if (!winnerParticipantId) continue;
+
+			const tournaments = tournamentWinnerByParticipantId.get(winnerParticipantId) ?? new Set<string>();
+			tournaments.add(tournamentId);
+			tournamentWinnerByParticipantId.set(winnerParticipantId, tournaments);
+		}
+	}
+
+	for (const [participantId, tournaments] of tournamentWinnerByParticipantId.entries()) {
+		const team = participantToTeam.get(participantId);
+		if (!team) continue;
+
+		const current = aggregates.get(team.team_id);
+		if (!current) continue;
+
+		current.wins += tournaments.size;
+		aggregates.set(team.team_id, current);
+	}
+
+	return [...aggregates.values()]
+		.map((stat) => ({
+			...stat,
+			goalie_save_rate:
+				stat.shots_received > 0
+					? Number(((stat.shots_received - stat.goals_received) / stat.shots_received).toFixed(3))
+					: 0,
+		}))
+		.sort((a, b) => b.games_played - a.games_played || a.team_name.localeCompare(b.team_name));
 }

@@ -122,82 +122,109 @@ export function PlayoffMatchesTable({
 					const homeTeam = match.home_team_id ? teamById.get(match.home_team_id) : null;
 					const awayTeam = match.away_team_id ? teamById.get(match.away_team_id) : null;
 					const disabled = !canEditMatch(match);
+
 					return (
-						<div key={match.id} className="rounded border p-3">
-							<div className="mb-2 flex items-start justify-between gap-3">
-								<div className="grid flex-1 grid-cols-[1fr_auto_1fr] items-start gap-3">
-									<div className="text-left">
-										<p className="font-medium">{homeTeam?.name ?? (match.home_participant_name || "BYE")}</p>
-										<p className="text-xs text-muted-foreground">
-											Goals: {match.result?.home_score ?? "-"} • SOG: {match.result?.home_shots ?? "-"}
-										</p>
-									</div>
-									<span className="mt-1 text-sm font-semibold">VS</span>
-									<div className="text-right">
-										<p className="font-medium">{awayTeam?.name ?? (match.away_participant_name || "BYE")}</p>
-										<p className="text-xs text-muted-foreground">
-											Goals: {match.result?.away_score ?? "-"} • SOG: {match.result?.away_shots ?? "-"}
-										</p>
-									</div>
+						<div key={match.id} className="rounded-xl border bg-gradient-to-b from-card to-muted/10 p-4 shadow-sm">
+							<div className="mb-4 flex items-center justify-between gap-3">
+								<h3 className="text-xl font-bold">
+									Game {match.round}
+									{match.bracket_slot ? `.${match.bracket_slot}` : ""}
+								</h3>
+								{match.result?.locked && <Badge className="text-xs">Locked</Badge>}
+							</div>
+							<div className="grid grid-cols-[1fr_auto_1fr] items-start gap-4">
+								<div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-left">
+									<p className="text-xs font-semibold uppercase tracking-wide text-primary">Home Team</p>
+									<p className="mt-1 text-base font-semibold">
+										{homeTeam?.name ?? (match.home_participant_name || "BYE")}
+									</p>
+									<p className="mt-1 text-xs text-muted-foreground">
+										Score: {match.result?.home_score ?? "-"} • SOG: {match.result?.home_shots ?? "-"}
+									</p>
 								</div>
-								{match.result?.locked && <Badge>Locked</Badge>}
-							</div>
-							<div className="grid gap-2 md:grid-cols-5">
-								<Input
-									type="number"
-									min={0}
-									disabled={disabled}
-									value={draft.home_score}
-									onChange={(e) => onResultDraftChange(match.id, { ...draft, home_score: e.target.value })}
-								/>
-								<Input
-									type="number"
-									min={0}
-									disabled={disabled}
-									value={draft.away_score}
-									onChange={(e) => onResultDraftChange(match.id, { ...draft, away_score: e.target.value })}
-								/>
-								<Input
-									type="number"
-									min={0}
-									disabled={disabled}
-									value={draft.home_shots}
-									onChange={(e) => onResultDraftChange(match.id, { ...draft, home_shots: e.target.value })}
-								/>
-								<Input
-									type="number"
-									min={0}
-									disabled={disabled}
-									value={draft.away_shots}
-									onChange={(e) => onResultDraftChange(match.id, { ...draft, away_shots: e.target.value })}
-								/>
-								<select
-									className="h-10 rounded-md border bg-transparent px-3"
-									disabled={disabled}
-									value={draft.decision}
-									onChange={(e) =>
-										onResultDraftChange(match.id, { ...draft, decision: e.target.value as MatchParticipantDecision })
-									}
-								>
-									<option value="R">R</option>
-									<option value="OT">OT</option>
-									<option value="SO">SO</option>
-								</select>
-							</div>
-							<div className="mt-2">
-								<div className="flex gap-2">
-									<Button
-										disabled={saving || disabled || Boolean(match.result?.locked)}
-										onClick={() => void onLockResult(match.id)}
+								<div className="flex flex-col items-center justify-center gap-2">
+									<span className="text-2xl font-black">VS</span>
+									<select
+										className="h-10 rounded-md border bg-background px-3 text-sm"
+										disabled={disabled}
+										value={draft.decision}
+										onChange={(e) =>
+											onResultDraftChange(match.id, { ...draft, decision: e.target.value as MatchParticipantDecision })
+										}
 									>
-										Lock in
-									</Button>
-									{onEditResult && Boolean(match.result?.locked) && (
-										<Button size="sm" variant="outline" onClick={() => onEditResult(match.id)}>
-											Edit
-										</Button>
-									)}
+										<option value="R">R</option>
+										<option value="OT">OT</option>
+										<option value="SO">SO</option>
+									</select>
 								</div>
+								<div className="rounded-lg border border-secondary/40 bg-secondary/10 p-3 text-right">
+									<p className="text-xs font-semibold uppercase tracking-wide text-secondary-foreground">Away Team</p>
+									<p className="mt-1 text-base font-semibold">
+										{awayTeam?.name ?? (match.away_participant_name || "BYE")}
+									</p>
+									<p className="mt-1 text-xs text-muted-foreground">
+										Score: {match.result?.away_score ?? "-"} • SOG: {match.result?.away_shots ?? "-"}
+									</p>
+								</div>
+							</div>
+							<div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4">
+								<div>
+									<p className="mb-1 text-xs font-medium text-muted-foreground">Home Score</p>
+									<Input
+										type="number"
+										min={0}
+										disabled={disabled}
+										value={draft.home_score}
+										placeholder="0"
+										onChange={(e) => onResultDraftChange(match.id, { ...draft, home_score: e.target.value })}
+									/>
+								</div>
+								<div>
+									<p className="mb-1 text-xs font-medium text-muted-foreground">Away Score</p>
+									<Input
+										type="number"
+										min={0}
+										disabled={disabled}
+										value={draft.away_score}
+										placeholder="0"
+										onChange={(e) => onResultDraftChange(match.id, { ...draft, away_score: e.target.value })}
+									/>
+								</div>
+								<div>
+									<p className="mb-1 text-xs font-medium text-muted-foreground">Home SOG</p>
+									<Input
+										type="number"
+										min={0}
+										disabled={disabled}
+										value={draft.home_shots}
+										placeholder="0"
+										onChange={(e) => onResultDraftChange(match.id, { ...draft, home_shots: e.target.value })}
+									/>
+								</div>
+								<div>
+									<p className="mb-1 text-xs font-medium text-muted-foreground">Away SOG</p>
+									<Input
+										type="number"
+										min={0}
+										disabled={disabled}
+										value={draft.away_shots}
+										placeholder="0"
+										onChange={(e) => onResultDraftChange(match.id, { ...draft, away_shots: e.target.value })}
+									/>
+								</div>
+							</div>
+							<div className="mt-3 flex gap-2">
+								<Button
+									disabled={saving || disabled || Boolean(match.result?.locked)}
+									onClick={() => void onLockResult(match.id)}
+								>
+									Lock in
+								</Button>
+								{onEditResult && Boolean(match.result?.locked) && (
+									<Button size="sm" variant="outline" onClick={() => onEditResult(match.id)}>
+										Edit
+									</Button>
+								)}
 							</div>
 						</div>
 					);

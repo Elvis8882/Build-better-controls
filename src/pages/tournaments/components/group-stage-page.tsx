@@ -65,11 +65,7 @@ export function ParticipantsTable({
 	onEditParticipant: (participantId: string) => void;
 	onClearParticipant: (participant: TournamentParticipant) => Promise<void>;
 }) {
-	const [teamFilter, setTeamFilter] = useState<TeamFilter>("ALL");
-	const filteredTeams = useMemo(
-		() => teams.filter((team) => teamFilter === "ALL" || team.ovr_tier === teamFilter),
-		[teams, teamFilter],
-	);
+	const [teamFilterByParticipantId, setTeamFilterByParticipantId] = useState<Record<string, TeamFilter>>({});
 	const hasOpenSlots = participants.length < tournament.default_participants;
 
 	return (
@@ -116,20 +112,6 @@ export function ParticipantsTable({
 					</div>
 				</div>
 			)}
-			<div className="flex items-center gap-2">
-				<p className="text-sm">Team filter</p>
-				<select
-					className="h-9 rounded-md border px-2"
-					value={teamFilter}
-					onChange={(event) => setTeamFilter(event.target.value as TeamFilter)}
-				>
-					<option value="ALL">All teams</option>
-					<option value="Top 5">Top 5</option>
-					<option value="Top 10">Top 10</option>
-					<option value="Middle Tier">Middle Tier</option>
-					<option value="Bottom Tier">Bottom Tier</option>
-				</select>
-			</div>
 			<div className="overflow-x-auto">
 				<table className="w-full min-w-[760px] text-sm">
 					<thead>
@@ -140,63 +122,86 @@ export function ParticipantsTable({
 						</tr>
 					</thead>
 					<tbody>
-						{participants.map((participant) => (
-							<tr key={participant.id} className="border-b">
-								<td className="px-2 py-2">{participant.display_name}</td>
-								<td className="px-2 py-2">
-									<select
-										className="h-9 rounded-md border px-2"
-										disabled={participant.locked && !editingParticipantIds.has(participant.id)}
-										value={participant.team_id ?? ""}
-										onChange={(event) => void onTeamChange(participant, event.target.value || null)}
-									>
-										<option value="">Select team</option>
-										{filteredTeams.map((team) => (
-											<option
-												key={team.id}
-												value={team.id}
-												disabled={assignedTeams.has(team.id) && participant.team_id !== team.id}
+						{participants.map((participant) => {
+							const teamFilter = teamFilterByParticipantId[participant.id] ?? "ALL";
+							const filteredTeams = teams.filter((team) => teamFilter === "ALL" || team.ovr_tier === teamFilter);
+							return (
+								<tr key={participant.id} className="border-b">
+									<td className="px-2 py-2">{participant.display_name}</td>
+									<td className="px-2 py-2">
+										<div className="mb-2 flex items-center gap-2">
+											<span className="text-xs text-muted-foreground">Filter</span>
+											<select
+												className="h-8 rounded-md border px-2 text-xs"
+												value={teamFilter}
+												onChange={(event) =>
+													setTeamFilterByParticipantId((previous) => ({
+														...previous,
+														[participant.id]: event.target.value as TeamFilter,
+													}))
+												}
 											>
-												{team.name}
-											</option>
-										))}
-									</select>
-									{participant.team && (
-										<p className="mt-1 text-xs text-muted-foreground">
-											OVR {participant.team.overall} • OFF {participant.team.offense} • DEF {participant.team.defense} •
-											GOA {participant.team.goalie}
-										</p>
-									)}
-								</td>
-								<td className="flex gap-2 px-2 py-2">
-									<Button size="sm" variant="outline" onClick={() => void onRandomizeTeam(participant.id)}>
-										🎲
-									</Button>
-									<Button
-										size="sm"
-										disabled={participant.locked || !participant.team_id || editingParticipantIds.has(participant.id)}
-										onClick={() => void onLockParticipant(participant.id)}
-									>
-										{participant.locked ? "Locked" : "Lock in"}
-									</Button>
-									{participant.locked && isHostOrAdmin && (
-										<Button size="sm" variant="outline" onClick={() => onEditParticipant(participant.id)}>
-											Edit
+												<option value="ALL">All teams</option>
+												<option value="Top 5">Top 5</option>
+												<option value="Top 10">Top 10</option>
+												<option value="Middle Tier">Middle Tier</option>
+												<option value="Bottom Tier">Bottom Tier</option>
+											</select>
+										</div>
+										<select
+											className="h-9 rounded-md border px-2"
+											disabled={participant.locked && !editingParticipantIds.has(participant.id)}
+											value={participant.team_id ?? ""}
+											onChange={(event) => void onTeamChange(participant, event.target.value || null)}
+										>
+											<option value="">Select team</option>
+											{filteredTeams.map((team) => (
+												<option
+													key={team.id}
+													value={team.id}
+													disabled={assignedTeams.has(team.id) && participant.team_id !== team.id}
+												>
+													{team.name}
+												</option>
+											))}
+										</select>
+										{participant.team && (
+											<p className="mt-1 text-xs text-muted-foreground">
+												OVR {participant.team.overall} • OFF {participant.team.offense} • DEF {participant.team.defense}{" "}
+												• GOA {participant.team.goalie}
+											</p>
+										)}
+									</td>
+									<td className="flex gap-2 px-2 py-2">
+										<Button size="sm" variant="outline" onClick={() => void onRandomizeTeam(participant.id)}>
+											🎲
 										</Button>
-									)}
-									{isHostOrAdmin && (
 										<Button
 											size="sm"
-											variant="ghost"
-											disabled={saving}
-											onClick={() => void onClearParticipant(participant)}
+											disabled={participant.locked || !participant.team_id || editingParticipantIds.has(participant.id)}
+											onClick={() => void onLockParticipant(participant.id)}
 										>
-											×
+											{participant.locked ? "Locked" : "Lock in"}
 										</Button>
-									)}
-								</td>
-							</tr>
-						))}
+										{participant.locked && isHostOrAdmin && (
+											<Button size="sm" variant="outline" onClick={() => onEditParticipant(participant.id)}>
+												Edit
+											</Button>
+										)}
+										{isHostOrAdmin && (
+											<Button
+												size="sm"
+												variant="ghost"
+												disabled={saving}
+												onClick={() => void onClearParticipant(participant)}
+											>
+												×
+											</Button>
+										)}
+									</td>
+								</tr>
+							);
+						})}
 						{placeholderRows.map((row) => (
 							<tr key={row.id} className="border-b border-dashed bg-muted/20">
 								<td className="px-2 py-3 text-muted-foreground">{row.label}</td>
@@ -301,69 +306,94 @@ export function GroupMatchesTable({
 					const homeTeam = match.home_team_id ? teamById.get(match.home_team_id) : null;
 					const awayTeam = match.away_team_id ? teamById.get(match.away_team_id) : null;
 					const disabled = !canEditMatch(match);
+
 					return (
-						<div key={match.id} className="rounded border p-3">
-							<div className="mb-2 flex items-start justify-between">
-								<div className="grid w-full grid-cols-[1fr_auto_1fr] items-start gap-3">
-									<div className="text-left">
-										<p className="font-medium">{homeTeam?.name ?? match.home_participant_name}</p>
-										<p className="text-xs text-muted-foreground">
-											Goals: {match.result?.home_score ?? "-"} • SOG: {match.result?.home_shots ?? "-"}
-										</p>
-									</div>
-									<span className="mt-1 text-sm font-semibold">VS</span>
-									<div className="text-right">
-										<p className="font-medium">{awayTeam?.name ?? match.away_participant_name}</p>
-										<p className="text-xs text-muted-foreground">
-											Goals: {match.result?.away_score ?? "-"} • SOG: {match.result?.away_shots ?? "-"}
-										</p>
-									</div>
+						<div key={match.id} className="rounded-xl border bg-gradient-to-b from-card to-muted/10 p-4 shadow-sm">
+							<div className="mb-4 flex items-center justify-between gap-3">
+								<h3 className="text-xl font-bold">
+									Game {match.round}
+									{match.bracket_slot ? `.${match.bracket_slot}` : ""}
+								</h3>
+								{match.result?.locked && <Badge className="text-xs">Locked</Badge>}
+							</div>
+							<div className="grid grid-cols-[1fr_auto_1fr] items-start gap-4">
+								<div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-left">
+									<p className="text-xs font-semibold uppercase tracking-wide text-primary">Home Team</p>
+									<p className="mt-1 text-base font-semibold">{homeTeam?.name ?? match.home_participant_name}</p>
+									<p className="mt-1 text-xs text-muted-foreground">
+										Score: {match.result?.home_score ?? "-"} • SOG: {match.result?.home_shots ?? "-"}
+									</p>
 								</div>
-								{match.result?.locked && <Badge>Locked</Badge>}
+								<div className="flex flex-col items-center justify-center gap-2">
+									<span className="text-2xl font-black">VS</span>
+									<select
+										className="h-10 rounded-md border bg-background px-3 text-sm"
+										disabled={disabled}
+										value={draft.decision}
+										onChange={(e) =>
+											onResultDraftChange(match.id, { ...draft, decision: e.target.value as MatchParticipantDecision })
+										}
+									>
+										<option value="R">R</option>
+										<option value="OT">OT</option>
+										<option value="SO">SO</option>
+									</select>
+								</div>
+								<div className="rounded-lg border border-secondary/40 bg-secondary/10 p-3 text-right">
+									<p className="text-xs font-semibold uppercase tracking-wide text-secondary-foreground">Away Team</p>
+									<p className="mt-1 text-base font-semibold">{awayTeam?.name ?? match.away_participant_name}</p>
+									<p className="mt-1 text-xs text-muted-foreground">
+										Score: {match.result?.away_score ?? "-"} • SOG: {match.result?.away_shots ?? "-"}
+									</p>
+								</div>
 							</div>
-							<div className="grid gap-2 md:grid-cols-5">
-								<Input
-									type="number"
-									min={0}
-									disabled={disabled}
-									value={draft.home_score}
-									onChange={(e) => onResultDraftChange(match.id, { ...draft, home_score: e.target.value })}
-								/>
-								<Input
-									type="number"
-									min={0}
-									disabled={disabled}
-									value={draft.away_score}
-									onChange={(e) => onResultDraftChange(match.id, { ...draft, away_score: e.target.value })}
-								/>
-								<Input
-									type="number"
-									min={0}
-									disabled={disabled}
-									value={draft.home_shots}
-									onChange={(e) => onResultDraftChange(match.id, { ...draft, home_shots: e.target.value })}
-								/>
-								<Input
-									type="number"
-									min={0}
-									disabled={disabled}
-									value={draft.away_shots}
-									onChange={(e) => onResultDraftChange(match.id, { ...draft, away_shots: e.target.value })}
-								/>
-								<select
-									className="h-10 rounded-md border bg-transparent px-3"
-									disabled={disabled}
-									value={draft.decision}
-									onChange={(e) =>
-										onResultDraftChange(match.id, { ...draft, decision: e.target.value as MatchParticipantDecision })
-									}
-								>
-									<option value="R">R</option>
-									<option value="OT">OT</option>
-									<option value="SO">SO</option>
-								</select>
+							<div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4">
+								<div>
+									<p className="mb-1 text-xs font-medium text-muted-foreground">Home Score</p>
+									<Input
+										type="number"
+										min={0}
+										disabled={disabled}
+										value={draft.home_score}
+										placeholder="0"
+										onChange={(e) => onResultDraftChange(match.id, { ...draft, home_score: e.target.value })}
+									/>
+								</div>
+								<div>
+									<p className="mb-1 text-xs font-medium text-muted-foreground">Away Score</p>
+									<Input
+										type="number"
+										min={0}
+										disabled={disabled}
+										value={draft.away_score}
+										placeholder="0"
+										onChange={(e) => onResultDraftChange(match.id, { ...draft, away_score: e.target.value })}
+									/>
+								</div>
+								<div>
+									<p className="mb-1 text-xs font-medium text-muted-foreground">Home SOG</p>
+									<Input
+										type="number"
+										min={0}
+										disabled={disabled}
+										value={draft.home_shots}
+										placeholder="0"
+										onChange={(e) => onResultDraftChange(match.id, { ...draft, home_shots: e.target.value })}
+									/>
+								</div>
+								<div>
+									<p className="mb-1 text-xs font-medium text-muted-foreground">Away SOG</p>
+									<Input
+										type="number"
+										min={0}
+										disabled={disabled}
+										value={draft.away_shots}
+										placeholder="0"
+										onChange={(e) => onResultDraftChange(match.id, { ...draft, away_shots: e.target.value })}
+									/>
+								</div>
 							</div>
-							<div className="mt-2">
+							<div className="mt-3">
 								<Button
 									disabled={saving || disabled || Boolean(match.result?.locked)}
 									onClick={() => void onLockResult(match.id)}
@@ -380,38 +410,16 @@ export function GroupMatchesTable({
 }
 
 export function GroupStagePage({
-	participantsTable,
 	standingsTable,
 	matchesTable,
 }: {
-	participantsTable: ReactNode;
 	standingsTable: ReactNode;
 	matchesTable: ReactNode;
 }) {
-	const [section, setSection] = useState<"participants" | "group">("participants");
-
 	return (
 		<div className="space-y-4">
-			<div className="flex gap-2">
-				<Button
-					size="sm"
-					variant={section === "participants" ? "default" : "outline"}
-					onClick={() => setSection("participants")}
-				>
-					Participants & Teams
-				</Button>
-				<Button size="sm" variant={section === "group" ? "default" : "outline"} onClick={() => setSection("group")}>
-					Group Stage
-				</Button>
-			</div>
-			{section === "participants" ? (
-				participantsTable
-			) : (
-				<>
-					{standingsTable}
-					{matchesTable}
-				</>
-			)}
+			{standingsTable}
+			{matchesTable}
 		</div>
 	);
 }

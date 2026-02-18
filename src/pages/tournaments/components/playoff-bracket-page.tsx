@@ -1,5 +1,6 @@
 import { type ReactNode, useMemo } from "react";
 import type { MatchParticipantDecision, MatchWithResult, Team } from "@/lib/db";
+import { getTeamLogoUrl } from "@/lib/teamLogos";
 import { Badge } from "@/ui/badge";
 import { Button } from "@/ui/button";
 import { Input } from "@/ui/input";
@@ -135,9 +136,18 @@ export function PlayoffMatchesTable({
 							<div className="grid grid-cols-[1fr_auto_1fr] items-start gap-4">
 								<div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-left">
 									<p className="text-xs font-semibold uppercase tracking-wide text-primary">Home Team</p>
-									<p className="mt-1 text-base font-semibold">
-										{homeTeam?.name ?? (match.home_participant_name || "BYE")}
-									</p>
+									<div className="mt-1 flex items-center gap-2">
+										{homeTeam && (
+											<img
+												src={getTeamLogoUrl(homeTeam.code, homeTeam.team_pool)}
+												alt={`${homeTeam.name} logo`}
+												className="h-7 w-7 object-contain"
+											/>
+										)}
+										<p className="text-base font-semibold">
+											{homeTeam?.name ?? (match.home_participant_name || "BYE")}
+										</p>
+									</div>
 									<p className="mt-1 text-xs text-muted-foreground">
 										Score: {match.result?.home_score ?? "-"} • SOG: {match.result?.home_shots ?? "-"}
 									</p>
@@ -159,9 +169,18 @@ export function PlayoffMatchesTable({
 								</div>
 								<div className="rounded-lg border border-secondary/40 bg-secondary/10 p-3 text-right">
 									<p className="text-xs font-semibold uppercase tracking-wide text-secondary-foreground">Away Team</p>
-									<p className="mt-1 text-base font-semibold">
-										{awayTeam?.name ?? (match.away_participant_name || "BYE")}
-									</p>
+									<div className="mt-1 flex items-center justify-end gap-2">
+										<p className="text-base font-semibold">
+											{awayTeam?.name ?? (match.away_participant_name || "BYE")}
+										</p>
+										{awayTeam && (
+											<img
+												src={getTeamLogoUrl(awayTeam.code, awayTeam.team_pool)}
+												alt={`${awayTeam.name} logo`}
+												className="h-7 w-7 object-contain"
+											/>
+										)}
+									</div>
 									<p className="mt-1 text-xs text-muted-foreground">
 										Score: {match.result?.away_score ?? "-"} • SOG: {match.result?.away_shots ?? "-"}
 									</p>

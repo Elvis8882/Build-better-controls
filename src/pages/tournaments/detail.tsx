@@ -59,6 +59,8 @@ type ParsedResult = {
 	decision: MatchParticipantDecision;
 };
 
+type TeamFilter = "ALL" | Team["ovr_tier"];
+
 const defaultResult: EditableResult = {
 	home_score: "",
 	away_score: "",
@@ -341,7 +343,7 @@ export default function TournamentDetailPage() {
 				userId: pickedOption.id,
 				displayName: pickedOption.username + (pickedOption.id === tournament?.created_by ? " (Host)" : ""),
 			});
-			await loadAll();
+			await refreshParticipantsSection();
 			setInviteQuery("");
 			setInviteOptions([]);
 			setSelectedInviteUserId("");
@@ -364,7 +366,7 @@ export default function TournamentDetailPage() {
 			const guestName = newGuestName.trim();
 			const guest = await addTournamentGuest(id, guestName);
 			await createParticipant(id, { guestId: guest.id, displayName: `${guestName} (Guest)` });
-			await loadAll();
+			await refreshParticipantsSection();
 			setNewGuestName("");
 			toast.success("Guest added to participant list.");
 		} catch (error) {
@@ -469,10 +471,12 @@ export default function TournamentDetailPage() {
 		return match.home_participant_id === myParticipant.id || match.away_participant_id === myParticipant.id;
 	};
 
-	const onRandomizeTeam = async (participantId: string) => {
-		const available = teams.filter((team) => !assignedTeams.has(team.id));
+	const onRandomizeTeam = async (participant: TournamentParticipant, teamFilter: TeamFilter) => {
+		const available = teams.filter(
+			(team) => !assignedTeams.has(team.id) && (teamFilter === "ALL" || team.ovr_tier === teamFilter),
+		);
 		if (available.length === 0) {
-			toast.error("No unassigned teams left in pool.");
+			toast.error("No unassigned teams left for the selected filter.");
 			return;
 		}
 		const pick = available[Math.floor(Math.random() * available.length)];
@@ -480,7 +484,7 @@ export default function TournamentDetailPage() {
 		if (!pickId) return;
 		setSaving(true);
 		try {
-			await updateParticipant(participantId, pickId);
+			await updateParticipant(participant.id, pickId);
 			await refreshParticipantsSection();
 		} finally {
 			setSaving(false);
@@ -584,6 +588,11 @@ export default function TournamentDetailPage() {
 							onRandomizeTeam={onRandomizeTeam}
 							onLockParticipant={async (participantId) => {
 								await lockParticipant(participantId);
+								setEditingParticipantIds((previous) => {
+									const next = new Set(previous);
+									next.delete(participantId);
+									return next;
+								});
 								await refreshParticipantsSection();
 							}}
 							onEditParticipant={(participantId) =>

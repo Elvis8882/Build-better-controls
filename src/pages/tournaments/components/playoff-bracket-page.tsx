@@ -141,7 +141,7 @@ export function PlayoffMatchesTable({
 											<img
 												src={getTeamLogoUrl(homeTeam.code, homeTeam.team_pool)}
 												alt={`${homeTeam.name} logo`}
-												className="h-7 w-7 object-contain"
+												className="h-14 w-14 object-contain"
 											/>
 										)}
 										<p className="text-base font-semibold">
@@ -177,7 +177,7 @@ export function PlayoffMatchesTable({
 											<img
 												src={getTeamLogoUrl(awayTeam.code, awayTeam.team_pool)}
 												alt={`${awayTeam.name} logo`}
-												className="h-7 w-7 object-contain"
+												className="h-14 w-14 object-contain"
 											/>
 										)}
 									</div>
@@ -186,9 +186,9 @@ export function PlayoffMatchesTable({
 									</p>
 								</div>
 							</div>
-							<div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4">
-								<div>
-									<p className="mb-1 text-xs font-medium text-muted-foreground">Home Score</p>
+							<div className="mt-4 grid grid-cols-2 gap-3">
+								<div className="space-y-2">
+									<p className="text-xs font-medium text-muted-foreground">Home Goal</p>
 									<Input
 										type="number"
 										min={0}
@@ -197,20 +197,7 @@ export function PlayoffMatchesTable({
 										placeholder="0"
 										onChange={(e) => onResultDraftChange(match.id, { ...draft, home_score: e.target.value })}
 									/>
-								</div>
-								<div>
-									<p className="mb-1 text-xs font-medium text-muted-foreground">Away Score</p>
-									<Input
-										type="number"
-										min={0}
-										disabled={disabled}
-										value={draft.away_score}
-										placeholder="0"
-										onChange={(e) => onResultDraftChange(match.id, { ...draft, away_score: e.target.value })}
-									/>
-								</div>
-								<div>
-									<p className="mb-1 text-xs font-medium text-muted-foreground">Home SOG</p>
+									<p className="text-xs font-medium text-muted-foreground">Home SOG</p>
 									<Input
 										type="number"
 										min={0}
@@ -220,8 +207,17 @@ export function PlayoffMatchesTable({
 										onChange={(e) => onResultDraftChange(match.id, { ...draft, home_shots: e.target.value })}
 									/>
 								</div>
-								<div>
-									<p className="mb-1 text-xs font-medium text-muted-foreground">Away SOG</p>
+								<div className="space-y-2">
+									<p className="text-xs font-medium text-muted-foreground text-right">Away Goal</p>
+									<Input
+										type="number"
+										min={0}
+										disabled={disabled}
+										value={draft.away_score}
+										placeholder="0"
+										onChange={(e) => onResultDraftChange(match.id, { ...draft, away_score: e.target.value })}
+									/>
+									<p className="text-xs font-medium text-muted-foreground text-right">Away SOG</p>
 									<Input
 										type="number"
 										min={0}

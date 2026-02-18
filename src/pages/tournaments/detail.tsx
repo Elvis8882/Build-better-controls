@@ -552,7 +552,7 @@ export default function TournamentDetailPage() {
 
 			<Tabs value={activeTab} onValueChange={(value) => onTabChange(value as "participants" | "group" | "playoff")}>
 				<TabsList>
-					{fullPreset && <TabsTrigger value="participants">Participants</TabsTrigger>}
+					<TabsTrigger value="participants">Participants</TabsTrigger>
 					{fullPreset && (
 						<TabsTrigger value="group" disabled={!groupStageAvailable}>
 							Group Stage
@@ -562,6 +562,54 @@ export default function TournamentDetailPage() {
 						Playoff sheet
 					</TabsTrigger>
 				</TabsList>
+
+				<TabsContent value="participants" className="space-y-4">
+					<ParticipantsTable
+						tournament={tournament}
+						participants={displayParticipants}
+						placeholderRows={placeholderRows}
+						teams={teams}
+						assignedTeams={assignedTeams}
+						saving={saving}
+						isHostOrAdmin={isHostOrAdmin}
+						editingParticipantIds={editingParticipantIds}
+						inviteQuery={inviteQuery}
+						inviteOptions={inviteOptions}
+						newGuestName={newGuestName}
+						onInviteQueryChange={(value) => {
+							setInviteQuery(value);
+							setSelectedInviteUserId("");
+						}}
+						onNewGuestNameChange={setNewGuestName}
+						onInvite={onInvite}
+						onAddGuest={onAddGuest}
+						onTeamChange={onParticipantTeamChange}
+						onRandomizeTeam={onRandomizeTeam}
+						onLockParticipant={async (participantId) => {
+							setSaving(true);
+							try {
+								await lockParticipant(participantId);
+								setEditingParticipantIds((previous) => {
+									const next = new Set(previous);
+									next.delete(participantId);
+									return next;
+								});
+								await refreshParticipantsSection();
+							} catch (error) {
+								toast.error((error as Error).message);
+							} finally {
+								setSaving(false);
+							}
+						}}
+						onEditParticipant={(participantId) =>
+							setEditingParticipantIds((previous) => new Set(previous).add(participantId))
+						}
+						onClearParticipant={onClearParticipant}
+					/>
+					{!allLockedWithTeams && (
+						<p className="text-sm text-muted-foreground">Waiting for all participants to lock teams.</p>
+					)}
+				</TabsContent>
 
 				{fullPreset && (
 					<TabsContent value="participants" className="space-y-4">

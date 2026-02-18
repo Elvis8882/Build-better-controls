@@ -51,10 +51,17 @@ begin
       insert into public.matches(
         tournament_id, stage, bracket_type, round, bracket_slot
       )
-      values (
+      select
         p_tournament_id, 'PLAYOFF', 'WINNERS', v_round, v_slot
-      )
-      on conflict on constraint matches_bracket_unique do nothing;
+      where not exists (
+        select 1
+        from public.matches mx
+        where mx.tournament_id = p_tournament_id
+          and mx.stage = 'PLAYOFF'
+          and mx.bracket_type = 'WINNERS'
+          and mx.round = v_round
+          and mx.bracket_slot = v_slot
+      );
     end loop;
   end loop;
 
@@ -104,6 +111,26 @@ begin
   else
     -- playoffs_only or no groups: ensure persisted random seeding
     if not exists (select 1 from public.tournament_playoff_seeds where tournament_id = p_tournament_id) then
+      insert into public.tournament_playoff_seeds(tournament_id, seed, participant_id)
+      select p_tournament_id,
+             row_number() over (order by random())::int as seed,
+             id
+      from public.tournament_participants
+      where tournament_id = p_tournament_id;
+    end if;
+
+    -- heal stale or mismatched seed rows
+    if (select count(*) from public.tournament_playoff_seeds where tournament_id = p_tournament_id) <> v_n
+       or exists (
+         select 1
+         from public.tournament_playoff_seeds s
+         left join public.tournament_participants tp
+           on tp.id = s.participant_id and tp.tournament_id = p_tournament_id
+         where s.tournament_id = p_tournament_id
+           and tp.id is null
+       )
+    then
+      delete from public.tournament_playoff_seeds where tournament_id = p_tournament_id;
       insert into public.tournament_playoff_seeds(tournament_id, seed, participant_id)
       select p_tournament_id,
              row_number() over (order by random())::int as seed,

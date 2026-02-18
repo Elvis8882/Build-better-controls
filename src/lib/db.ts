@@ -1,7 +1,7 @@
 import { supabase } from "@/lib/supabaseClient";
 
-export type TournamentPreset = "playoffs_only" | "full_with_losers" | "full_no_losers" | "full_tournament";
-export type TournamentPresetUi = Exclude<TournamentPreset, "full_tournament">;
+export type TournamentPreset = "playoffs_only" | "full_with_losers" | "full_no_losers";
+export type TournamentPresetUi = TournamentPreset;
 export type TeamPool = "NHL" | "INTL";
 export type TournamentStage = "GROUP" | "PLAYOFF";
 export type MatchStage = "GROUP" | "PLAYOFF";
@@ -201,6 +201,13 @@ export function sanitizeGroupCount(
 	return { groupCount, note, error: null };
 }
 
+function normalizeTournamentPreset(preset: string | null): TournamentPreset | null {
+	if (!preset) return null;
+	if (preset === "full_tournament") return "full_no_losers";
+	if (preset === "playoffs_only" || preset === "full_with_losers" || preset === "full_no_losers") return preset;
+	return null;
+}
+
 export async function listTournaments(): Promise<Tournament[]> {
 	const { data, error } = await supabase
 		.from("tournaments")
@@ -225,6 +232,7 @@ export async function listTournaments(): Promise<Tournament[]> {
 
 	return rows.map((item) => ({
 		...item,
+		preset_id: normalizeTournamentPreset(item.preset_id as string | null),
 		hosted_by: usernameById.get(item.created_by) ?? "unknown",
 	}));
 }
@@ -260,22 +268,11 @@ export async function createTournament(payload: {
 		.select("id, name, status, created_at, preset_id, created_by, team_pool, default_participants, group_count, stage")
 		.single();
 
-	if (error && payload.presetId !== "playoffs_only") {
-		const maybePresetConstraint = `${error.message ?? ""}`.toLowerCase();
-		if (maybePresetConstraint.includes("preset") || maybePresetConstraint.includes("check")) {
-			({ data, error } = await supabase
-				.from("tournaments")
-				.insert({ ...insertPayload, preset_id: "full_tournament" })
-				.select(
-					"id, name, status, created_at, preset_id, created_by, team_pool, default_participants, group_count, stage",
-				)
-				.single());
-		}
-	}
-
 	throwOnError(error, "Unable to create tournament");
+	const created = data as Omit<Tournament, "hosted_by">;
 	return {
-		...(data as Omit<Tournament, "hosted_by">),
+		...created,
+		preset_id: normalizeTournamentPreset(created.preset_id as string | null),
 		hosted_by: "unknown",
 	};
 }

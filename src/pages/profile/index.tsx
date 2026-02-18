@@ -115,19 +115,21 @@ export default function ProfilePage() {
 							<th className="px-4 py-3">Wins</th>
 							<th className="px-4 py-3">Shots made</th>
 							<th className="px-4 py-3">Goals made</th>
+							<th className="px-4 py-3">Goals against</th>
+							<th className="px-4 py-3">Shots against</th>
 							<th className="px-4 py-3">Goalie save rate</th>
 						</tr>
 					</thead>
 					<tbody>
 						{loading ? (
 							<tr>
-								<td className="px-4 py-3" colSpan={6}>
+								<td className="px-4 py-3" colSpan={8}>
 									Loading statistics...
 								</td>
 							</tr>
 						) : stats.length === 0 ? (
 							<tr>
-								<td className="px-4 py-3" colSpan={6}>
+								<td className="px-4 py-3" colSpan={8}>
 									No statistics available yet.
 								</td>
 							</tr>
@@ -148,6 +150,8 @@ export default function ProfilePage() {
 									<td className="px-4 py-3">{row.wins}</td>
 									<td className="px-4 py-3">{row.shots_made}</td>
 									<td className="px-4 py-3">{row.goals_made}</td>
+									<td className="px-4 py-3">{row.goals_received}</td>
+									<td className="px-4 py-3">{row.shots_received}</td>
 									<td className="px-4 py-3">{formatSaveRate(row.goalie_save_rate)}</td>
 								</tr>
 							))

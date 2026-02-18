@@ -554,7 +554,9 @@ export async function ensurePlayoffBracket(tournamentId: string): Promise<void> 
 export async function listGroupStandings(tournamentId: string): Promise<GroupStanding[]> {
 	const { data, error } = await supabase
 		.from("v_group_standings")
-		.select("tournament_id, group_id, rank_in_group, participant_id, team_id, points, goals_for, goals_against")
+		.select(
+			"tournament_id, group_id, rank_in_group, participant_id, team_id, points, goals_for, goals_against, goal_diff, shots_diff",
+		)
 		.eq("tournament_id", tournamentId)
 		.order("group_id", { ascending: true })
 		.order("rank_in_group", { ascending: true });

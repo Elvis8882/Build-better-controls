@@ -4,7 +4,7 @@ declare
   v_s int;
 begin
   select preset_id into v_preset from public.tournaments where id = p_tournament_id;
-  if v_preset <> 'full_with_losers' then
+  if v_preset is null then
     return;
   end if;
 
@@ -29,8 +29,8 @@ begin
       and mx.bracket_slot = 1
   );
 
-  -- for 5–8 placement: only if bracket size >= 8
-  if v_s >= 8 then
+  -- for 5–8 placement: only for full losers preset and bracket size >= 8
+  if v_preset = 'full_with_losers' and v_s >= 8 then
     -- create two "5-8 semis" and two placement finals
     insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot)
     select p_tournament_id, 'PLAYOFF', 'LOSERS', payload.round, payload.bracket_slot

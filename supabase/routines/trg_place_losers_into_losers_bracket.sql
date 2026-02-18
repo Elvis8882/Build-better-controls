@@ -12,8 +12,8 @@ begin
     return new;
   end if;
 
-  -- only for tournaments with losers bracket
-  if (select preset_id from public.tournaments where id = m.tournament_id) <> 'full_with_losers' then
+  -- only for tournaments that expose playoffs
+  if (select preset_id from public.tournaments where id = m.tournament_id) is null then
     return new;
   end if;
 
@@ -51,8 +51,11 @@ begin
   end if;
 
   -- quarterfinal losers (simple fill): put into LOSERS round 1 slot 2 then 3
+  -- this only applies when extra placement matches exist (full_with_losers)
   -- quarterfinals are round where winners feed into semifinals; approximate by m.next_match_id exists and that next_match has a next_match_id (i.e., not final)
-  if m.next_match_id is not null then
+  if m.next_match_id is not null
+     and (select preset_id from public.tournaments where id = m.tournament_id) = 'full_with_losers'
+  then
     select id into target
     from public.matches
     where tournament_id = m.tournament_id and stage='PLAYOFF' and bracket_type='LOSERS'

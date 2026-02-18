@@ -236,11 +236,24 @@ export function GroupStandings({
 	groups,
 	standings,
 	teamById,
+	showPlacement,
 }: {
 	groups: TournamentGroup[];
 	standings: GroupStanding[];
 	teamById: Map<string, Team>;
+	showPlacement: boolean;
 }) {
+	const overallPlacementByParticipantId = useMemo(() => {
+		if (!showPlacement) return new Map<string, number>();
+		const sorted = [...standings].sort((a, b) => {
+			if (b.points !== a.points) return b.points - a.points;
+			if (b.goal_diff !== a.goal_diff) return b.goal_diff - a.goal_diff;
+			if (b.shots_diff !== a.shots_diff) return b.shots_diff - a.shots_diff;
+			return a.rank_in_group - b.rank_in_group;
+		});
+		return new Map(sorted.map((row, index) => [row.participant_id, index + 1]));
+	}, [standings, showPlacement]);
+
 	const standingsByGroupId = useMemo(() => {
 		const map = new Map<string, GroupStanding[]>();
 		for (const standing of standings) {
@@ -261,6 +274,7 @@ export function GroupStandings({
 						<table className="w-full text-sm">
 							<thead>
 								<tr className="border-b">
+									{showPlacement && <th className="py-1 text-right">Placement</th>}
 									<th className="py-1 text-left">Team</th>
 									<th className="py-1 text-right">GF:GA</th>
 									<th className="py-1 text-right">Pts</th>
@@ -271,8 +285,10 @@ export function GroupStandings({
 									.sort((a, b) => a.rank_in_group - b.rank_in_group)
 									.map((row) => {
 										const team = row.team_id ? teamById.get(row.team_id) : null;
+										const placement = overallPlacementByParticipantId.get(row.participant_id);
 										return (
 											<tr key={row.participant_id} className="border-b">
+												{showPlacement && <td className="py-1 text-right font-semibold">#{placement}</td>}
 												<td className="py-1">{team?.name ?? `Participant ${row.participant_id.slice(0, 6)}`}</td>
 												<td className="py-1 text-right">
 													{row.goals_for}:{row.goals_against}
@@ -298,6 +314,7 @@ export function GroupMatchesTable({
 	canEditMatch,
 	onResultDraftChange,
 	onLockResult,
+	onEditResult,
 }: {
 	matches: MatchWithResult[];
 	teamById: Map<string, Team>;
@@ -306,6 +323,7 @@ export function GroupMatchesTable({
 	canEditMatch: (match: MatchWithResult) => boolean;
 	onResultDraftChange: (matchId: string, next: EditableResult) => void;
 	onLockResult: (matchId: string) => Promise<void>;
+	onEditResult?: (matchId: string) => void;
 }) {
 	return (
 		<section className="space-y-3 rounded-lg border p-4">
@@ -321,6 +339,12 @@ export function GroupMatchesTable({
 					};
 					const homeTeam = match.home_team_id ? teamById.get(match.home_team_id) : null;
 					const awayTeam = match.away_team_id ? teamById.get(match.away_team_id) : null;
+					const winningSide =
+						match.result?.locked && (match.result.home_score ?? 0) !== (match.result.away_score ?? 0)
+							? (match.result.home_score ?? 0) > (match.result.away_score ?? 0)
+								? "HOME"
+								: "AWAY"
+							: null;
 					const disabled = !canEditMatch(match);
 
 					return (
@@ -333,7 +357,9 @@ export function GroupMatchesTable({
 								{match.result?.locked && <Badge className="text-xs">Locked</Badge>}
 							</div>
 							<div className="grid grid-cols-[1fr_auto_1fr] items-start gap-4">
-								<div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-left">
+								<div
+									className={`rounded-lg border border-primary/20 p-3 text-left ${winningSide === "HOME" ? "bg-green-100/80" : "bg-primary/5"}`}
+								>
 									<p className="text-xs font-semibold uppercase tracking-wide text-primary">Home Team</p>
 									<div className="mt-1 flex items-center gap-2">
 										{homeTeam && (
@@ -364,7 +390,9 @@ export function GroupMatchesTable({
 										<option value="SO">SO</option>
 									</select>
 								</div>
-								<div className="rounded-lg border border-secondary/40 bg-secondary/10 p-3 text-right">
+								<div
+									className={`rounded-lg border border-secondary/40 p-3 text-right ${winningSide === "AWAY" ? "bg-green-100/80" : "bg-secondary/10"}`}
+								>
 									<p className="text-xs font-semibold uppercase tracking-wide text-secondary-foreground">Away Team</p>
 									<div className="mt-1 flex items-center justify-end gap-2">
 										<p className="text-base font-semibold">{awayTeam?.name ?? match.away_participant_name}</p>
@@ -423,13 +451,18 @@ export function GroupMatchesTable({
 									/>
 								</div>
 							</div>
-							<div className="mt-3">
+							<div className="mt-3 flex gap-2">
 								<Button
 									disabled={saving || disabled || Boolean(match.result?.locked)}
 									onClick={() => void onLockResult(match.id)}
 								>
 									Lock in
 								</Button>
+								{onEditResult && Boolean(match.result?.locked) && (
+									<Button size="sm" variant="outline" onClick={() => onEditResult(match.id)}>
+										Edit
+									</Button>
+								)}
 							</div>
 						</div>
 					);

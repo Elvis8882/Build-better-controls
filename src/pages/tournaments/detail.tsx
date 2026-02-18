@@ -59,6 +59,8 @@ type ParsedResult = {
 	decision: MatchParticipantDecision;
 };
 
+type TeamFilter = "ALL" | Team["ovr_tier"];
+
 const defaultResult: EditableResult = {
 	home_score: "",
 	away_score: "",
@@ -92,7 +94,7 @@ export default function TournamentDetailPage() {
 	const [resultDrafts, setResultDrafts] = useState<Record<string, EditableResult>>({});
 	const [editingParticipantIds, setEditingParticipantIds] = useState<Set<string>>(new Set());
 	const [editingMatchIds, setEditingMatchIds] = useState<Set<string>>(new Set());
-	const [activeTab, setActiveTab] = useState<"group" | "playoff">("playoff");
+	const [activeTab, setActiveTab] = useState<"participants" | "group" | "playoff">("participants");
 
 	const isAdmin = profile?.role === "admin";
 	const hostMembership = useMemo(
@@ -136,26 +138,45 @@ export default function TournamentDetailPage() {
 	const fullPreset = isFullPreset(tournament?.preset_id ?? null);
 	const canGenerateGroups = fullPreset && allLockedWithTeams && groups.length === 0;
 	const groupStageAvailable = fullPreset && (groups.length > 0 || groupMatches.length > 0);
+	const playoffStageAvailable = !fullPreset || allGroupMatchesLocked;
 	const anyPlayoffLocked = playoffMatches.some((match) => Boolean(match.result?.locked));
 
 	useEffect(() => {
 		if (!id) return;
 		const segments = location.pathname.split("/").filter(Boolean);
 		const lastSegment = segments[segments.length - 1];
+		if (lastSegment === "participants") {
+			setActiveTab("participants");
+			return;
+		}
 		if (lastSegment === "group-stage") {
+			if (!groupStageAvailable) {
+				setActiveTab("participants");
+				return;
+			}
 			setActiveTab("group");
 			return;
 		}
 		if (lastSegment === "playoff-bracket") {
+			if (!playoffStageAvailable) {
+				setActiveTab(fullPreset ? "participants" : "playoff");
+				return;
+			}
 			setActiveTab("playoff");
 			return;
 		}
-		setActiveTab(fullPreset ? "group" : "playoff");
-	}, [id, location.pathname, fullPreset]);
+		setActiveTab(fullPreset ? "participants" : "playoff");
+	}, [id, location.pathname, fullPreset, groupStageAvailable, playoffStageAvailable]);
 
-	const onTabChange = (nextTab: "group" | "playoff") => {
+	const onTabChange = (nextTab: "participants" | "group" | "playoff") => {
+		if (nextTab === "group" && !groupStageAvailable) return;
+		if (nextTab === "playoff" && !playoffStageAvailable) return;
 		setActiveTab(nextTab);
 		if (!id) return;
+		if (nextTab === "participants") {
+			navigate(`/dashboard/tournaments/${id}/participants`);
+			return;
+		}
 		if (nextTab === "group") {
 			navigate(`/dashboard/tournaments/${id}/group-stage`);
 			return;
@@ -164,7 +185,7 @@ export default function TournamentDetailPage() {
 			navigate(`/dashboard/tournaments/${id}/playoff-bracket`);
 			return;
 		}
-		navigate(fullPreset ? `/dashboard/tournaments/${id}/group-stage` : `/dashboard/tournaments/${id}/playoff-bracket`);
+		navigate(fullPreset ? `/dashboard/tournaments/${id}/participants` : `/dashboard/tournaments/${id}/playoff-bracket`);
 	};
 
 	const mergeResultDrafts = useCallback((matches: MatchWithResult[]) => {
@@ -193,6 +214,12 @@ export default function TournamentDetailPage() {
 		setGroupMatches(groupMatchData);
 		mergeResultDrafts(groupMatchData);
 	}, [id, mergeResultDrafts]);
+
+	const refreshParticipantsSection = useCallback(async () => {
+		if (!id) return;
+		const participantData = await listParticipants(id);
+		setParticipants(participantData);
+	}, [id]);
 
 	const refreshPlayoffSection = useCallback(async () => {
 		if (!id) return;
@@ -316,7 +343,7 @@ export default function TournamentDetailPage() {
 				userId: pickedOption.id,
 				displayName: pickedOption.username + (pickedOption.id === tournament?.created_by ? " (Host)" : ""),
 			});
-			await loadAll();
+			await refreshParticipantsSection();
 			setInviteQuery("");
 			setInviteOptions([]);
 			setSelectedInviteUserId("");
@@ -339,7 +366,7 @@ export default function TournamentDetailPage() {
 			const guestName = newGuestName.trim();
 			const guest = await addTournamentGuest(id, guestName);
 			await createParticipant(id, { guestId: guest.id, displayName: `${guestName} (Guest)` });
-			await loadAll();
+			await refreshParticipantsSection();
 			setNewGuestName("");
 			toast.success("Guest added to participant list.");
 		} catch (error) {
@@ -444,30 +471,42 @@ export default function TournamentDetailPage() {
 		return match.home_participant_id === myParticipant.id || match.away_participant_id === myParticipant.id;
 	};
 
-	const onRandomizeTeam = async (participantId: string) => {
-		const available = teams.filter((team) => !assignedTeams.has(team.id));
+	const onRandomizeTeam = async (participant: TournamentParticipant, teamFilter: TeamFilter) => {
+		const available = teams.filter(
+			(team) => !assignedTeams.has(team.id) && (teamFilter === "ALL" || team.ovr_tier === teamFilter),
+		);
 		if (available.length === 0) {
-			toast.error("No unassigned teams left in pool.");
+			toast.error("No unassigned teams left for the selected filter.");
 			return;
 		}
 		const pick = available[Math.floor(Math.random() * available.length)];
 		const pickId = pick?.id;
 		if (!pickId) return;
-		await updateParticipant(participantId, pickId);
-		await loadAll();
+		setSaving(true);
+		try {
+			await updateParticipant(participant.id, pickId);
+			await refreshParticipantsSection();
+		} finally {
+			setSaving(false);
+		}
 	};
 
 	const onParticipantTeamChange = async (participant: TournamentParticipant, teamId: string | null) => {
-		await updateParticipant(participant.id, teamId);
-		if (editingParticipantIds.has(participant.id)) {
-			await lockParticipant(participant.id);
-			setEditingParticipantIds((previous) => {
-				const next = new Set(previous);
-				next.delete(participant.id);
-				return next;
-			});
+		setSaving(true);
+		try {
+			await updateParticipant(participant.id, teamId);
+			if (editingParticipantIds.has(participant.id)) {
+				await lockParticipant(participant.id);
+				setEditingParticipantIds((previous) => {
+					const next = new Set(previous);
+					next.delete(participant.id);
+					return next;
+				});
+			}
+			await refreshParticipantsSection();
+		} finally {
+			setSaving(false);
 		}
-		await loadAll();
 	};
 
 	const onClearParticipant = async (participant: TournamentParticipant) => {
@@ -480,7 +519,7 @@ export default function TournamentDetailPage() {
 				next.delete(participant.id);
 				return next;
 			});
-			await loadAll();
+			await refreshParticipantsSection();
 			toast.success("Participant slot cleared.");
 		} catch (error) {
 			toast.error((error as Error).message);
@@ -511,47 +550,65 @@ export default function TournamentDetailPage() {
 				</p>
 			</div>
 
-			<Tabs value={activeTab} onValueChange={(value) => onTabChange(value as "group" | "playoff")}>
+			<Tabs value={activeTab} onValueChange={(value) => onTabChange(value as "participants" | "group" | "playoff")}>
 				<TabsList>
-					{fullPreset && <TabsTrigger value="group">Participants & Group Stage</TabsTrigger>}
-					<TabsTrigger value="playoff">Playoff bracket</TabsTrigger>
+					{fullPreset && <TabsTrigger value="participants">Participants</TabsTrigger>}
+					{fullPreset && (
+						<TabsTrigger value="group" disabled={!groupStageAvailable}>
+							Group Stage
+						</TabsTrigger>
+					)}
+					<TabsTrigger value="playoff" disabled={!playoffStageAvailable}>
+						Playoff sheet
+					</TabsTrigger>
 				</TabsList>
+
+				{fullPreset && (
+					<TabsContent value="participants" className="space-y-4">
+						<ParticipantsTable
+							tournament={tournament}
+							participants={displayParticipants}
+							placeholderRows={placeholderRows}
+							teams={teams}
+							assignedTeams={assignedTeams}
+							saving={saving}
+							isHostOrAdmin={isHostOrAdmin}
+							editingParticipantIds={editingParticipantIds}
+							inviteQuery={inviteQuery}
+							inviteOptions={inviteOptions}
+							newGuestName={newGuestName}
+							onInviteQueryChange={(value) => {
+								setInviteQuery(value);
+								setSelectedInviteUserId("");
+							}}
+							onNewGuestNameChange={setNewGuestName}
+							onInvite={onInvite}
+							onAddGuest={onAddGuest}
+							onTeamChange={onParticipantTeamChange}
+							onRandomizeTeam={onRandomizeTeam}
+							onLockParticipant={async (participantId) => {
+								await lockParticipant(participantId);
+								setEditingParticipantIds((previous) => {
+									const next = new Set(previous);
+									next.delete(participantId);
+									return next;
+								});
+								await refreshParticipantsSection();
+							}}
+							onEditParticipant={(participantId) =>
+								setEditingParticipantIds((previous) => new Set(previous).add(participantId))
+							}
+							onClearParticipant={onClearParticipant}
+						/>
+						{!allLockedWithTeams && (
+							<p className="text-sm text-muted-foreground">Waiting for all participants to lock teams.</p>
+						)}
+					</TabsContent>
+				)}
 
 				{fullPreset && (
 					<TabsContent value="group" className="space-y-4">
 						<GroupStagePage
-							participantsTable={
-								<ParticipantsTable
-									tournament={tournament}
-									participants={displayParticipants}
-									placeholderRows={placeholderRows}
-									teams={teams}
-									assignedTeams={assignedTeams}
-									saving={saving}
-									isHostOrAdmin={isHostOrAdmin}
-									editingParticipantIds={editingParticipantIds}
-									inviteQuery={inviteQuery}
-									inviteOptions={inviteOptions}
-									newGuestName={newGuestName}
-									onInviteQueryChange={(value) => {
-										setInviteQuery(value);
-										setSelectedInviteUserId("");
-									}}
-									onNewGuestNameChange={setNewGuestName}
-									onInvite={onInvite}
-									onAddGuest={onAddGuest}
-									onTeamChange={onParticipantTeamChange}
-									onRandomizeTeam={onRandomizeTeam}
-									onLockParticipant={async (participantId) => {
-										await lockParticipant(participantId);
-										await loadAll();
-									}}
-									onEditParticipant={(participantId) =>
-										setEditingParticipantIds((previous) => new Set(previous).add(participantId))
-									}
-									onClearParticipant={onClearParticipant}
-								/>
-							}
 							standingsTable={<GroupStandings groups={groups} standings={standings} teamById={teamById} />}
 							matchesTable={
 								<GroupMatchesTable
@@ -568,10 +625,9 @@ export default function TournamentDetailPage() {
 							}
 						/>
 						{!groupStageAvailable && (
-							<p className="text-sm text-muted-foreground">Waiting for group generation and first standings sync...</p>
-						)}
-						{!allLockedWithTeams && (
-							<p className="text-sm text-muted-foreground">Waiting for all participants to lock teams.</p>
+							<p className="text-sm text-muted-foreground">
+								Group Stage unlocks after all teams are locked and groups are generated.
+							</p>
 						)}
 						{fullPreset && allLockedWithTeams && groups.length === 0 && (
 							<p className="text-sm text-muted-foreground">Generating groups...</p>

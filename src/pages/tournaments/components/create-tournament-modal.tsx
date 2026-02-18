@@ -25,7 +25,7 @@ export function CreateTournamentModal({ open, onOpenChange, onCreated }: Props) 
 	const [presetId, setPresetId] = useState<TournamentPresetUi>("full_with_losers");
 	const [teamPool, setTeamPool] = useState<TeamPool>("NHL");
 	const [defaultParticipants, setDefaultParticipants] = useState(4);
-	const [groupCountInput, setGroupCountInput] = useState(2);
+	const [groupCountInput, setGroupCountInput] = useState(1);
 
 	const groupResolution = useMemo(() => {
 		if (!isFullPreset(presetId)) {

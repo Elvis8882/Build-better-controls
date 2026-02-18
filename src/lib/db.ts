@@ -476,10 +476,17 @@ export async function lockParticipant(participantId: string): Promise<void> {
 	const { data: authData, error: authError } = await supabase.auth.getUser();
 	throwOnError(authError, "Unable to read authenticated user");
 
-	const { error } = await supabase
+	let { error } = await supabase
 		.from("tournament_participants")
 		.update({ locked: true, locked_by: authData.user?.id ?? null, locked_at: new Date().toISOString() })
 		.eq("id", participantId);
+
+	if (error && `${error.message ?? ""}`.toLowerCase().includes("locked_by")) {
+		({ error } = await supabase
+			.from("tournament_participants")
+			.update({ locked: true, locked_by: null, locked_at: new Date().toISOString() })
+			.eq("id", participantId));
+	}
 	throwOnError(error, "Unable to lock participant");
 }
 

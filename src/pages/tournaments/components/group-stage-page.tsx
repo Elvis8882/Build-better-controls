@@ -8,6 +8,7 @@ import type {
 	TournamentGroup,
 	TournamentParticipant,
 } from "@/lib/db";
+import { getTeamLogoUrl } from "@/lib/teamLogos";
 import { Badge } from "@/ui/badge";
 import { Button } from "@/ui/button";
 import { Input } from "@/ui/input";
@@ -60,7 +61,7 @@ export function ParticipantsTable({
 	onInvite: () => Promise<void>;
 	onAddGuest: () => Promise<void>;
 	onTeamChange: (participant: TournamentParticipant, teamId: string | null) => Promise<void>;
-	onRandomizeTeam: (participantId: string) => Promise<void>;
+	onRandomizeTeam: (participant: TournamentParticipant, teamFilter: TeamFilter) => Promise<void>;
 	onLockParticipant: (participantId: string) => Promise<void>;
 	onEditParticipant: (participantId: string) => void;
 	onClearParticipant: (participant: TournamentParticipant) => Promise<void>;
@@ -129,7 +130,7 @@ export function ParticipantsTable({
 								<tr key={participant.id} className="border-b">
 									<td className="px-2 py-2">{participant.display_name}</td>
 									<td className="px-2 py-2">
-										<div className="mb-2 flex items-center gap-2">
+										<div className="flex flex-wrap items-center gap-2">
 											<span className="text-xs text-muted-foreground">Filter</span>
 											<select
 												className="h-8 rounded-md border px-2 text-xs"
@@ -147,57 +148,72 @@ export function ParticipantsTable({
 												<option value="Middle Tier">Middle Tier</option>
 												<option value="Bottom Tier">Bottom Tier</option>
 											</select>
+											<select
+												className="h-9 min-w-[220px] rounded-md border px-2"
+												disabled={participant.locked && !editingParticipantIds.has(participant.id)}
+												value={participant.team_id ?? ""}
+												onChange={(event) => void onTeamChange(participant, event.target.value || null)}
+											>
+												<option value="">Select team</option>
+												{filteredTeams.map((team) => (
+													<option
+														key={team.id}
+														value={team.id}
+														disabled={assignedTeams.has(team.id) && participant.team_id !== team.id}
+													>
+														{team.name}
+													</option>
+												))}
+											</select>
+											{participant.team && (
+												<>
+													<img
+														src={getTeamLogoUrl(participant.team.code, participant.team.team_pool)}
+														alt={`${participant.team.name} logo`}
+														className="h-7 w-7 rounded-sm object-contain"
+													/>
+													<p className="text-xs text-muted-foreground">
+														OVR {participant.team.overall} • OFF {participant.team.offense} • DEF{" "}
+														{participant.team.defense} • GOA {participant.team.goalie}
+													</p>
+												</>
+											)}
 										</div>
-										<select
-											className="h-9 rounded-md border px-2"
-											disabled={participant.locked && !editingParticipantIds.has(participant.id)}
-											value={participant.team_id ?? ""}
-											onChange={(event) => void onTeamChange(participant, event.target.value || null)}
-										>
-											<option value="">Select team</option>
-											{filteredTeams.map((team) => (
-												<option
-													key={team.id}
-													value={team.id}
-													disabled={assignedTeams.has(team.id) && participant.team_id !== team.id}
-												>
-													{team.name}
-												</option>
-											))}
-										</select>
-										{participant.team && (
-											<p className="mt-1 text-xs text-muted-foreground">
-												OVR {participant.team.overall} • OFF {participant.team.offense} • DEF {participant.team.defense}{" "}
-												• GOA {participant.team.goalie}
-											</p>
-										)}
 									</td>
-									<td className="flex gap-2 px-2 py-2">
-										<Button size="sm" variant="outline" onClick={() => void onRandomizeTeam(participant.id)}>
-											🎲
-										</Button>
-										<Button
-											size="sm"
-											disabled={participant.locked || !participant.team_id || editingParticipantIds.has(participant.id)}
-											onClick={() => void onLockParticipant(participant.id)}
-										>
-											{participant.locked ? "Locked" : "Lock in"}
-										</Button>
-										{participant.locked && isHostOrAdmin && (
-											<Button size="sm" variant="outline" onClick={() => onEditParticipant(participant.id)}>
-												Edit
+									<td className="px-2 py-2">
+										<div className="flex justify-end gap-2">
+											<Button size="sm" variant="outline" onClick={() => void onRandomizeTeam(participant, teamFilter)}>
+												🎲
 											</Button>
-										)}
-										{isHostOrAdmin && (
 											<Button
 												size="sm"
-												variant="ghost"
-												disabled={saving}
-												onClick={() => void onClearParticipant(participant)}
+												disabled={
+													(!editingParticipantIds.has(participant.id) && participant.locked) || !participant.team_id
+												}
+												onClick={() => void onLockParticipant(participant.id)}
 											>
-												×
+												{editingParticipantIds.has(participant.id)
+													? "Save & lock"
+													: participant.locked
+														? "Locked"
+														: "Lock in"}
 											</Button>
-										)}
+											{participant.locked && isHostOrAdmin && (
+												<Button size="sm" variant="outline" onClick={() => onEditParticipant(participant.id)}>
+													Edit
+												</Button>
+											)}
+											{isHostOrAdmin && (
+												<Button
+													size="sm"
+													variant="ghost"
+													disabled={saving}
+													onClick={() => void onClearParticipant(participant)}
+												>
+													×
+												</Button>
+											)}
+										</div>
 									</td>
 								</tr>
 							);
@@ -319,7 +335,16 @@ export function GroupMatchesTable({
 							<div className="grid grid-cols-[1fr_auto_1fr] items-start gap-4">
 								<div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-left">
 									<p className="text-xs font-semibold uppercase tracking-wide text-primary">Home Team</p>
-									<p className="mt-1 text-base font-semibold">{homeTeam?.name ?? match.home_participant_name}</p>
+									<div className="mt-1 flex items-center gap-2">
+										{homeTeam && (
+											<img
+												src={getTeamLogoUrl(homeTeam.code, homeTeam.team_pool)}
+												alt={`${homeTeam.name} logo`}
+												className="h-14 w-14 object-contain"
+											/>
+										)}
+										<p className="text-base font-semibold">{homeTeam?.name ?? match.home_participant_name}</p>
+									</div>
 									<p className="mt-1 text-xs text-muted-foreground">
 										Score: {match.result?.home_score ?? "-"} • SOG: {match.result?.home_shots ?? "-"}
 									</p>
@@ -341,15 +366,24 @@ export function GroupMatchesTable({
 								</div>
 								<div className="rounded-lg border border-secondary/40 bg-secondary/10 p-3 text-right">
 									<p className="text-xs font-semibold uppercase tracking-wide text-secondary-foreground">Away Team</p>
-									<p className="mt-1 text-base font-semibold">{awayTeam?.name ?? match.away_participant_name}</p>
+									<div className="mt-1 flex items-center justify-end gap-2">
+										<p className="text-base font-semibold">{awayTeam?.name ?? match.away_participant_name}</p>
+										{awayTeam && (
+											<img
+												src={getTeamLogoUrl(awayTeam.code, awayTeam.team_pool)}
+												alt={`${awayTeam.name} logo`}
+												className="h-14 w-14 object-contain"
+											/>
+										)}
+									</div>
 									<p className="mt-1 text-xs text-muted-foreground">
 										Score: {match.result?.away_score ?? "-"} • SOG: {match.result?.away_shots ?? "-"}
 									</p>
 								</div>
 							</div>
-							<div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4">
-								<div>
-									<p className="mb-1 text-xs font-medium text-muted-foreground">Home Score</p>
+							<div className="mt-4 grid grid-cols-2 gap-3">
+								<div className="space-y-2">
+									<p className="text-xs font-medium text-muted-foreground">Home Goal</p>
 									<Input
 										type="number"
 										min={0}
@@ -358,20 +392,7 @@ export function GroupMatchesTable({
 										placeholder="0"
 										onChange={(e) => onResultDraftChange(match.id, { ...draft, home_score: e.target.value })}
 									/>
-								</div>
-								<div>
-									<p className="mb-1 text-xs font-medium text-muted-foreground">Away Score</p>
-									<Input
-										type="number"
-										min={0}
-										disabled={disabled}
-										value={draft.away_score}
-										placeholder="0"
-										onChange={(e) => onResultDraftChange(match.id, { ...draft, away_score: e.target.value })}
-									/>
-								</div>
-								<div>
-									<p className="mb-1 text-xs font-medium text-muted-foreground">Home SOG</p>
+									<p className="text-xs font-medium text-muted-foreground">Home SOG</p>
 									<Input
 										type="number"
 										min={0}
@@ -381,8 +402,17 @@ export function GroupMatchesTable({
 										onChange={(e) => onResultDraftChange(match.id, { ...draft, home_shots: e.target.value })}
 									/>
 								</div>
-								<div>
-									<p className="mb-1 text-xs font-medium text-muted-foreground">Away SOG</p>
+								<div className="space-y-2">
+									<p className="text-xs font-medium text-muted-foreground text-right">Away Goal</p>
+									<Input
+										type="number"
+										min={0}
+										disabled={disabled}
+										value={draft.away_score}
+										placeholder="0"
+										onChange={(e) => onResultDraftChange(match.id, { ...draft, away_score: e.target.value })}
+									/>
+									<p className="text-xs font-medium text-muted-foreground text-right">Away SOG</p>
 									<Input
 										type="number"
 										min={0}

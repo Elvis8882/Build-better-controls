@@ -12,20 +12,8 @@ type EditableResult = {
 	decision: MatchParticipantDecision;
 };
 
-function TeamBadge({ teamName, team }: { teamName: string; team?: Team | null }) {
-	if (!team) return <span className="text-sm font-medium">{teamName}</span>;
-	return (
-		<span
-			className="inline-flex items-center rounded px-2 py-0.5 text-xs font-semibold"
-			style={{
-				backgroundColor: team.primary_color,
-				color: team.text_color,
-				border: `1px solid ${team.secondary_color || team.primary_color}`,
-			}}
-		>
-			{team.short_name}
-		</span>
-	);
+function TeamName({ teamName, team }: { teamName: string; team?: Team | null }) {
+	return <span className="text-sm font-medium">{team?.name ?? teamName}</span>;
 }
 
 export function BracketDiagram({
@@ -69,11 +57,11 @@ export function BracketDiagram({
 										<div key={match.id} className="relative rounded-md border bg-card p-3">
 											<div className="space-y-1">
 												<div className="flex items-center justify-between gap-2">
-													<TeamBadge team={homeTeam} teamName={match.home_participant_name || "BYE"} />
+													<TeamName team={homeTeam} teamName={match.home_participant_name || "BYE"} />
 													<span className="text-sm font-bold">{match.result?.home_score ?? "-"}</span>
 												</div>
 												<div className="flex items-center justify-between gap-2">
-													<TeamBadge team={awayTeam} teamName={match.away_participant_name || "BYE"} />
+													<TeamName team={awayTeam} teamName={match.away_participant_name || "BYE"} />
 													<span className="text-sm font-bold">{match.result?.away_score ?? "-"}</span>
 												</div>
 											</div>
@@ -107,6 +95,7 @@ export function PlayoffMatchesTable({
 	canEditMatch,
 	onResultDraftChange,
 	onLockResult,
+	onEditResult,
 }: {
 	title: string;
 	matches: MatchWithResult[];
@@ -116,6 +105,7 @@ export function PlayoffMatchesTable({
 	canEditMatch: (match: MatchWithResult) => boolean;
 	onResultDraftChange: (matchId: string, next: EditableResult) => void;
 	onLockResult: (matchId: string) => Promise<void>;
+	onEditResult?: (matchId: string) => void;
 }) {
 	return (
 		<section className="space-y-3 rounded-lg border p-4">
@@ -134,11 +124,21 @@ export function PlayoffMatchesTable({
 					const disabled = !canEditMatch(match);
 					return (
 						<div key={match.id} className="rounded border p-3">
-							<div className="mb-2 flex items-center justify-between">
-								<div className="flex items-center gap-2">
-									<TeamBadge team={homeTeam} teamName={match.home_participant_name || "BYE"} />
-									<span>vs</span>
-									<TeamBadge team={awayTeam} teamName={match.away_participant_name || "BYE"} />
+							<div className="mb-2 flex items-start justify-between gap-3">
+								<div className="grid flex-1 grid-cols-[1fr_auto_1fr] items-start gap-3">
+									<div className="text-left">
+										<p className="font-medium">{homeTeam?.name ?? (match.home_participant_name || "BYE")}</p>
+										<p className="text-xs text-muted-foreground">
+											Goals: {match.result?.home_score ?? "-"} • SOG: {match.result?.home_shots ?? "-"}
+										</p>
+									</div>
+									<span className="mt-1 text-sm font-semibold">VS</span>
+									<div className="text-right">
+										<p className="font-medium">{awayTeam?.name ?? (match.away_participant_name || "BYE")}</p>
+										<p className="text-xs text-muted-foreground">
+											Goals: {match.result?.away_score ?? "-"} • SOG: {match.result?.away_shots ?? "-"}
+										</p>
+									</div>
 								</div>
 								{match.result?.locked && <Badge>Locked</Badge>}
 							</div>
@@ -185,12 +185,19 @@ export function PlayoffMatchesTable({
 								</select>
 							</div>
 							<div className="mt-2">
-								<Button
-									disabled={saving || disabled || Boolean(match.result?.locked)}
-									onClick={() => void onLockResult(match.id)}
-								>
-									Lock in
-								</Button>
+								<div className="flex gap-2">
+									<Button
+										disabled={saving || disabled || Boolean(match.result?.locked)}
+										onClick={() => void onLockResult(match.id)}
+									>
+										Lock in
+									</Button>
+									{onEditResult && Boolean(match.result?.locked) && (
+										<Button size="sm" variant="outline" onClick={() => onEditResult(match.id)}>
+											Edit
+										</Button>
+									)}
+								</div>
 							</div>
 						</div>
 					);

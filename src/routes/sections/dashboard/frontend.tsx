@@ -7,6 +7,8 @@ export function getFrontendDashboardRoutes(): RouteObject[] {
 		{ path: "main", element: Component("/pages/main") },
 		{ path: "tournaments", element: Component("/pages/tournaments") },
 		{ path: "tournaments/:id", element: Component("/pages/tournaments/detail") },
+		{ path: "tournaments/:id/group-stage", element: Component("/pages/tournaments/detail") },
+		{ path: "tournaments/:id/playoff-bracket", element: Component("/pages/tournaments/detail") },
 		{ path: "profile", element: Component("/pages/profile") },
 		{ path: "admin", element: Component("/pages/admin") },
 		{ path: "workbench", element: Component("/pages/dashboard/workbench") },

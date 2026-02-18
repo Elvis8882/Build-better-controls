@@ -70,6 +70,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
 			}
 
 			const currentUser = data.session?.user ?? null;
+			if (!data.session && window.location.pathname !== LOGIN_ROUTE) {
+				window.location.assign(LOGIN_ROUTE);
+			}
 			setUser(currentUser);
 
 			const currentProfile = await fetchProfile(currentUser);

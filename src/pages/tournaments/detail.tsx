@@ -70,7 +70,7 @@ const defaultResult: EditableResult = {
 };
 
 const isFullPreset = (presetId: Tournament["preset_id"]) =>
-	presetId === "full_with_losers" || presetId === "full_no_losers" || presetId === "full_tournament";
+	presetId === "full_with_losers" || presetId === "full_no_losers";
 
 export default function TournamentDetailPage() {
 	const { id } = useParams();
@@ -534,8 +534,7 @@ export default function TournamentDetailPage() {
 	const winnersBracketMatches = playoffMatches
 		.filter((match) => match.bracket_type === "WINNERS")
 		.sort((left, right) => left.round - right.round || (left.bracket_slot ?? 0) - (right.bracket_slot ?? 0));
-	const shouldShowPlacementBracket =
-		tournament.preset_id === "full_with_losers" || tournament.preset_id === "full_tournament";
+	const shouldShowPlacementBracket = tournament.preset_id === "full_with_losers";
 	const placementBracketMatches = playoffMatches
 		.filter((match) => match.bracket_type === "LOSERS")
 		.sort((left, right) => left.round - right.round || (left.bracket_slot ?? 0) - (right.bracket_slot ?? 0));

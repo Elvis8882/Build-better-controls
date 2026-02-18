@@ -612,6 +612,49 @@ export default function TournamentDetailPage() {
 				</TabsContent>
 
 				{fullPreset && (
+					<TabsContent value="participants" className="space-y-4">
+						<ParticipantsTable
+							tournament={tournament}
+							participants={displayParticipants}
+							placeholderRows={placeholderRows}
+							teams={teams}
+							assignedTeams={assignedTeams}
+							saving={saving}
+							isHostOrAdmin={isHostOrAdmin}
+							editingParticipantIds={editingParticipantIds}
+							inviteQuery={inviteQuery}
+							inviteOptions={inviteOptions}
+							newGuestName={newGuestName}
+							onInviteQueryChange={(value) => {
+								setInviteQuery(value);
+								setSelectedInviteUserId("");
+							}}
+							onNewGuestNameChange={setNewGuestName}
+							onInvite={onInvite}
+							onAddGuest={onAddGuest}
+							onTeamChange={onParticipantTeamChange}
+							onRandomizeTeam={onRandomizeTeam}
+							onLockParticipant={async (participantId) => {
+								await lockParticipant(participantId);
+								setEditingParticipantIds((previous) => {
+									const next = new Set(previous);
+									next.delete(participantId);
+									return next;
+								});
+								await refreshParticipantsSection();
+							}}
+							onEditParticipant={(participantId) =>
+								setEditingParticipantIds((previous) => new Set(previous).add(participantId))
+							}
+							onClearParticipant={onClearParticipant}
+						/>
+						{!allLockedWithTeams && (
+							<p className="text-sm text-muted-foreground">Waiting for all participants to lock teams.</p>
+						)}
+					</TabsContent>
+				)}
+
+				{fullPreset && (
 					<TabsContent value="group" className="space-y-4">
 						<GroupStagePage
 							standingsTable={<GroupStandings groups={groups} standings={standings} teamById={teamById} />}

@@ -138,7 +138,7 @@ export default function TournamentDetailPage() {
 	const fullPreset = isFullPreset(tournament?.preset_id ?? null);
 	const canGenerateGroups = fullPreset && allLockedWithTeams && groups.length === 0;
 	const groupStageAvailable = fullPreset && (groups.length > 0 || groupMatches.length > 0);
-	const playoffStageAvailable = !fullPreset || allGroupMatchesLocked;
+	const playoffStageAvailable = fullPreset ? allGroupMatchesLocked : allLockedWithTeams;
 	const anyPlayoffLocked = playoffMatches.some((match) => Boolean(match.result?.locked));
 
 	useEffect(() => {
@@ -159,14 +159,14 @@ export default function TournamentDetailPage() {
 		}
 		if (lastSegment === "playoff-bracket") {
 			if (!playoffStageAvailable) {
-				setActiveTab(fullPreset ? "participants" : "playoff");
+				setActiveTab("participants");
 				return;
 			}
 			setActiveTab("playoff");
 			return;
 		}
-		setActiveTab(fullPreset ? "participants" : "playoff");
-	}, [id, location.pathname, fullPreset, groupStageAvailable, playoffStageAvailable]);
+		setActiveTab("participants");
+	}, [id, location.pathname, groupStageAvailable, playoffStageAvailable]);
 
 	const onTabChange = (nextTab: "participants" | "group" | "playoff") => {
 		if (nextTab === "group" && !groupStageAvailable) return;
@@ -185,7 +185,7 @@ export default function TournamentDetailPage() {
 			navigate(`/dashboard/tournaments/${id}/playoff-bracket`);
 			return;
 		}
-		navigate(fullPreset ? `/dashboard/tournaments/${id}/participants` : `/dashboard/tournaments/${id}/playoff-bracket`);
+		navigate(`/dashboard/tournaments/${id}/participants`);
 	};
 
 	const mergeResultDrafts = useCallback((matches: MatchWithResult[]) => {
@@ -299,13 +299,13 @@ export default function TournamentDetailPage() {
 	}, [id, isHostOrAdmin, saving, canGenerateGroups, loadAll]);
 
 	useEffect(() => {
-		if (!id || activeTab !== "playoff" || anyPlayoffLocked) return;
+		if (!id || activeTab !== "playoff" || anyPlayoffLocked || !playoffStageAvailable) return;
 		setSaving(true);
 		void ensurePlayoffBracket(id)
 			.then(refreshPlayoffSection)
 			.catch((error) => toast.error((error as Error).message))
 			.finally(() => setSaving(false));
-	}, [id, activeTab, anyPlayoffLocked, refreshPlayoffSection]);
+	}, [id, activeTab, anyPlayoffLocked, playoffStageAvailable, refreshPlayoffSection]);
 
 	useEffect(() => {
 		if (!user?.id) return;
@@ -544,8 +544,8 @@ export default function TournamentDetailPage() {
 			<div>
 				<h1 className="text-2xl font-semibold">{tournament.name}</h1>
 				<p className="text-sm text-muted-foreground">
-					Type: {tournament.preset_id === "playoffs_only" ? "Playoff only" : "Full tournament"} • Preset:{" "}
-					{tournament.preset_id} • Team pool: {tournament.team_pool} • Slots: {tournament.default_participants}
+					Type: {tournament.preset_id === "playoffs_only" ? "Playoff only" : "Full tournament"} • Team pool:{" "}
+					{tournament.team_pool} • Slots: {tournament.default_participants}
 				</p>
 			</div>
 
@@ -609,49 +609,6 @@ export default function TournamentDetailPage() {
 						<p className="text-sm text-muted-foreground">Waiting for all participants to lock teams.</p>
 					)}
 				</TabsContent>
-
-				{fullPreset && (
-					<TabsContent value="participants" className="space-y-4">
-						<ParticipantsTable
-							tournament={tournament}
-							participants={displayParticipants}
-							placeholderRows={placeholderRows}
-							teams={teams}
-							assignedTeams={assignedTeams}
-							saving={saving}
-							isHostOrAdmin={isHostOrAdmin}
-							editingParticipantIds={editingParticipantIds}
-							inviteQuery={inviteQuery}
-							inviteOptions={inviteOptions}
-							newGuestName={newGuestName}
-							onInviteQueryChange={(value) => {
-								setInviteQuery(value);
-								setSelectedInviteUserId("");
-							}}
-							onNewGuestNameChange={setNewGuestName}
-							onInvite={onInvite}
-							onAddGuest={onAddGuest}
-							onTeamChange={onParticipantTeamChange}
-							onRandomizeTeam={onRandomizeTeam}
-							onLockParticipant={async (participantId) => {
-								await lockParticipant(participantId);
-								setEditingParticipantIds((previous) => {
-									const next = new Set(previous);
-									next.delete(participantId);
-									return next;
-								});
-								await refreshParticipantsSection();
-							}}
-							onEditParticipant={(participantId) =>
-								setEditingParticipantIds((previous) => new Set(previous).add(participantId))
-							}
-							onClearParticipant={onClearParticipant}
-						/>
-						{!allLockedWithTeams && (
-							<p className="text-sm text-muted-foreground">Waiting for all participants to lock teams.</p>
-						)}
-					</TabsContent>
-				)}
 
 				{fullPreset && (
 					<TabsContent value="group" className="space-y-4">

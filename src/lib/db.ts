@@ -1,6 +1,7 @@
 import { supabase } from "@/lib/supabaseClient";
 
-export type TournamentPreset = "playoffs_only" | "full_tournament";
+export type TournamentPreset = "playoffs_only" | "full_with_losers" | "full_no_losers" | "full_tournament";
+export type TournamentPresetUi = Exclude<TournamentPreset, "full_tournament">;
 export type TeamPool = "NHL" | "INTL";
 export type TournamentStage = "GROUP" | "PLAYOFF";
 export type MatchStage = "GROUP" | "PLAYOFF";
@@ -41,6 +42,9 @@ export type Match = {
 	home_participant_id: string | null;
 	away_participant_id: string | null;
 	round: number;
+	bracket_slot: number | null;
+	next_match_id: string | null;
+	next_match_side: "HOME" | "AWAY" | null;
 	created_at: string;
 	stage: MatchStage;
 	bracket_type: BracketType | null;
@@ -113,7 +117,8 @@ export type TournamentGroup = {
 export type GroupStanding = {
 	tournament_id: string;
 	group_id: string;
-	group_code: string;
+	group_code?: string;
+	rank_in_group: number;
 	participant_id: string;
 	display_name: string;
 	team_id: string | null;
@@ -123,12 +128,23 @@ export type GroupStanding = {
 	team_secondary_color: string | null;
 	team_text_color: string | null;
 	points: number;
+	goals_for: number;
+	goals_against: number;
 	goal_diff: number;
 	shots_diff: number;
 };
 
 function throwOnError(error: { message: string } | null, fallbackMessage: string): void {
 	if (error) {
+		const message = `${error.message ?? ""}`;
+		const maybeAuthError = message.toLowerCase().includes("jwt") || (error as { status?: number }).status === 401;
+		if (maybeAuthError) {
+			void supabase.auth.signOut().finally(() => {
+				if (typeof window !== "undefined" && window.location.pathname !== "/auth/login") {
+					window.location.assign("/auth/login");
+				}
+			});
+		}
 		throw new Error(error.message || fallbackMessage);
 	}
 }
@@ -137,8 +153,12 @@ export function sanitizeGroupCount(
 	participants: number,
 	selectedGroups: number,
 ): { groupCount: number; note: string | null; error: string | null } {
-	let groupCount = selectedGroups;
+	let groupCount = Math.max(1, Math.min(4, selectedGroups));
 	let note: string | null = null;
+
+	if (participants < 3) {
+		return { groupCount, note, error: "Participants must be at least 3." };
+	}
 	while (groupCount > 1) {
 		const minGroupSize = Math.floor(participants / groupCount);
 		if (minGroupSize >= 3) break;
@@ -192,7 +212,7 @@ export async function listTournaments(): Promise<Tournament[]> {
 
 export async function createTournament(payload: {
 	name: string;
-	presetId: TournamentPreset;
+	presetId: TournamentPresetUi;
 	teamPool: TeamPool;
 	defaultParticipants: number;
 	groupCount: number | null;
@@ -205,19 +225,34 @@ export async function createTournament(payload: {
 		throw new Error("User is not authenticated.");
 	}
 
-	const { data, error } = await supabase
+	const insertPayload = {
+		name: payload.name,
+		preset_id: payload.presetId,
+		created_by: userId,
+		team_pool: payload.teamPool,
+		default_participants: payload.defaultParticipants,
+		group_count: payload.groupCount,
+		stage: payload.presetId === "playoffs_only" ? "PLAYOFF" : "GROUP",
+	};
+
+	let { data, error } = await supabase
 		.from("tournaments")
-		.insert({
-			name: payload.name,
-			preset_id: payload.presetId,
-			created_by: userId,
-			team_pool: payload.teamPool,
-			default_participants: payload.defaultParticipants,
-			group_count: payload.groupCount,
-			stage: payload.presetId === "playoffs_only" ? "PLAYOFF" : "GROUP",
-		})
+		.insert(insertPayload)
 		.select("id, name, status, created_at, preset_id, created_by, team_pool, default_participants, group_count, stage")
 		.single();
+
+	if (error && payload.presetId !== "playoffs_only") {
+		const maybePresetConstraint = `${error.message ?? ""}`.toLowerCase();
+		if (maybePresetConstraint.includes("preset") || maybePresetConstraint.includes("check")) {
+			({ data, error } = await supabase
+				.from("tournaments")
+				.insert({ ...insertPayload, preset_id: "full_tournament" })
+				.select(
+					"id, name, status, created_at, preset_id, created_by, team_pool, default_participants, group_count, stage",
+				)
+				.single());
+		}
+	}
 
 	throwOnError(error, "Unable to create tournament");
 	return {
@@ -438,7 +473,13 @@ export async function updateParticipant(participantId: string, teamId: string | 
 }
 
 export async function lockParticipant(participantId: string): Promise<void> {
-	const { error } = await supabase.from("tournament_participants").update({ locked: true }).eq("id", participantId);
+	const { data: authData, error: authError } = await supabase.auth.getUser();
+	throwOnError(authError, "Unable to read authenticated user");
+
+	const { error } = await supabase
+		.from("tournament_participants")
+		.update({ locked: true, locked_by: authData.user?.id ?? null, locked_at: new Date().toISOString() })
+		.eq("id", participantId);
 	throwOnError(error, "Unable to lock participant");
 }
 
@@ -467,17 +508,18 @@ export async function generatePlayoffs(tournamentId: string): Promise<void> {
 	throwOnError(error, "Unable to generate playoff bracket");
 }
 
+export async function ensurePlayoffBracket(tournamentId: string): Promise<void> {
+	const { error } = await supabase.rpc("ensure_playoff_bracket", { p_tournament_id: tournamentId });
+	throwOnError(error, "Unable to ensure playoff bracket");
+}
+
 export async function listGroupStandings(tournamentId: string): Promise<GroupStanding[]> {
 	const { data, error } = await supabase
 		.from("v_group_standings")
-		.select(
-			"tournament_id, group_id, group_code, participant_id, display_name, team_id, team_code, team_short_name, team_primary_color, team_secondary_color, team_text_color, points, goal_diff, shots_diff",
-		)
+		.select("tournament_id, group_id, rank_in_group, participant_id, team_id, points, goals_for, goals_against")
 		.eq("tournament_id", tournamentId)
-		.order("group_code", { ascending: true })
-		.order("points", { ascending: false })
-		.order("goal_diff", { ascending: false })
-		.order("shots_diff", { ascending: false });
+		.order("group_id", { ascending: true })
+		.order("rank_in_group", { ascending: true });
 	throwOnError(error, "Unable to load standings");
 	return (data ?? []) as GroupStanding[];
 }
@@ -486,7 +528,7 @@ export async function listMatchesWithResults(tournamentId: string, stage?: Match
 	let query = supabase
 		.from("matches")
 		.select(
-			"id, tournament_id, home_participant_id, away_participant_id, round, created_at, stage, bracket_type, home_participant:tournament_participants!matches_home_participant_id_fkey(display_name,team_id), away_participant:tournament_participants!matches_away_participant_id_fkey(display_name,team_id)",
+			"id, tournament_id, home_participant_id, away_participant_id, round, bracket_slot, next_match_id, next_match_side, created_at, stage, bracket_type, home_participant:tournament_participants!matches_home_participant_id_fkey(display_name,team_id), away_participant:tournament_participants!matches_away_participant_id_fkey(display_name,team_id)",
 		)
 		.eq("tournament_id", tournamentId)
 		.order("round", { ascending: true })
@@ -545,6 +587,9 @@ export async function listMatchesWithResults(tournamentId: string, stage?: Match
 			home_participant_id: match.home_participant_id,
 			away_participant_id: match.away_participant_id,
 			round: match.round,
+			bracket_slot: match.bracket_slot,
+			next_match_id: match.next_match_id,
+			next_match_side: (match.next_match_side as "HOME" | "AWAY" | null) ?? null,
 			created_at: match.created_at,
 			stage: match.stage,
 			bracket_type: match.bracket_type,

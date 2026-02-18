@@ -91,6 +91,7 @@ export default function TournamentDetailPage() {
 	const [saving, setSaving] = useState(false);
 	const [resultDrafts, setResultDrafts] = useState<Record<string, EditableResult>>({});
 	const [editingParticipantIds, setEditingParticipantIds] = useState<Set<string>>(new Set());
+	const [editingMatchIds, setEditingMatchIds] = useState<Set<string>>(new Set());
 	const [activeTab, setActiveTab] = useState<"group" | "playoff">("playoff");
 
 	const isAdmin = profile?.role === "admin";
@@ -402,6 +403,11 @@ export default function TournamentDetailPage() {
 				parsed.decision,
 			);
 			await lockMatchResult(matchId);
+			setEditingMatchIds((previous) => {
+				const next = new Set(previous);
+				next.delete(matchId);
+				return next;
+			});
 			if (isGroupMatch) {
 				if (activeTab === "group") {
 					await refreshGroupStageSections();
@@ -411,6 +417,7 @@ export default function TournamentDetailPage() {
 				}
 			}
 			if (isPlayoffMatch) {
+				if (id) await ensurePlayoffBracket(id);
 				await refreshPlayoffSection();
 			}
 			toast.success("Result locked.");
@@ -422,7 +429,7 @@ export default function TournamentDetailPage() {
 	};
 
 	const canEditGroupMatch = (match: MatchWithResult) => {
-		if (isHostOrAdmin) return !match.result?.locked;
+		if (isHostOrAdmin) return !match.result?.locked || editingMatchIds.has(match.id);
 		if (!user?.id || match.result?.locked) return false;
 		const myParticipant = participants.find((participant) => participant.user_id === user.id);
 		if (!myParticipant) return false;
@@ -430,7 +437,7 @@ export default function TournamentDetailPage() {
 	};
 
 	const canEditPlayoffMatch = (match: MatchWithResult) => {
-		if (isHostOrAdmin) return !match.result?.locked;
+		if (isHostOrAdmin) return !match.result?.locked || editingMatchIds.has(match.id);
 		if (!user?.id || match.result?.locked) return false;
 		const myParticipant = participants.find((participant) => participant.user_id === user.id);
 		if (!myParticipant) return false;
@@ -506,7 +513,7 @@ export default function TournamentDetailPage() {
 
 			<Tabs value={activeTab} onValueChange={(value) => onTabChange(value as "group" | "playoff")}>
 				<TabsList>
-					{fullPreset && <TabsTrigger value="group">Group stage</TabsTrigger>}
+					{fullPreset && <TabsTrigger value="group">Participants & Group Stage</TabsTrigger>}
 					<TabsTrigger value="playoff">Playoff bracket</TabsTrigger>
 				</TabsList>
 
@@ -597,6 +604,11 @@ export default function TournamentDetailPage() {
 									setResultDrafts((previous) => ({ ...previous, [matchId]: next }))
 								}
 								onLockResult={onLockResult}
+								onEditResult={
+									isHostOrAdmin
+										? (matchId) => setEditingMatchIds((previous) => new Set(previous).add(matchId))
+										: undefined
+								}
 							/>
 						}
 						placementDiagram={
@@ -617,6 +629,11 @@ export default function TournamentDetailPage() {
 										setResultDrafts((previous) => ({ ...previous, [matchId]: next }))
 									}
 									onLockResult={onLockResult}
+									onEditResult={
+										isHostOrAdmin
+											? (matchId) => setEditingMatchIds((previous) => new Set(previous).add(matchId))
+											: undefined
+									}
 								/>
 							) : undefined
 						}

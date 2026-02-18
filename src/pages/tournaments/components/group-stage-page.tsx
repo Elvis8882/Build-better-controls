@@ -1,4 +1,4 @@
-import { type ReactNode, useMemo } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import type {
 	GroupStanding,
 	MatchParticipantDecision,
@@ -20,21 +20,7 @@ type EditableResult = {
 	decision: MatchParticipantDecision;
 };
 
-function TeamBadge({ team, fallback }: { team?: Team | null; fallback: string }) {
-	if (!team) return <span>{fallback}</span>;
-	return (
-		<span
-			className="inline-flex items-center rounded px-2 py-0.5 text-xs font-semibold"
-			style={{
-				backgroundColor: team.primary_color,
-				color: team.text_color,
-				border: `1px solid ${team.secondary_color || team.primary_color}`,
-			}}
-		>
-			{team.short_name}
-		</span>
-	);
-}
+type TeamFilter = "ALL" | Team["ovr_tier"];
 
 export function ParticipantsTable({
 	tournament,
@@ -79,47 +65,70 @@ export function ParticipantsTable({
 	onEditParticipant: (participantId: string) => void;
 	onClearParticipant: (participant: TournamentParticipant) => Promise<void>;
 }) {
+	const [teamFilter, setTeamFilter] = useState<TeamFilter>("ALL");
+	const filteredTeams = useMemo(
+		() => teams.filter((team) => teamFilter === "ALL" || team.ovr_tier === teamFilter),
+		[teams, teamFilter],
+	);
+	const hasOpenSlots = participants.length < tournament.default_participants;
+
 	return (
 		<section className="space-y-3 rounded-lg border p-4">
 			<h2 className="text-lg font-semibold">Participants & Teams</h2>
-			<div className="grid gap-3 md:grid-cols-2">
-				<div className="space-y-2">
-					<p className="text-sm">Invite registered user</p>
-					<div className="flex gap-2">
-						<Input
-							value={inviteQuery}
-							onChange={(e) => onInviteQueryChange(e.target.value)}
-							list="invite-user-options"
-						/>
-						<Button
-							disabled={saving || participants.length >= tournament.default_participants}
-							onClick={() => void onInvite()}
-						>
-							Add
-						</Button>
+			{hasOpenSlots && (
+				<div className="grid gap-3 md:grid-cols-2">
+					<div className="space-y-2">
+						<p className="text-sm">Invite registered user</p>
+						<div className="flex gap-2">
+							<Input
+								value={inviteQuery}
+								onChange={(e) => onInviteQueryChange(e.target.value)}
+								list="invite-user-options"
+							/>
+							<Button
+								disabled={saving || participants.length >= tournament.default_participants}
+								onClick={() => void onInvite()}
+							>
+								Add
+							</Button>
+						</div>
+						<datalist id="invite-user-options">
+							{inviteOptions.map((option) => (
+								<option key={option.id} value={option.username} />
+							))}
+						</datalist>
 					</div>
-					<datalist id="invite-user-options">
-						{inviteOptions.map((option) => (
-							<option key={option.id} value={option.username} />
-						))}
-					</datalist>
-				</div>
-				<div className="space-y-2">
-					<p className="text-sm">Create guest</p>
-					<div className="flex gap-2">
-						<Input
-							value={newGuestName}
-							onChange={(e) => onNewGuestNameChange(e.target.value)}
-							placeholder="Guest name"
-						/>
-						<Button
-							disabled={saving || participants.length >= tournament.default_participants}
-							onClick={() => void onAddGuest()}
-						>
-							Add
-						</Button>
+					<div className="space-y-2">
+						<p className="text-sm">Create guest</p>
+						<div className="flex gap-2">
+							<Input
+								value={newGuestName}
+								onChange={(e) => onNewGuestNameChange(e.target.value)}
+								placeholder="Guest name"
+							/>
+							<Button
+								disabled={saving || participants.length >= tournament.default_participants}
+								onClick={() => void onAddGuest()}
+							>
+								Add
+							</Button>
+						</div>
 					</div>
 				</div>
+			)}
+			<div className="flex items-center gap-2">
+				<p className="text-sm">Team filter</p>
+				<select
+					className="h-9 rounded-md border px-2"
+					value={teamFilter}
+					onChange={(event) => setTeamFilter(event.target.value as TeamFilter)}
+				>
+					<option value="ALL">All teams</option>
+					<option value="Top 5">Top 5</option>
+					<option value="Top 10">Top 10</option>
+					<option value="Middle Tier">Middle Tier</option>
+					<option value="Bottom Tier">Bottom Tier</option>
+				</select>
 			</div>
 			<div className="overflow-x-auto">
 				<table className="w-full min-w-[760px] text-sm">
@@ -142,7 +151,7 @@ export function ParticipantsTable({
 										onChange={(event) => void onTeamChange(participant, event.target.value || null)}
 									>
 										<option value="">Select team</option>
-										{teams.map((team) => (
+										{filteredTeams.map((team) => (
 											<option
 												key={team.id}
 												value={team.id}
@@ -153,9 +162,10 @@ export function ParticipantsTable({
 										))}
 									</select>
 									{participant.team && (
-										<div className="mt-1">
-											<TeamBadge team={participant.team} fallback={participant.display_name} />
-										</div>
+										<p className="mt-1 text-xs text-muted-foreground">
+											OVR {participant.team.overall} • OFF {participant.team.offense} • DEF {participant.team.defense} •
+											GOA {participant.team.goalie}
+										</p>
 									)}
 								</td>
 								<td className="flex gap-2 px-2 py-2">
@@ -231,8 +241,8 @@ export function GroupStandings({
 							<thead>
 								<tr className="border-b">
 									<th className="py-1 text-left">Team</th>
-									<th className="py-1 text-right">Pts</th>
 									<th className="py-1 text-right">GF:GA</th>
+									<th className="py-1 text-right">Pts</th>
 								</tr>
 							</thead>
 							<tbody>
@@ -242,13 +252,11 @@ export function GroupStandings({
 										const team = row.team_id ? teamById.get(row.team_id) : null;
 										return (
 											<tr key={row.participant_id} className="border-b">
-												<td className="py-1">
-													<TeamBadge team={team} fallback={`Participant ${row.participant_id.slice(0, 6)}`} />
-												</td>
-												<td className="py-1 text-right font-semibold">{row.points}</td>
+												<td className="py-1">{team?.name ?? `Participant ${row.participant_id.slice(0, 6)}`}</td>
 												<td className="py-1 text-right">
 													{row.goals_for}:{row.goals_against}
 												</td>
+												<td className="py-1 text-right font-semibold">{row.points}</td>
 											</tr>
 										);
 									})}
@@ -295,11 +303,21 @@ export function GroupMatchesTable({
 					const disabled = !canEditMatch(match);
 					return (
 						<div key={match.id} className="rounded border p-3">
-							<div className="mb-2 flex items-center justify-between">
-								<div className="flex items-center gap-2">
-									<TeamBadge team={homeTeam} fallback={match.home_participant_name} />
-									<span>vs</span>
-									<TeamBadge team={awayTeam} fallback={match.away_participant_name} />
+							<div className="mb-2 flex items-start justify-between">
+								<div className="grid w-full grid-cols-[1fr_auto_1fr] items-start gap-3">
+									<div className="text-left">
+										<p className="font-medium">{homeTeam?.name ?? match.home_participant_name}</p>
+										<p className="text-xs text-muted-foreground">
+											Goals: {match.result?.home_score ?? "-"} • SOG: {match.result?.home_shots ?? "-"}
+										</p>
+									</div>
+									<span className="mt-1 text-sm font-semibold">VS</span>
+									<div className="text-right">
+										<p className="font-medium">{awayTeam?.name ?? match.away_participant_name}</p>
+										<p className="text-xs text-muted-foreground">
+											Goals: {match.result?.away_score ?? "-"} • SOG: {match.result?.away_shots ?? "-"}
+										</p>
+									</div>
 								</div>
 								{match.result?.locked && <Badge>Locked</Badge>}
 							</div>
@@ -370,11 +388,30 @@ export function GroupStagePage({
 	standingsTable: ReactNode;
 	matchesTable: ReactNode;
 }) {
+	const [section, setSection] = useState<"participants" | "group">("participants");
+
 	return (
 		<div className="space-y-4">
-			{participantsTable}
-			{standingsTable}
-			{matchesTable}
+			<div className="flex gap-2">
+				<Button
+					size="sm"
+					variant={section === "participants" ? "default" : "outline"}
+					onClick={() => setSection("participants")}
+				>
+					Participants & Teams
+				</Button>
+				<Button size="sm" variant={section === "group" ? "default" : "outline"} onClick={() => setSection("group")}>
+					Group Stage
+				</Button>
+			</div>
+			{section === "participants" ? (
+				participantsTable
+			) : (
+				<>
+					{standingsTable}
+					{matchesTable}
+				</>
+			)}
 		</div>
 	);
 }

@@ -72,6 +72,30 @@ const defaultResult: EditableResult = {
 const isFullPreset = (presetId: Tournament["preset_id"]) =>
 	presetId === "full_with_losers" || presetId === "full_no_losers";
 
+const isMatchDisplayable = (match: MatchWithResult) => {
+	const hasResult = Boolean(match.result);
+	const hasHome = Boolean(match.home_participant_id);
+	const hasAway = Boolean(match.away_participant_id);
+	if (hasResult) return true;
+	if (hasHome && hasAway) return true;
+	if (!match.next_match_id) return hasHome || hasAway;
+	return false;
+};
+
+const resolveWinner = (match: MatchWithResult): string | null => {
+	if (!match.result?.locked || !match.home_participant_id || !match.away_participant_id) return null;
+	if ((match.result.home_score ?? 0) > (match.result.away_score ?? 0)) return match.home_participant_id;
+	if ((match.result.away_score ?? 0) > (match.result.home_score ?? 0)) return match.away_participant_id;
+	return null;
+};
+
+const resolveLoser = (match: MatchWithResult): string | null => {
+	if (!match.result?.locked || !match.home_participant_id || !match.away_participant_id) return null;
+	if ((match.result.home_score ?? 0) > (match.result.away_score ?? 0)) return match.away_participant_id;
+	if ((match.result.away_score ?? 0) > (match.result.home_score ?? 0)) return match.home_participant_id;
+	return null;
+};
+
 export default function TournamentDetailPage() {
 	const { id } = useParams();
 	const navigate = useNavigate();
@@ -533,11 +557,58 @@ export default function TournamentDetailPage() {
 
 	const winnersBracketMatches = playoffMatches
 		.filter((match) => match.bracket_type === "WINNERS")
+		.filter(isMatchDisplayable)
 		.sort((left, right) => left.round - right.round || (left.bracket_slot ?? 0) - (right.bracket_slot ?? 0));
-	const shouldShowPlacementBracket = tournament.preset_id === "full_with_losers";
 	const placementBracketMatches = playoffMatches
 		.filter((match) => match.bracket_type === "LOSERS")
+		.filter(isMatchDisplayable)
 		.sort((left, right) => left.round - right.round || (left.bracket_slot ?? 0) - (right.bracket_slot ?? 0));
+	const shouldShowPlacementBracket = placementBracketMatches.length > 0;
+	const allPlayoffMatchesLocked =
+		(winnersBracketMatches.length > 0 || placementBracketMatches.length > 0) &&
+		[...winnersBracketMatches, ...placementBracketMatches].every((match) => Boolean(match.result?.locked));
+
+	const standingByParticipantId = new Map<string, number>();
+	if (allPlayoffMatchesLocked) {
+		const winnersFinal = [...winnersBracketMatches].sort((a, b) => b.round - a.round)[0];
+		if (winnersFinal) {
+			const winner = resolveWinner(winnersFinal);
+			const loser = resolveLoser(winnersFinal);
+			if (winner) standingByParticipantId.set(winner, 1);
+			if (loser) standingByParticipantId.set(loser, 2);
+		}
+
+		const thirdPlaceMatch = placementBracketMatches.find((match) => match.round === 1 && match.bracket_slot === 1);
+		if (thirdPlaceMatch) {
+			const winner = resolveWinner(thirdPlaceMatch);
+			const loser = resolveLoser(thirdPlaceMatch);
+			if (winner) standingByParticipantId.set(winner, 3);
+			if (loser) standingByParticipantId.set(loser, 4);
+		}
+
+		const unresolvedIds = new Set<string>();
+		for (const match of [...winnersBracketMatches, ...placementBracketMatches]) {
+			if (match.home_participant_id && !standingByParticipantId.has(match.home_participant_id)) {
+				unresolvedIds.add(match.home_participant_id);
+			}
+			if (match.away_participant_id && !standingByParticipantId.has(match.away_participant_id)) {
+				unresolvedIds.add(match.away_participant_id);
+			}
+		}
+
+		let nextStanding = standingByParticipantId.size + 1;
+		for (const participantId of unresolvedIds) {
+			standingByParticipantId.set(participantId, nextStanding);
+			nextStanding += 1;
+		}
+	}
+
+	const medalByParticipantId = new Map<string, "gold" | "silver" | "bronze">();
+	for (const [participantId, standing] of standingByParticipantId.entries()) {
+		if (standing === 1) medalByParticipantId.set(participantId, "gold");
+		if (standing === 2) medalByParticipantId.set(participantId, "silver");
+		if (standing === 3) medalByParticipantId.set(participantId, "bronze");
+	}
 
 	return (
 		<div className="space-y-6 p-4 md:p-6">
@@ -613,7 +684,14 @@ export default function TournamentDetailPage() {
 				{fullPreset && (
 					<TabsContent value="group" className="space-y-4">
 						<GroupStagePage
-							standingsTable={<GroupStandings groups={groups} standings={standings} teamById={teamById} />}
+							standingsTable={
+								<GroupStandings
+									groups={groups}
+									standings={standings}
+									teamById={teamById}
+									showPlacement={allGroupMatchesLocked}
+								/>
+							}
 							matchesTable={
 								<GroupMatchesTable
 									matches={groupMatches}
@@ -625,6 +703,11 @@ export default function TournamentDetailPage() {
 										setResultDrafts((previous) => ({ ...previous, [matchId]: next }))
 									}
 									onLockResult={onLockResult}
+									onEditResult={
+										isHostOrAdmin
+											? (matchId) => setEditingMatchIds((previous) => new Set(previous).add(matchId))
+											: undefined
+									}
 								/>
 							}
 						/>
@@ -651,7 +734,15 @@ export default function TournamentDetailPage() {
 									? "Bracket frozen"
 									: undefined
 						}
-						diagram={<BracketDiagram title="Winners bracket" matches={winnersBracketMatches} teamById={teamById} />}
+						diagram={
+							<BracketDiagram
+								title="Winners bracket"
+								matches={winnersBracketMatches}
+								teamById={teamById}
+								standingByParticipantId={standingByParticipantId}
+								medalByParticipantId={medalByParticipantId}
+							/>
+						}
 						table={
 							<PlayoffMatchesTable
 								title="Winners bracket matches"
@@ -669,11 +760,19 @@ export default function TournamentDetailPage() {
 										? (matchId) => setEditingMatchIds((previous) => new Set(previous).add(matchId))
 										: undefined
 								}
+								standingByParticipantId={standingByParticipantId}
+								medalByParticipantId={medalByParticipantId}
 							/>
 						}
 						placementDiagram={
 							shouldShowPlacementBracket ? (
-								<BracketDiagram title="Placement bracket" matches={placementBracketMatches} teamById={teamById} />
+								<BracketDiagram
+									title="Placement bracket"
+									matches={placementBracketMatches}
+									teamById={teamById}
+									standingByParticipantId={standingByParticipantId}
+									medalByParticipantId={medalByParticipantId}
+								/>
 							) : undefined
 						}
 						placementTable={
@@ -694,6 +793,8 @@ export default function TournamentDetailPage() {
 											? (matchId) => setEditingMatchIds((previous) => new Set(previous).add(matchId))
 											: undefined
 									}
+									standingByParticipantId={standingByParticipantId}
+									medalByParticipantId={medalByParticipantId}
 								/>
 							) : undefined
 						}

@@ -119,7 +119,6 @@ function buildBracketSlots(matches: MatchWithResult[], omitTbdOnlySlots = false)
 export function BracketDiagram({
 	title,
 	matches,
-	bracketKind,
 	teamById,
 	standingByParticipantId,
 	medalByParticipantId,
@@ -127,13 +126,12 @@ export function BracketDiagram({
 }: {
 	title: string;
 	matches: MatchWithResult[];
-	bracketKind: "WINNERS" | "PLACEMENT";
 	teamById: Map<string, Team>;
 	standingByParticipantId?: Map<string, number>;
 	medalByParticipantId?: Map<string, "gold" | "silver" | "bronze">;
 	placementRevealKeys?: Set<string>;
 }) {
-	const roundSlots = useMemo(() => buildBracketSlots(matches, bracketKind === "PLACEMENT"), [matches, bracketKind]);
+	const roundSlots = useMemo(() => buildBracketSlots(matches), [matches]);
 	const totalRoundCount = useMemo(() => roundSlots.length || 1, [roundSlots]);
 
 	if (matches.length === 0) {

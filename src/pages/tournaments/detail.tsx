@@ -925,7 +925,6 @@ export default function TournamentDetailPage() {
 						diagram={
 							<BracketDiagram
 								title="Winners bracket"
-								bracketKind="WINNERS"
 								matches={winnersBracketMatchesRaw}
 								teamById={teamById}
 								standingByParticipantId={standingByParticipantId}
@@ -960,7 +959,6 @@ export default function TournamentDetailPage() {
 							shouldShowPlacementBracket ? (
 								<BracketDiagram
 									title="Placement bracket"
-									bracketKind="PLACEMENT"
 									matches={placementBracketMatchesRaw}
 									teamById={teamById}
 									standingByParticipantId={standingByParticipantId}

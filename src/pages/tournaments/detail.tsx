@@ -28,6 +28,7 @@ import {
 	type TournamentParticipant,
 	type Team,
 	updateParticipant,
+	updateTournamentStatus,
 	upsertMatchResult,
 } from "@/lib/db";
 import {
@@ -41,6 +42,7 @@ import {
 	PlayoffBracketPage,
 	PlayoffMatchesTable,
 } from "@/pages/tournaments/components/playoff-bracket-page";
+import { Button } from "@/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/ui/tabs";
 
 type EditableResult = {
@@ -164,6 +166,11 @@ export default function TournamentDetailPage() {
 	const groupStageAvailable = fullPreset && (groups.length > 0 || groupMatches.length > 0);
 	const playoffStageAvailable = fullPreset ? allGroupMatchesLocked : allLockedWithTeams;
 	const anyPlayoffLocked = playoffMatches.some((match) => Boolean(match.result?.locked));
+	const allPlayoffMatchesLockedByStage =
+		playoffMatches.length > 0 &&
+		playoffMatches.filter(isMatchDisplayable).every((match) => Boolean(match.result?.locked));
+	const tournamentStarted = allLockedWithTeams && (fullPreset ? groupMatches.length > 0 : playoffMatches.length > 0);
+	const tournamentCanClose = allPlayoffMatchesLockedByStage && (fullPreset ? allGroupMatchesLocked : true);
 
 	useEffect(() => {
 		if (!id) return;
@@ -199,17 +206,16 @@ export default function TournamentDetailPage() {
 		if (!id) return;
 		if (nextTab === "participants") {
 			navigate(`/dashboard/tournaments/${id}/participants`);
+			void refreshParticipantsSection();
 			return;
 		}
 		if (nextTab === "group") {
 			navigate(`/dashboard/tournaments/${id}/group-stage`);
+			void refreshGroupStageSections();
 			return;
 		}
-		if (nextTab === "playoff") {
-			navigate(`/dashboard/tournaments/${id}/playoff-bracket`);
-			return;
-		}
-		navigate(`/dashboard/tournaments/${id}/participants`);
+		navigate(`/dashboard/tournaments/${id}/playoff-bracket`);
+		void refreshPlayoffSection();
 	};
 
 	const mergeResultDrafts = useCallback((matches: MatchWithResult[]) => {
@@ -552,6 +558,34 @@ export default function TournamentDetailPage() {
 		}
 	};
 
+	useEffect(() => {
+		if (
+			!id ||
+			!isHostOrAdmin ||
+			!tournamentStarted ||
+			tournament?.status === "Ongoing" ||
+			tournament?.status === "Closed"
+		)
+			return;
+		void updateTournamentStatus(id, "Ongoing")
+			.then(loadAll)
+			.catch((error) => toast.error((error as Error).message));
+	}, [id, isHostOrAdmin, tournamentStarted, tournament?.status, loadAll]);
+
+	const onCloseTournament = async () => {
+		if (!id || !isHostOrAdmin || !tournamentCanClose || tournament?.status === "Closed") return;
+		setSaving(true);
+		try {
+			await updateTournamentStatus(id, "Closed");
+			await loadAll();
+			toast.success("Tournament closed.");
+		} catch (error) {
+			toast.error((error as Error).message);
+		} finally {
+			setSaving(false);
+		}
+	};
+
 	if (loading) return <div className="p-6 text-sm text-muted-foreground">Loading tournament...</div>;
 	if (!tournament) return <div className="p-6 text-sm text-muted-foreground">Tournament not found.</div>;
 
@@ -612,12 +646,19 @@ export default function TournamentDetailPage() {
 
 	return (
 		<div className="space-y-6 p-4 md:p-6">
-			<div>
-				<h1 className="text-2xl font-semibold">{tournament.name}</h1>
-				<p className="text-sm text-muted-foreground">
-					Type: {tournament.preset_id === "playoffs_only" ? "Playoff only" : "Full tournament"} • Team pool:{" "}
-					{tournament.team_pool} • Slots: {tournament.default_participants}
-				</p>
+			<div className="flex flex-wrap items-start justify-between gap-3">
+				<div>
+					<h1 className="text-2xl font-semibold">{tournament.name}</h1>
+					<p className="text-sm text-muted-foreground">
+						Type: {tournament.preset_id === "playoffs_only" ? "Playoff only" : "Full tournament"} • Team pool:{" "}
+						{tournament.team_pool} • Slots: {tournament.default_participants} • Status: {tournament.status ?? "Draft"}
+					</p>
+				</div>
+				{isHostOrAdmin && tournament.status !== "Closed" && (
+					<Button disabled={!tournamentCanClose || saving} onClick={() => void onCloseTournament()}>
+						Close tournament
+					</Button>
+				)}
 			</div>
 
 			<Tabs value={activeTab} onValueChange={(value) => onTabChange(value as "participants" | "group" | "playoff")}>

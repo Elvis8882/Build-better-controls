@@ -274,10 +274,10 @@ export function GroupStandings({
 						<table className="w-full text-sm">
 							<thead>
 								<tr className="border-b">
-									{showPlacement && <th className="py-1 text-right">Placement</th>}
 									<th className="py-1 text-left">Team</th>
 									<th className="py-1 text-right">GF:GA</th>
 									<th className="py-1 text-right">Pts</th>
+									{showPlacement && <th className="py-1 text-right">Placement</th>}
 								</tr>
 							</thead>
 							<tbody>
@@ -288,12 +288,12 @@ export function GroupStandings({
 										const placement = overallPlacementByParticipantId.get(row.participant_id);
 										return (
 											<tr key={row.participant_id} className="border-b">
-												{showPlacement && <td className="py-1 text-right font-semibold">#{placement}</td>}
 												<td className="py-1">{team?.name ?? `Participant ${row.participant_id.slice(0, 6)}`}</td>
 												<td className="py-1 text-right">
 													{row.goals_for}:{row.goals_against}
 												</td>
 												<td className="py-1 text-right font-semibold">{row.points}</td>
+												{showPlacement && <td className="py-1 text-right font-semibold">#{placement}</td>}
 											</tr>
 										);
 									})}

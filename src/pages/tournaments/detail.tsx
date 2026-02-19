@@ -74,6 +74,13 @@ const defaultResult: EditableResult = {
 const isFullPreset = (presetId: Tournament["preset_id"]) =>
 	presetId === "full_with_losers" || presetId === "full_no_losers";
 
+const getPresetTypeLabel = (presetId: Tournament["preset_id"]): string => {
+	if (presetId === "playoffs_only") return "Playoff only (without loser bracket)";
+	if (presetId === "full_with_losers") return "Full tournament (with loser bracket)";
+	if (presetId === "full_no_losers") return "Full tournament (without loser bracket)";
+	return "Tournament";
+};
+
 const isSkippedPlayoffMatch = (match: MatchWithResult) => {
 	if (match.result?.locked) return false;
 	const hasHome = Boolean(match.home_participant_id);
@@ -206,6 +213,9 @@ export default function TournamentDetailPage() {
 		playoffMatches.filter(isMatchDisplayable).every((match) => Boolean(match.result?.locked));
 	const tournamentStarted = allLockedWithTeams && (fullPreset ? groupMatches.length > 0 : playoffMatches.length > 0);
 	const tournamentCanClose = allPlayoffMatchesLockedByStage && (fullPreset ? allGroupMatchesLocked : true);
+	const tournamentClosed = tournament?.status === "Closed";
+	const participantFieldsLocked = tournamentClosed || (fullPreset ? groupStageAvailable : playoffMatches.length > 0);
+	const groupStageEditingLocked = tournamentClosed || anyPlayoffLocked;
 
 	useEffect(() => {
 		if (!id) return;
@@ -521,6 +531,7 @@ export default function TournamentDetailPage() {
 	};
 
 	const canEditGroupMatch = (match: MatchWithResult) => {
+		if (groupStageEditingLocked) return false;
 		if (isHostOrAdmin) return !match.result?.locked || editingMatchIds.has(match.id);
 		if (!user?.id || match.result?.locked) return false;
 		const myParticipant = participants.find((participant) => participant.user_id === user.id);
@@ -529,6 +540,7 @@ export default function TournamentDetailPage() {
 	};
 
 	const canEditPlayoffMatch = (match: MatchWithResult) => {
+		if (tournamentClosed) return false;
 		const matchLocked = Boolean(match.result?.locked);
 		const hasLockedDescendant = hasLockedDescendantByMatchId.get(match.id) ?? false;
 		if (isHostOrAdmin) {
@@ -543,7 +555,7 @@ export default function TournamentDetailPage() {
 	};
 
 	const canEnableEditPlayoffResult = (match: MatchWithResult) => {
-		if (!isHostOrAdmin || !match.result?.locked) return false;
+		if (tournamentClosed || !isHostOrAdmin || !match.result?.locked) return false;
 		const hasLockedDescendant = hasLockedDescendantByMatchId.get(match.id) ?? false;
 		return !hasLockedDescendant;
 	};
@@ -651,6 +663,29 @@ export default function TournamentDetailPage() {
 		[...winnersBracketMatches, ...placementBracketMatches].every((match) => Boolean(match.result?.locked));
 
 	const standingByParticipantId = new Map<string, number>();
+	const playoffStatsByParticipantId = new Map<string, { goalsFor: number; goalsAgainst: number; goalDiff: number }>();
+	for (const match of [...winnersBracketMatches, ...placementBracketMatches]) {
+		if (!match.result?.locked || !match.home_participant_id || !match.away_participant_id) continue;
+		const home = playoffStatsByParticipantId.get(match.home_participant_id) ?? {
+			goalsFor: 0,
+			goalsAgainst: 0,
+			goalDiff: 0,
+		};
+		const away = playoffStatsByParticipantId.get(match.away_participant_id) ?? {
+			goalsFor: 0,
+			goalsAgainst: 0,
+			goalDiff: 0,
+		};
+		home.goalsFor += match.result.home_score ?? 0;
+		home.goalsAgainst += match.result.away_score ?? 0;
+		home.goalDiff = home.goalsFor - home.goalsAgainst;
+		away.goalsFor += match.result.away_score ?? 0;
+		away.goalsAgainst += match.result.home_score ?? 0;
+		away.goalDiff = away.goalsFor - away.goalsAgainst;
+		playoffStatsByParticipantId.set(match.home_participant_id, home);
+		playoffStatsByParticipantId.set(match.away_participant_id, away);
+	}
+
 	const winnersFinal = [...winnersBracketMatches].sort((a, b) => b.round - a.round)[0];
 	if (winnersFinal?.result?.locked) {
 		const winner = resolveWinner(winnersFinal);
@@ -659,23 +694,30 @@ export default function TournamentDetailPage() {
 		if (loser) standingByParticipantId.set(loser, 2);
 	}
 
-	const resolvedPlacementMatches = placementBracketMatches
+	const bronzeMatch = [...placementBracketMatches]
 		.filter((match) => Boolean(match.result?.locked))
-		.sort((a, b) => b.round - a.round || (a.bracket_slot ?? 0) - (b.bracket_slot ?? 0));
-	for (const match of resolvedPlacementMatches) {
-		const winner = resolveWinner(match);
-		const loser = resolveLoser(match);
-		if (winner && !standingByParticipantId.has(winner)) {
-			standingByParticipantId.set(winner, standingByParticipantId.size + 1);
-		}
-		if (loser && !standingByParticipantId.has(loser)) {
-			standingByParticipantId.set(loser, standingByParticipantId.size + 1);
-		}
+		.sort((a, b) => b.round - a.round || (b.bracket_slot ?? 0) - (a.bracket_slot ?? 0))[0];
+	if (bronzeMatch) {
+		const bronzeWinner = resolveWinner(bronzeMatch);
+		const bronzeLoser = resolveLoser(bronzeMatch);
+		if (bronzeWinner && !standingByParticipantId.has(bronzeWinner)) standingByParticipantId.set(bronzeWinner, 3);
+		if (bronzeLoser && !standingByParticipantId.has(bronzeLoser)) standingByParticipantId.set(bronzeLoser, 4);
 	}
 
 	if (allPlayoffMatchesLocked) {
 		const unresolvedIds = new Set<string>();
+		const eliminationByParticipantId = new Map<string, { bracketType: "WINNERS" | "LOSERS"; round: number }>();
 		for (const match of [...winnersBracketMatches, ...placementBracketMatches]) {
+			const loser = resolveLoser(match);
+			if (loser) {
+				const previous = eliminationByParticipantId.get(loser);
+				if (!previous || match.round > previous.round) {
+					eliminationByParticipantId.set(loser, {
+						bracketType: (match.bracket_type ?? "WINNERS") as "WINNERS" | "LOSERS",
+						round: match.round,
+					});
+				}
+			}
 			if (match.home_participant_id && !standingByParticipantId.has(match.home_participant_id)) {
 				unresolvedIds.add(match.home_participant_id);
 			}
@@ -684,8 +726,24 @@ export default function TournamentDetailPage() {
 			}
 		}
 
+		const unresolvedRanked = [...unresolvedIds].sort((left, right) => {
+			const leftElimination = eliminationByParticipantId.get(left);
+			const rightElimination = eliminationByParticipantId.get(right);
+			const leftStageScore =
+				(leftElimination?.bracketType === "LOSERS" ? 10_000 : 0) + (leftElimination?.round ?? 0) * 100;
+			const rightStageScore =
+				(rightElimination?.bracketType === "LOSERS" ? 10_000 : 0) + (rightElimination?.round ?? 0) * 100;
+			if (rightStageScore !== leftStageScore) return rightStageScore - leftStageScore;
+			const leftStats = playoffStatsByParticipantId.get(left) ?? { goalsFor: 0, goalsAgainst: 0, goalDiff: 0 };
+			const rightStats = playoffStatsByParticipantId.get(right) ?? { goalsFor: 0, goalsAgainst: 0, goalDiff: 0 };
+			if (rightStats.goalDiff !== leftStats.goalDiff) return rightStats.goalDiff - leftStats.goalDiff;
+			if (rightStats.goalsFor !== leftStats.goalsFor) return rightStats.goalsFor - leftStats.goalsFor;
+			if (leftStats.goalsAgainst !== rightStats.goalsAgainst) return leftStats.goalsAgainst - rightStats.goalsAgainst;
+			return left.localeCompare(right);
+		});
+
 		let nextStanding = standingByParticipantId.size + 1;
-		for (const participantId of unresolvedIds) {
+		for (const participantId of unresolvedRanked) {
 			standingByParticipantId.set(participantId, nextStanding);
 			nextStanding += 1;
 		}
@@ -735,8 +793,8 @@ export default function TournamentDetailPage() {
 				<div>
 					<h1 className="text-2xl font-semibold">{tournament.name}</h1>
 					<p className="text-sm text-muted-foreground">
-						Type: {tournament.preset_id === "playoffs_only" ? "Playoff only" : "Full tournament"} • Team pool:{" "}
-						{tournament.team_pool} • Slots: {tournament.default_participants} • Status: {tournament.status ?? "Draft"}
+						Type: {getPresetTypeLabel(tournament.preset_id)} • Team pool: {tournament.team_pool} • Slots:{" "}
+						{tournament.default_participants} • Status: {tournament.status ?? "Draft"}
 					</p>
 				</div>
 				{isHostOrAdmin && tournament.status !== "Closed" && (
@@ -768,6 +826,7 @@ export default function TournamentDetailPage() {
 						assignedTeams={assignedTeams}
 						saving={saving}
 						isHostOrAdmin={isHostOrAdmin}
+						participantFieldsLocked={participantFieldsLocked}
 						editingParticipantIds={editingParticipantIds}
 						inviteQuery={inviteQuery}
 						inviteOptions={inviteOptions}
@@ -831,7 +890,7 @@ export default function TournamentDetailPage() {
 									}
 									onLockResult={onLockResult}
 									onEditResult={
-										isHostOrAdmin
+										isHostOrAdmin && !groupStageEditingLocked
 											? (matchId) => setEditingMatchIds((previous) => new Set(previous).add(matchId))
 											: undefined
 									}
@@ -885,7 +944,7 @@ export default function TournamentDetailPage() {
 								}
 								onLockResult={onLockResult}
 								onEditResult={
-									isHostOrAdmin
+									isHostOrAdmin && !tournamentClosed
 										? (matchId) => setEditingMatchIds((previous) => new Set(previous).add(matchId))
 										: undefined
 								}
@@ -922,7 +981,7 @@ export default function TournamentDetailPage() {
 									}
 									onLockResult={onLockResult}
 									onEditResult={
-										isHostOrAdmin
+										isHostOrAdmin && !tournamentClosed
 											? (matchId) => setEditingMatchIds((previous) => new Set(previous).add(matchId))
 											: undefined
 									}

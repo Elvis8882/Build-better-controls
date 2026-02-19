@@ -128,9 +128,9 @@ export function ParticipantsTable({
 							const filteredTeams = teams.filter((team) => teamFilter === "ALL" || team.ovr_tier === teamFilter);
 							return (
 								<tr key={participant.id} className="border-b">
-									<td className="px-2 py-2">{participant.display_name}</td>
-									<td className="px-2 py-2">
-										<div className="flex flex-wrap items-center gap-2">
+									<td className="px-2 py-2 text-center align-middle">{participant.display_name}</td>
+									<td className="px-2 py-2 align-middle">
+										<div className="flex flex-wrap items-center justify-center gap-2">
 											<span className="text-xs text-muted-foreground">Filter</span>
 											<select
 												className="h-8 rounded-md border px-2 text-xs"
@@ -180,8 +180,8 @@ export function ParticipantsTable({
 											)}
 										</div>
 									</td>
-									<td className="px-2 py-2">
-										<div className="flex justify-end gap-2">
+									<td className="px-2 py-2 align-middle">
+										<div className="flex justify-center gap-2">
 											<Button size="sm" variant="outline" onClick={() => void onRandomizeTeam(participant, teamFilter)}>
 												🎲
 											</Button>
@@ -220,9 +220,9 @@ export function ParticipantsTable({
 						})}
 						{placeholderRows.map((row) => (
 							<tr key={row.id} className="border-b border-dashed bg-muted/20">
-								<td className="px-2 py-3 text-muted-foreground">{row.label}</td>
-								<td className="px-2 py-3 text-muted-foreground">-</td>
-								<td className="px-2 py-3 text-muted-foreground">Invite or add guest</td>
+								<td className="px-2 py-3 text-center text-muted-foreground">{row.label}</td>
+								<td className="px-2 py-3 text-center text-muted-foreground">-</td>
+								<td className="px-2 py-3 text-center text-muted-foreground">Invite or add guest</td>
 							</tr>
 						))}
 					</tbody>
@@ -294,16 +294,16 @@ export function GroupStandings({
 				{groups.map((group) => (
 					<div key={group.id} className="rounded border p-3">
 						<h4 className="mb-2 font-medium">Group {group.group_code}</h4>
-						<table className="w-full text-sm">
+						<table className="w-full table-fixed text-sm">
 							<thead>
 								<tr className="border-b">
-									<th className="py-1 text-left">Team</th>
-									<th className="py-1 text-right">GP</th>
-									<th className="py-1 text-right">W</th>
-									<th className="py-1 text-right">L</th>
-									<th className="py-1 text-right">GF:GA</th>
-									<th className="py-1 text-right">Pts</th>
-									{showPlacement && <th className="py-1 text-right">Placement</th>}
+									<th className="w-[40%] py-1 text-left">Team</th>
+									<th className="w-[9%] py-1 text-right">GP</th>
+									<th className="w-[9%] py-1 text-right">W</th>
+									<th className="w-[9%] py-1 text-right">L</th>
+									<th className="w-[14%] py-1 text-right">GF:GA</th>
+									<th className="w-[9%] py-1 text-right">Pts</th>
+									{showPlacement && <th className="w-[10%] py-1 text-right">Placement</th>}
 								</tr>
 							</thead>
 							<tbody>
@@ -314,17 +314,21 @@ export function GroupStandings({
 										const placement = overallPlacementByParticipantId.get(row.participant_id);
 										return (
 											<tr key={row.participant_id} className="border-b">
-												<td className="py-1">{team?.name ?? `Participant ${row.participant_id.slice(0, 6)}`}</td>
-												<td className="py-1 text-right">
+												<td className="py-1 pr-2">{team?.name ?? `Participant ${row.participant_id.slice(0, 6)}`}</td>
+												<td className="py-1 pl-2 text-right">
 													{statsByParticipantId.get(row.participant_id)?.gamesPlayed ?? 0}
 												</td>
-												<td className="py-1 text-right">{statsByParticipantId.get(row.participant_id)?.wins ?? 0}</td>
-												<td className="py-1 text-right">{statsByParticipantId.get(row.participant_id)?.losses ?? 0}</td>
-												<td className="py-1 text-right">
+												<td className="py-1 pl-2 text-right">
+													{statsByParticipantId.get(row.participant_id)?.wins ?? 0}
+												</td>
+												<td className="py-1 pl-2 text-right">
+													{statsByParticipantId.get(row.participant_id)?.losses ?? 0}
+												</td>
+												<td className="py-1 pl-2 text-right">
 													{row.goals_for}:{row.goals_against}
 												</td>
-												<td className="py-1 text-right font-semibold">{row.points}</td>
-												{showPlacement && <td className="py-1 text-right font-semibold">#{placement}</td>}
+												<td className="py-1 pl-2 text-right font-semibold">{row.points}</td>
+												{showPlacement && <td className="py-1 pl-2 text-right font-semibold">#{placement}</td>}
 											</tr>
 										);
 									})}

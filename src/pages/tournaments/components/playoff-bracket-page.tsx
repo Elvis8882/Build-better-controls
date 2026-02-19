@@ -37,6 +37,7 @@ function getMedalColor(medal?: "gold" | "silver" | "bronze"): string | undefined
 	return undefined;
 }
 
+<<<<<<< codex/update-tournament-layout-and-functionality
 function getRoundLabel(round: number, totalRounds: number): string {
 	if (totalRounds === 1) return "Final";
 	if (round === totalRounds) return "Final";
@@ -46,6 +47,8 @@ function getRoundLabel(round: number, totalRounds: number): string {
 	return `Round ${round}`;
 }
 
+=======
+>>>>>>> main
 function PlacementPrefix({ standing, medal }: { standing?: number; medal?: "gold" | "silver" | "bronze" }) {
 	if (!standing) return null;
 	return (
@@ -56,6 +59,7 @@ function PlacementPrefix({ standing, medal }: { standing?: number; medal?: "gold
 			#{standing}
 		</span>
 	);
+<<<<<<< codex/update-tournament-layout-and-functionality
 }
 
 function buildBracketSlots(matches: MatchWithResult[]): BracketSlot[][] {
@@ -78,6 +82,8 @@ function buildBracketSlots(matches: MatchWithResult[]): BracketSlot[][] {
 		rounds.push(slots);
 	}
 	return rounds;
+=======
+>>>>>>> main
 }
 
 export function BracketDiagram({
@@ -93,8 +99,23 @@ export function BracketDiagram({
 	standingByParticipantId?: Map<string, number>;
 	medalByParticipantId?: Map<string, "gold" | "silver" | "bronze">;
 }) {
+<<<<<<< codex/update-tournament-layout-and-functionality
 	const roundSlots = useMemo(() => buildBracketSlots(matches), [matches]);
 	const finalRound = roundSlots.length;
+=======
+	const rounds = useMemo(() => {
+		const grouped = new Map<number, MatchWithResult[]>();
+		for (const match of matches) {
+			const items = grouped.get(match.round) ?? [];
+			items.push(match);
+			grouped.set(match.round, items);
+		}
+		return [...grouped.entries()].sort(([a], [b]) => a - b);
+	}, [matches]);
+
+	const finalRound = useMemo(() => Math.max(...matches.map((match) => match.round), 0), [matches]);
+	const matchById = useMemo(() => new Map(matches.map((match) => [match.id, match])), [matches]);
+>>>>>>> main
 
 	return (
 		<section className="space-y-3 rounded-lg border p-4">
@@ -106,6 +127,7 @@ export function BracketDiagram({
 							<h3 className="text-sm font-semibold text-muted-foreground">
 								{getRoundLabel(roundIndex + 1, roundSlots.length)}
 							</h3>
+<<<<<<< codex/update-tournament-layout-and-functionality
 							{slots.map((entry, index) => {
 								if (!entry.match) {
 									return (
@@ -151,6 +173,52 @@ export function BracketDiagram({
 												<div className="flex items-center">
 													<PlacementPrefix standing={homeStanding} medal={homeMedal} />
 													<TeamName team={homeTeam} teamName={match.home_participant_name || "TBD"} />
+=======
+							{roundMatches
+								.sort((a, b) => (a.bracket_slot ?? 0) - (b.bracket_slot ?? 0))
+								.map((match) => {
+									const homeTeam = match.home_team_id ? teamById.get(match.home_team_id) : null;
+									const awayTeam = match.away_team_id ? teamById.get(match.away_team_id) : null;
+									const winningSide = getWinningSide(match);
+									const isFinalRound = match.round === finalRound;
+									const homeStanding =
+										isFinalRound && match.home_participant_id
+											? standingByParticipantId?.get(match.home_participant_id)
+											: undefined;
+									const awayStanding =
+										isFinalRound && match.away_participant_id
+											? standingByParticipantId?.get(match.away_participant_id)
+											: undefined;
+									const homeMedal =
+										isFinalRound && match.home_participant_id
+											? medalByParticipantId?.get(match.home_participant_id)
+											: undefined;
+									const awayMedal =
+										isFinalRound && match.away_participant_id
+											? medalByParticipantId?.get(match.away_participant_id)
+											: undefined;
+									const nextMatch = match.next_match_id ? matchById.get(match.next_match_id) : null;
+									return (
+										<div key={match.id} className="relative rounded-md border bg-card p-3">
+											<div className="space-y-1">
+												<div
+													className={`flex items-center justify-between gap-2 rounded px-1 ${winningSide === "HOME" ? "bg-green-100/80" : ""}`}
+												>
+													<div className="flex items-center">
+														<PlacementPrefix standing={homeStanding} medal={homeMedal} />
+														<TeamName team={homeTeam} teamName={match.home_participant_name || "BYE"} />
+													</div>
+													<span className="text-sm font-bold">{match.result?.home_score ?? "-"}</span>
+												</div>
+												<div
+													className={`flex items-center justify-between gap-2 rounded px-1 ${winningSide === "AWAY" ? "bg-green-100/80" : ""}`}
+												>
+													<div className="flex items-center">
+														<PlacementPrefix standing={awayStanding} medal={awayMedal} />
+														<TeamName team={awayTeam} teamName={match.away_participant_name || "BYE"} />
+													</div>
+													<span className="text-sm font-bold">{match.result?.away_score ?? "-"}</span>
+>>>>>>> main
 												</div>
 												<span className="text-sm font-bold">{match.result?.home_score ?? "-"}</span>
 											</div>
@@ -225,6 +293,7 @@ export function PlayoffMatchesTable({
 }) {
 	const finalRound = useMemo(() => Math.max(...matches.map((match) => match.round), 0), [matches]);
 
+<<<<<<< codex/update-tournament-layout-and-functionality
 	if (matches.length === 0) {
 		return (
 			<section className="space-y-3 rounded-lg border p-4">
@@ -234,6 +303,8 @@ export function PlayoffMatchesTable({
 		);
 	}
 
+=======
+>>>>>>> main
 	return (
 		<section className="space-y-3 rounded-lg border p-4">
 			<h2 className="text-lg font-semibold">{title}</h2>

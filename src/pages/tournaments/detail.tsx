@@ -5,8 +5,8 @@ import { useAuth } from "@/auth/AuthProvider";
 import {
 	addTournamentGuest,
 	createParticipant,
-	fetchTeamsByPool,
 	ensurePlayoffBracket,
+	fetchTeamsByPool,
 	type GroupStanding,
 	generateGroupsAndMatches,
 	getTournament,
@@ -23,10 +23,10 @@ import {
 	type ProfileOption,
 	removeParticipant,
 	searchProfilesByUsername,
+	type Team,
 	type Tournament,
 	type TournamentMember,
 	type TournamentParticipant,
-	type Team,
 	updateParticipant,
 	updateTournamentStatus,
 	upsertMatchResult,
@@ -74,8 +74,12 @@ const defaultResult: EditableResult = {
 const isFullPreset = (presetId: Tournament["preset_id"]) =>
 	presetId === "full_with_losers" || presetId === "full_no_losers";
 
-const isSkippedPlayoffMatch = (match: MatchWithResult) =>
-	!match.result?.locked && (!match.home_participant_id || !match.away_participant_id);
+const isSkippedPlayoffMatch = (match: MatchWithResult) => {
+	if (match.result?.locked) return false;
+	const hasHome = Boolean(match.home_participant_id);
+	const hasAway = Boolean(match.away_participant_id);
+	return hasHome !== hasAway;
+};
 
 const isMatchDisplayable = (match: MatchWithResult) => {
 	if (isSkippedPlayoffMatch(match)) return false;
@@ -83,6 +87,7 @@ const isMatchDisplayable = (match: MatchWithResult) => {
 	const hasHome = Boolean(match.home_participant_id);
 	const hasAway = Boolean(match.away_participant_id);
 	if (hasResult) return true;
+	if (!hasHome && !hasAway) return true;
 	return hasHome && hasAway;
 };
 
@@ -168,6 +173,34 @@ export default function TournamentDetailPage() {
 	const groupStageAvailable = fullPreset && (groups.length > 0 || groupMatches.length > 0);
 	const playoffStageAvailable = fullPreset ? allGroupMatchesLocked : allLockedWithTeams;
 	const anyPlayoffLocked = playoffMatches.some((match) => Boolean(match.result?.locked));
+	const lockedPlayoffMatchIds = useMemo(
+		() => new Set(playoffMatches.filter((match) => Boolean(match.result?.locked)).map((match) => match.id)),
+		[playoffMatches],
+	);
+	const hasLockedDescendantByMatchId = useMemo(() => {
+		const childrenByMatchId = new Map<string, string[]>();
+		for (const match of playoffMatches) {
+			if (!match.next_match_id) continue;
+			const items = childrenByMatchId.get(match.id) ?? [];
+			items.push(match.next_match_id);
+			childrenByMatchId.set(match.id, items);
+		}
+		const memo = new Map<string, boolean>();
+		const visit = (matchId: string): boolean => {
+			if (memo.has(matchId)) return memo.get(matchId) ?? false;
+			const descendants = childrenByMatchId.get(matchId) ?? [];
+			for (const descendantId of descendants) {
+				if (lockedPlayoffMatchIds.has(descendantId) || visit(descendantId)) {
+					memo.set(matchId, true);
+					return true;
+				}
+			}
+			memo.set(matchId, false);
+			return false;
+		};
+		for (const match of playoffMatches) visit(match.id);
+		return memo;
+	}, [playoffMatches, lockedPlayoffMatchIds]);
 	const allPlayoffMatchesLockedByStage =
 		playoffMatches.length > 0 &&
 		playoffMatches.filter(isMatchDisplayable).every((match) => Boolean(match.result?.locked));
@@ -496,11 +529,23 @@ export default function TournamentDetailPage() {
 	};
 
 	const canEditPlayoffMatch = (match: MatchWithResult) => {
-		if (isHostOrAdmin) return !match.result?.locked || editingMatchIds.has(match.id);
-		if (!user?.id || match.result?.locked) return false;
+		const matchLocked = Boolean(match.result?.locked);
+		const hasLockedDescendant = hasLockedDescendantByMatchId.get(match.id) ?? false;
+		if (isHostOrAdmin) {
+			if (!matchLocked) return true;
+			if (hasLockedDescendant) return false;
+			return editingMatchIds.has(match.id);
+		}
+		if (!user?.id || matchLocked || hasLockedDescendant) return false;
 		const myParticipant = participants.find((participant) => participant.user_id === user.id);
 		if (!myParticipant) return false;
 		return match.home_participant_id === myParticipant.id || match.away_participant_id === myParticipant.id;
+	};
+
+	const canEnableEditPlayoffResult = (match: MatchWithResult) => {
+		if (!isHostOrAdmin || !match.result?.locked) return false;
+		const hasLockedDescendant = hasLockedDescendantByMatchId.get(match.id) ?? false;
+		return !hasLockedDescendant;
 	};
 
 	const onRandomizeTeam = async (participant: TournamentParticipant, teamFilter: TeamFilter) => {
@@ -844,6 +889,7 @@ export default function TournamentDetailPage() {
 										? (matchId) => setEditingMatchIds((previous) => new Set(previous).add(matchId))
 										: undefined
 								}
+								canEnableEditResult={canEnableEditPlayoffResult}
 								standingByParticipantId={standingByParticipantId}
 								medalByParticipantId={medalByParticipantId}
 								placementRevealKeys={placementRevealKeys}
@@ -880,6 +926,7 @@ export default function TournamentDetailPage() {
 											? (matchId) => setEditingMatchIds((previous) => new Set(previous).add(matchId))
 											: undefined
 									}
+									canEnableEditResult={canEnableEditPlayoffResult}
 									standingByParticipantId={standingByParticipantId}
 									medalByParticipantId={medalByParticipantId}
 									placementRevealKeys={placementRevealKeys}

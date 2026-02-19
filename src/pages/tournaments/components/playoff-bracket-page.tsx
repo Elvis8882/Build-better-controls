@@ -31,7 +31,10 @@ function isEmptySlotMatch(match: MatchWithResult | null): boolean {
 }
 
 function isSkippedMatch(match: MatchWithResult): boolean {
-	return !match.result?.locked && (!match.home_participant_id || !match.away_participant_id);
+	if (match.result?.locked) return false;
+	const hasHome = Boolean(match.home_participant_id);
+	const hasAway = Boolean(match.away_participant_id);
+	return hasHome !== hasAway;
 }
 
 function getPlacementRevealKey(matchId: string, side: "HOME" | "AWAY"): string {
@@ -130,33 +133,21 @@ export function BracketDiagram({
 	placementRevealKeys?: Set<string>;
 }) {
 	const roundSlots = useMemo(() => buildBracketSlots(matches, bracketKind === "PLACEMENT"), [matches, bracketKind]);
-	const roundDisplayByRound = useMemo(() => {
-		const map = new Map<number, number>();
-		let nextRound = 1;
-		for (const slots of roundSlots) {
-			const firstWithMatch = slots.find((slot) => slot.match);
-			if (!firstWithMatch) continue;
-			const hasPlayable = slots.some((slot) => slot.match && !isSkippedMatch(slot.match));
-			if (hasPlayable) {
-				map.set(firstWithMatch.round, nextRound);
-				nextRound += 1;
-			}
-		}
-		return map;
+	const totalMeaningfulRounds = useMemo(() => {
+		const meaningful = roundSlots.filter((slots) => slots.some((slot) => !isEmptySlotMatch(slot.match)));
+		return meaningful.length || roundSlots.length || 1;
 	}, [roundSlots]);
-
 	return (
-		<section className="space-y-3 rounded-lg border p-4">
+		<section className="space-y-3 rounded-lg border p-3 md:p-4">
 			<h2 className="text-lg font-semibold">{title}</h2>
 			<div className="overflow-x-auto">
-				<div className="flex min-w-[980px] gap-10">
+				<div className="flex min-w-[760px] gap-4 md:min-w-[980px] md:gap-10">
 					{roundSlots.map((slots, roundIndex) => {
 						const currentRound = slots[0]?.round ?? roundIndex + 1;
-						const displayRound = roundDisplayByRound.get(currentRound) ?? currentRound;
 						return (
-							<div key={`round-${roundIndex + 1}`} className="min-w-[220px] space-y-3">
+							<div key={`round-${roundIndex + 1}`} className="min-w-[180px] space-y-3 md:min-w-[220px]">
 								<h3 className="text-center text-sm font-semibold text-muted-foreground">
-									{getRoundLabel(displayRound, roundDisplayByRound.size || roundSlots.length)}
+									{getRoundLabel(Math.min(currentRound, totalMeaningfulRounds), totalMeaningfulRounds)}
 								</h3>
 								{slots.map((entry, index) => {
 									if (!entry.match) {
@@ -268,6 +259,7 @@ export function PlayoffMatchesTable({
 	onResultDraftChange,
 	onLockResult,
 	onEditResult,
+	canEnableEditResult,
 	standingByParticipantId,
 	medalByParticipantId,
 	placementRevealKeys,
@@ -281,6 +273,7 @@ export function PlayoffMatchesTable({
 	onResultDraftChange: (matchId: string, next: EditableResult) => void;
 	onLockResult: (matchId: string) => Promise<void>;
 	onEditResult?: (matchId: string) => void;
+	canEnableEditResult?: (match: MatchWithResult) => boolean;
 	standingByParticipantId?: Map<string, number>;
 	medalByParticipantId?: Map<string, "gold" | "silver" | "bronze">;
 	placementRevealKeys?: Set<string>;
@@ -295,9 +288,26 @@ export function PlayoffMatchesTable({
 		}
 		return map;
 	}, [matches]);
+
+	const displaySlotByMatchId = useMemo(() => {
+		const byRound = new Map<number, MatchWithResult[]>();
+		for (const match of matches) {
+			const items = byRound.get(match.round) ?? [];
+			items.push(match);
+			byRound.set(match.round, items);
+		}
+		const map = new Map<string, number>();
+		for (const roundMatches of byRound.values()) {
+			const ordered = [...roundMatches].sort((left, right) => (left.bracket_slot ?? 0) - (right.bracket_slot ?? 0));
+			for (const [index, match] of ordered.entries()) {
+				map.set(match.id, index + 1);
+			}
+		}
+		return map;
+	}, [matches]);
 	if (matches.length === 0) {
 		return (
-			<section className="space-y-3 rounded-lg border p-4">
+			<section className="space-y-3 rounded-lg border p-3 md:p-4">
 				<h2 className="text-lg font-semibold">{title}</h2>
 				<p className="text-sm text-muted-foreground">No playable matches in this bracket yet.</p>
 			</section>
@@ -305,7 +315,7 @@ export function PlayoffMatchesTable({
 	}
 
 	return (
-		<section className="space-y-3 rounded-lg border p-4">
+		<section className="space-y-3 rounded-lg border p-3 md:p-4">
 			<h2 className="text-lg font-semibold">{title}</h2>
 			<div className="space-y-3">
 				{matches.map((match) => {
@@ -340,15 +350,17 @@ export function PlayoffMatchesTable({
 					const disabled = !canEditMatch(match);
 
 					return (
-						<div key={match.id} className="rounded-xl border bg-gradient-to-b from-card to-muted/10 p-4 shadow-sm">
+						<div
+							key={match.id}
+							className="rounded-xl border bg-gradient-to-b from-card to-muted/10 p-3 shadow-sm md:p-4"
+						>
 							<div className="mb-4 flex items-center justify-between gap-3">
 								<h3 className="text-xl font-bold">
-									Game {roundDisplayByRound.get(match.round) ?? match.round}
-									{match.bracket_slot ? `.${match.bracket_slot}` : ""}
+									Game {roundDisplayByRound.get(match.round) ?? match.round}.{displaySlotByMatchId.get(match.id) ?? 1}
 								</h3>
 								{match.result?.locked && <Badge className="text-xs">Locked</Badge>}
 							</div>
-							<div className="grid grid-cols-[1fr_auto_1fr] items-start gap-4">
+							<div className="grid grid-cols-1 items-start gap-4 md:grid-cols-[1fr_auto_1fr]">
 								<div
 									className={`rounded-lg border border-primary/20 p-3 text-left ${winningSide === "HOME" ? "bg-green-100/80" : ""}`}
 								>
@@ -370,7 +382,7 @@ export function PlayoffMatchesTable({
 										Score: {match.result?.home_score ?? "-"} • SOG: {match.result?.home_shots ?? "-"}
 									</p>
 								</div>
-								<div className="flex flex-col items-center justify-center gap-2">
+								<div className="order-first flex flex-col items-center justify-center gap-2 md:order-none">
 									<span className="text-2xl font-black">VS</span>
 									<select
 										className="h-10 rounded-md border bg-background px-3 text-sm"
@@ -407,7 +419,7 @@ export function PlayoffMatchesTable({
 									</p>
 								</div>
 							</div>
-							<div className="mt-4 grid grid-cols-2 gap-3">
+							<div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
 								<div className="space-y-2">
 									<p className="text-xs font-medium text-muted-foreground">Home Goal</p>
 									<Input
@@ -458,7 +470,7 @@ export function PlayoffMatchesTable({
 								>
 									Lock in
 								</Button>
-								{onEditResult && Boolean(match.result?.locked) && (
+								{onEditResult && Boolean(match.result?.locked) && (canEnableEditResult?.(match) ?? true) && (
 									<Button size="sm" variant="outline" onClick={() => onEditResult(match.id)}>
 										Edit
 									</Button>

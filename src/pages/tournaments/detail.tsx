@@ -383,6 +383,31 @@ export default function TournamentDetailPage() {
 	}, [id, activeTab, anyPlayoffLocked, playoffStageAvailable, refreshPlayoffSection]);
 
 	useEffect(() => {
+		if (!id) return;
+
+		const refreshActiveTabData = () => {
+			if (document.visibilityState !== "visible") return;
+			if (activeTab === "participants") {
+				void refreshParticipantsSection();
+				return;
+			}
+			if (activeTab === "group") {
+				void refreshGroupStageSections();
+				return;
+			}
+			void refreshPlayoffSection();
+		};
+
+		document.addEventListener("visibilitychange", refreshActiveTabData);
+		window.addEventListener("focus", refreshActiveTabData);
+
+		return () => {
+			document.removeEventListener("visibilitychange", refreshActiveTabData);
+			window.removeEventListener("focus", refreshActiveTabData);
+		};
+	}, [id, activeTab, refreshParticipantsSection, refreshGroupStageSections, refreshPlayoffSection]);
+
+	useEffect(() => {
 		if (!user?.id) return;
 		const term = inviteQuery.trim();
 		if (!term) {
@@ -436,9 +461,22 @@ export default function TournamentDetailPage() {
 			toast.warning("No empty slots available.");
 			return;
 		}
+		const guestName = newGuestName.trim();
+		const normalizedGuestName = guestName.toLocaleLowerCase();
+		const duplicateGuestNameExists = participants.some((participant) => {
+			if (!participant.guest_id) return false;
+			const baseName = participant.display_name
+				.replace(/\s*\(Guest\)$/i, "")
+				.trim()
+				.toLocaleLowerCase();
+			return baseName === normalizedGuestName;
+		});
+		if (duplicateGuestNameExists) {
+			toast.warning("Guest name already exists in this tournament.");
+			return;
+		}
 		setSaving(true);
 		try {
-			const guestName = newGuestName.trim();
 			const guest = await addTournamentGuest(id, guestName);
 			await createParticipant(id, { guestId: guest.id, displayName: `${guestName} (Guest)` });
 			await refreshParticipantsSection();

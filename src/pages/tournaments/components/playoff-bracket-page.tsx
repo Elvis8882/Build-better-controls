@@ -104,8 +104,13 @@ function buildBracketSlots(matches: MatchWithResult[], omitTbdOnlySlots = false)
 	for (let round = 1; round <= maxRound; round += 1) {
 		const expectedCount = Math.max(1, Math.ceil(firstRoundCount / 2 ** (round - 1)));
 		const bySlot = new Map((grouped.get(round) ?? []).map((match) => [match.bracket_slot ?? 0, match]));
+		const maxExistingSlot = Math.max(
+			0,
+			...(grouped.get(round) ?? []).map((match) => Math.max(1, match.bracket_slot ?? 1)),
+		);
+		const slotCount = Math.max(expectedCount, maxExistingSlot);
 		const slots: BracketSlot[] = [];
-		for (let slot = 1; slot <= expectedCount; slot += 1) {
+		for (let slot = 1; slot <= slotCount; slot += 1) {
 			const slotEntry = { round, slot, match: bySlot.get(slot) ?? null };
 			if (omitTbdOnlySlots && isEmptySlotMatch(slotEntry.match)) continue;
 			slots.push(slotEntry);

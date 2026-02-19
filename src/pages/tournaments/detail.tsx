@@ -74,14 +74,16 @@ const defaultResult: EditableResult = {
 const isFullPreset = (presetId: Tournament["preset_id"]) =>
 	presetId === "full_with_losers" || presetId === "full_no_losers";
 
+const isSkippedPlayoffMatch = (match: MatchWithResult) =>
+	!match.result?.locked && (!match.home_participant_id || !match.away_participant_id);
+
 const isMatchDisplayable = (match: MatchWithResult) => {
+	if (isSkippedPlayoffMatch(match)) return false;
 	const hasResult = Boolean(match.result);
 	const hasHome = Boolean(match.home_participant_id);
 	const hasAway = Boolean(match.away_participant_id);
 	if (hasResult) return true;
-	if (hasHome && hasAway) return true;
-	if (!match.next_match_id) return hasHome || hasAway;
-	return false;
+	return hasHome && hasAway;
 };
 
 const resolveWinner = (match: MatchWithResult): string | null => {
@@ -613,14 +615,18 @@ export default function TournamentDetailPage() {
 			if (loser) standingByParticipantId.set(loser, 2);
 		}
 
-		const placementFinal = [...placementBracketMatches].sort(
-			(a, b) => b.round - a.round || (a.bracket_slot ?? 0) - (b.bracket_slot ?? 0),
-		)[0];
-		if (placementFinal) {
-			const winner = resolveWinner(placementFinal);
-			const loser = resolveLoser(placementFinal);
-			if (winner) standingByParticipantId.set(winner, 3);
-			if (loser) standingByParticipantId.set(loser, 4);
+		const resolvedPlacementMatches = placementBracketMatches
+			.filter((match) => Boolean(match.result?.locked))
+			.sort((a, b) => b.round - a.round || (a.bracket_slot ?? 0) - (b.bracket_slot ?? 0));
+		for (const match of resolvedPlacementMatches) {
+			const winner = resolveWinner(match);
+			const loser = resolveLoser(match);
+			if (winner && !standingByParticipantId.has(winner)) {
+				standingByParticipantId.set(winner, standingByParticipantId.size + 1);
+			}
+			if (loser && !standingByParticipantId.has(loser)) {
+				standingByParticipantId.set(loser, standingByParticipantId.size + 1);
+			}
 		}
 
 		const unresolvedIds = new Set<string>();
@@ -782,6 +788,7 @@ export default function TournamentDetailPage() {
 						diagram={
 							<BracketDiagram
 								title="Winners bracket"
+								bracketKind="WINNERS"
 								matches={winnersBracketMatchesRaw}
 								teamById={teamById}
 								standingByParticipantId={standingByParticipantId}
@@ -813,6 +820,7 @@ export default function TournamentDetailPage() {
 							shouldShowPlacementBracket ? (
 								<BracketDiagram
 									title="Placement bracket"
+									bracketKind="PLACEMENT"
 									matches={placementBracketMatchesRaw}
 									teamById={teamById}
 									standingByParticipantId={standingByParticipantId}

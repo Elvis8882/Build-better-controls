@@ -31,6 +31,7 @@ export function ParticipantsTable({
 	assignedTeams,
 	saving,
 	isHostOrAdmin,
+	participantFieldsLocked,
 	editingParticipantIds,
 	inviteQuery,
 	inviteOptions,
@@ -52,6 +53,7 @@ export function ParticipantsTable({
 	assignedTeams: Set<string>;
 	saving: boolean;
 	isHostOrAdmin: boolean;
+	participantFieldsLocked: boolean;
 	editingParticipantIds: Set<string>;
 	inviteQuery: string;
 	inviteOptions: Array<{ id: string; username: string }>;
@@ -72,7 +74,7 @@ export function ParticipantsTable({
 	return (
 		<section className="space-y-3 rounded-lg border p-3 md:p-4">
 			<h2 className="text-lg font-semibold">Participants & Teams</h2>
-			{hasOpenSlots && (
+			{hasOpenSlots && !participantFieldsLocked && (
 				<div className="grid gap-3 md:grid-cols-2">
 					<div className="space-y-2">
 						<p className="text-sm">Invite registered user</p>
@@ -150,8 +152,10 @@ export function ParticipantsTable({
 												<option value="Bottom Tier">Bottom Tier</option>
 											</select>
 											<select
-												className="h-9 w-full min-w-[180px] rounded-md border px-2 md:min-w-[220px]"
-												disabled={participant.locked && !editingParticipantIds.has(participant.id)}
+												className="h-9 min-w-[120px] max-w-full rounded-md border px-2"
+												disabled={
+													participantFieldsLocked || (participant.locked && !editingParticipantIds.has(participant.id))
+												}
 												value={participant.team_id ?? ""}
 												onChange={(event) => void onTeamChange(participant, event.target.value || null)}
 											>
@@ -186,7 +190,9 @@ export function ParticipantsTable({
 											<Button
 												size="sm"
 												variant="outline"
-												disabled={participant.locked && !editingParticipantIds.has(participant.id)}
+												disabled={
+													participantFieldsLocked || (participant.locked && !editingParticipantIds.has(participant.id))
+												}
 												onClick={() => void onRandomizeTeam(participant, teamFilter)}
 											>
 												🎲
@@ -194,7 +200,9 @@ export function ParticipantsTable({
 											<Button
 												size="sm"
 												disabled={
-													(!editingParticipantIds.has(participant.id) && participant.locked) || !participant.team_id
+													participantFieldsLocked ||
+													(!editingParticipantIds.has(participant.id) && participant.locked) ||
+													!participant.team_id
 												}
 												onClick={() => void onLockParticipant(participant.id)}
 											>
@@ -204,12 +212,12 @@ export function ParticipantsTable({
 														? "Locked"
 														: "Lock in"}
 											</Button>
-											{participant.locked && isHostOrAdmin && (
+											{participant.locked && isHostOrAdmin && !participantFieldsLocked && (
 												<Button size="sm" variant="outline" onClick={() => onEditParticipant(participant.id)}>
 													Edit
 												</Button>
 											)}
-											{isHostOrAdmin && (
+											{isHostOrAdmin && !participantFieldsLocked && (
 												<Button
 													size="sm"
 													variant="ghost"
@@ -300,46 +308,48 @@ export function GroupStandings({
 				{groups.map((group) => (
 					<div key={group.id} className="rounded border p-3">
 						<h4 className="mb-2 font-medium">Group {group.group_code}</h4>
-						<table className="w-full table-fixed text-sm">
-							<thead>
-								<tr className="border-b">
-									<th className="w-[32%] py-1 text-left">Team</th>
-									<th className="w-[9%] py-1 text-right">GP</th>
-									<th className="w-[9%] py-1 text-right">W</th>
-									<th className="w-[9%] py-1 text-right">L</th>
-									<th className="w-[12%] py-1 text-right">GF:GA</th>
-									<th className="w-[12%] py-1 text-right">Pts</th>
-									{showPlacement && <th className="w-[17%] py-1 text-right">Placement</th>}
-								</tr>
-							</thead>
-							<tbody>
-								{(standingsByGroupId.get(group.id) ?? [])
-									.sort((a, b) => a.rank_in_group - b.rank_in_group)
-									.map((row) => {
-										const team = row.team_id ? teamById.get(row.team_id) : null;
-										const placement = overallPlacementByParticipantId.get(row.participant_id);
-										return (
-											<tr key={row.participant_id} className="border-b">
-												<td className="py-1 pr-2">{team?.name ?? `Participant ${row.participant_id.slice(0, 6)}`}</td>
-												<td className="py-1 pl-2 text-right">
-													{statsByParticipantId.get(row.participant_id)?.gamesPlayed ?? 0}
-												</td>
-												<td className="py-1 pl-2 text-right">
-													{statsByParticipantId.get(row.participant_id)?.wins ?? 0}
-												</td>
-												<td className="py-1 pl-2 text-right">
-													{statsByParticipantId.get(row.participant_id)?.losses ?? 0}
-												</td>
-												<td className="py-1 pl-2 text-right">
-													{row.goals_for}:{row.goals_against}
-												</td>
-												<td className="py-1 pl-2 text-right font-semibold">{row.points}</td>
-												{showPlacement && <td className="py-1 pl-2 text-right font-semibold">#{placement}</td>}
-											</tr>
-										);
-									})}
-							</tbody>
-						</table>
+						<div className="overflow-x-auto">
+							<table className="w-full min-w-[540px] text-sm">
+								<thead>
+									<tr className="border-b">
+										<th className="w-[32%] py-1 text-left">Team</th>
+										<th className="w-[9%] py-1 text-right">GP</th>
+										<th className="w-[9%] py-1 text-right">W</th>
+										<th className="w-[9%] py-1 text-right">L</th>
+										<th className="w-[12%] py-1 text-right">GF:GA</th>
+										<th className="w-[12%] py-1 text-right">Pts</th>
+										{showPlacement && <th className="w-[17%] py-1 text-right">Placement</th>}
+									</tr>
+								</thead>
+								<tbody>
+									{(standingsByGroupId.get(group.id) ?? [])
+										.sort((a, b) => a.rank_in_group - b.rank_in_group)
+										.map((row) => {
+											const team = row.team_id ? teamById.get(row.team_id) : null;
+											const placement = overallPlacementByParticipantId.get(row.participant_id);
+											return (
+												<tr key={row.participant_id} className="border-b">
+													<td className="py-1 pr-2">{team?.name ?? `Participant ${row.participant_id.slice(0, 6)}`}</td>
+													<td className="py-1 pl-2 text-right">
+														{statsByParticipantId.get(row.participant_id)?.gamesPlayed ?? 0}
+													</td>
+													<td className="py-1 pl-2 text-right">
+														{statsByParticipantId.get(row.participant_id)?.wins ?? 0}
+													</td>
+													<td className="py-1 pl-2 text-right">
+														{statsByParticipantId.get(row.participant_id)?.losses ?? 0}
+													</td>
+													<td className="py-1 pl-2 text-right">
+														{row.goals_for}:{row.goals_against}
+													</td>
+													<td className="py-1 pl-2 text-right font-semibold">{row.points}</td>
+													{showPlacement && <td className="py-1 pl-2 text-right font-semibold">#{placement}</td>}
+												</tr>
+											);
+										})}
+								</tbody>
+							</table>
+						</div>
 					</div>
 				))}
 			</div>
@@ -498,11 +508,8 @@ export function GroupMatchesTable({
 								</div>
 							</div>
 							<div className="mt-3 flex gap-2">
-								<Button
-									disabled={saving || disabled || Boolean(match.result?.locked)}
-									onClick={() => void onLockResult(match.id)}
-								>
-									Lock in
+								<Button disabled={saving || disabled} onClick={() => void onLockResult(match.id)}>
+									{match.result?.locked ? "Save & lock" : "Lock in"}
 								</Button>
 								{onEditResult && Boolean(match.result?.locked) && (
 									<Button size="sm" variant="outline" onClick={() => onEditResult(match.id)}>

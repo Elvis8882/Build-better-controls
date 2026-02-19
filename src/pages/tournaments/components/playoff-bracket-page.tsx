@@ -461,11 +461,8 @@ export function PlayoffMatchesTable({
 								</div>
 							</div>
 							<div className="mt-3 flex gap-2">
-								<Button
-									disabled={saving || disabled || Boolean(match.result?.locked)}
-									onClick={() => void onLockResult(match.id)}
-								>
-									Lock in
+								<Button disabled={saving || disabled} onClick={() => void onLockResult(match.id)}>
+									{match.result?.locked ? "Save & lock" : "Lock in"}
 								</Button>
 								{onEditResult && Boolean(match.result?.locked) && (canEnableEditResult?.(match) ?? true) && (
 									<Button size="sm" variant="outline" onClick={() => onEditResult(match.id)}>

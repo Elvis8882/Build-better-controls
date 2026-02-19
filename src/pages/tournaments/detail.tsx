@@ -749,7 +749,7 @@ export default function TournamentDetailPage() {
 		}
 	}
 
-	const placementRevealKeys = allPlayoffMatchesLocked ? new Set<string>() : undefined;
+	const placementRevealKeys = allPlayoffMatchesLocked ? undefined : new Set<string>();
 	if (placementRevealKeys) {
 		type LastAppearance = { matchId: string; side: "HOME" | "AWAY"; round: number };
 		const lastAppearanceByParticipantId = new Map<string, LastAppearance>();

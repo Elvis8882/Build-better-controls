@@ -16,7 +16,7 @@ begin
   v_s := 1;
   while v_s < v_n loop v_s := v_s * 2; end loop;
 
-  -- 3rd place match: bracket_slot = 1, round = 1 in losers bracket (separate)
+  -- 3rd place match exists for every playoff preset once semis are possible.
   insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot)
   select p_tournament_id, 'PLAYOFF', 'LOSERS', 1, 1
   where not exists (
@@ -29,9 +29,8 @@ begin
       and mx.bracket_slot = 1
   );
 
-  -- for 5–8 placement: only for full losers preset and bracket size >= 8
+  -- 5-8 placement sub-bracket only for full_with_losers preset.
   if v_preset = 'full_with_losers' and v_s >= 8 then
-    -- create two "5-8 semis" and two placement finals
     insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot)
     select p_tournament_id, 'PLAYOFF', 'LOSERS', payload.round, payload.bracket_slot
     from (values (1,2), (1,3), (2,1), (2,2)) as payload(round, bracket_slot)
@@ -45,20 +44,20 @@ begin
         and mx.bracket_slot = payload.bracket_slot
     );
 
-    -- wire: (1,2)->(2,1 HOME), (1,3)->(2,1 AWAY) winners play for 5/6
-    update public.matches set next_match_id = (
-      select id from public.matches where tournament_id=p_tournament_id and stage='PLAYOFF' and bracket_type='LOSERS' and round=2 and bracket_slot=1
-    ), next_match_side='HOME'
-    where tournament_id=p_tournament_id and stage='PLAYOFF' and bracket_type='LOSERS' and round=1 and bracket_slot=2;
+    update public.matches
+    set next_match_id = (
+      select id
+      from public.matches
+      where tournament_id = p_tournament_id and stage='PLAYOFF' and bracket_type='LOSERS' and round=2 and bracket_slot=1
+    ), next_match_side = 'HOME'
+    where tournament_id = p_tournament_id and stage='PLAYOFF' and bracket_type='LOSERS' and round=1 and bracket_slot=2;
 
-    update public.matches set next_match_id = (
-      select id from public.matches where tournament_id=p_tournament_id and stage='PLAYOFF' and bracket_type='LOSERS' and round=2 and bracket_slot=1
-    ), next_match_side='AWAY'
-    where tournament_id=p_tournament_id and stage='PLAYOFF' and bracket_type='LOSERS' and round=1 and bracket_slot=3;
-
-    -- losers of (1,2) and (1,3) should play for 7/8 (2,2) — wired by trigger logic.
+    update public.matches
+    set next_match_id = (
+      select id
+      from public.matches
+      where tournament_id = p_tournament_id and stage='PLAYOFF' and bracket_type='LOSERS' and round=2 and bracket_slot=1
+    ), next_match_side = 'AWAY'
+    where tournament_id = p_tournament_id and stage='PLAYOFF' and bracket_type='LOSERS' and round=1 and bracket_slot=3;
   end if;
-
-  -- Populating losers bracket participants requires capturing semifinal/quarterfinal losers.
-  -- We do that via trigger logic.
 end;

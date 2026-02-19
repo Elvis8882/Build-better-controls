@@ -309,16 +309,16 @@ export function GroupStandings({
 					<div key={group.id} className="rounded border p-3">
 						<h4 className="mb-2 font-medium">Group {group.group_code}</h4>
 						<div className="overflow-x-auto">
-							<table className="w-full min-w-[540px] text-sm">
+							<table className="w-full min-w-[460px] text-sm">
 								<thead>
 									<tr className="border-b">
-										<th className="w-[32%] py-1 text-left">Team</th>
+										<th className="w-[28%] py-1 text-left">Team</th>
 										<th className="w-[9%] py-1 text-right">GP</th>
 										<th className="w-[9%] py-1 text-right">W</th>
 										<th className="w-[9%] py-1 text-right">L</th>
-										<th className="w-[12%] py-1 text-right">GF:GA</th>
+										<th className="w-[14%] py-1 text-right">GF:GA</th>
 										<th className="w-[12%] py-1 text-right">Pts</th>
-										{showPlacement && <th className="w-[17%] py-1 text-right">Placement</th>}
+										{showPlacement && <th className="w-[19%] py-1 text-right">Placement</th>}
 									</tr>
 								</thead>
 								<tbody>

@@ -130,38 +130,44 @@ export default function ProfilePage() {
 			</div>
 
 			<div className="grid gap-4 rounded-lg border p-4 text-center md:grid-cols-3">
-				<div className="flex flex-col items-center justify-center gap-2">
-					{mostPlayedTeam ? (
-						<img
-							src={getTeamLogoUrl(mostPlayedTeam.team_code, mostPlayedTeam.team_pool)}
-							alt={`${mostPlayedTeam.team_name} logo`}
-							className="h-16 w-16 object-contain"
-						/>
-					) : (
-						<span className="text-3xl font-semibold">-</span>
-					)}
-					<p className="text-sm text-muted-foreground">Most Played</p>
+				<div className="flex flex-col items-center justify-start gap-2">
+					<div className="flex h-16 items-center justify-center">
+						{mostPlayedTeam ? (
+							<img
+								src={getTeamLogoUrl(mostPlayedTeam.team_code, mostPlayedTeam.team_pool)}
+								alt={`${mostPlayedTeam.team_name} logo`}
+								className="h-16 w-16 object-contain"
+							/>
+						) : (
+							<span className="text-3xl font-semibold">-</span>
+						)}
+					</div>
+					<p className="text-sm text-muted-foreground">Most played</p>
 				</div>
-				<div className="flex flex-col items-center justify-center gap-2">
-					<span className="text-4xl font-semibold">{tournamentWins}</span>
-					<p className="text-sm text-muted-foreground">Tournament Wins</p>
+				<div className="flex flex-col items-center justify-start gap-2">
+					<div className="flex h-16 items-center justify-center">
+						<span className="text-4xl font-semibold">{tournamentWins}</span>
+					</div>
+					<p className="text-sm text-muted-foreground">Tournament wins</p>
 				</div>
-				<div className="flex flex-col items-center justify-center gap-2">
-					{mostSkinnerMomentsTeam ? (
-						<img
-							src={getTeamLogoUrl(mostSkinnerMomentsTeam.team_code, mostSkinnerMomentsTeam.team_pool)}
-							alt={`${mostSkinnerMomentsTeam.team_name} logo`}
-							className="h-16 w-16 object-contain"
-						/>
-					) : (
-						<span className="text-3xl font-semibold">-</span>
-					)}
+				<div className="flex flex-col items-center justify-start gap-2">
+					<div className="flex h-16 items-center justify-center">
+						{mostSkinnerMomentsTeam ? (
+							<img
+								src={getTeamLogoUrl(mostSkinnerMomentsTeam.team_code, mostSkinnerMomentsTeam.team_pool)}
+								alt={`${mostSkinnerMomentsTeam.team_name} logo`}
+								className="h-16 w-16 object-contain"
+							/>
+						) : (
+							<span className="text-3xl font-semibold">-</span>
+						)}
+					</div>
 					<p className="text-sm text-muted-foreground">Most Skinner Moments</p>
 				</div>
 			</div>
 
 			<div className="overflow-x-auto rounded-lg border">
-				<table className="w-full min-w-[860px] text-left text-sm">
+				<table className="w-full min-w-[860px] text-sm">
 					<thead className="bg-muted/50 text-muted-foreground">
 						<tr>
 							<th className="px-4 py-3 text-center">Team</th>
@@ -191,8 +197,8 @@ export default function ProfilePage() {
 						) : (
 							stats.map((row) => (
 								<tr key={row.team_id} className="border-t">
-									<td className="px-4 py-3 font-medium">
-										<div className="flex items-center gap-2">
+									<td className="px-4 py-3 text-center font-medium">
+										<div className="flex items-center justify-center gap-2">
 											<img
 												src={getTeamLogoUrl(row.team_code, row.team_pool)}
 												alt={`${row.team_name} logo`}
@@ -201,14 +207,14 @@ export default function ProfilePage() {
 											<span>{row.team_name}</span>
 										</div>
 									</td>
-									<td className="px-4 py-3">{row.games_played}</td>
-									<td className="px-4 py-3">{row.wins}</td>
-									<td className="px-4 py-3">{row.losses}</td>
-									<td className="px-4 py-3">{row.shots_made}</td>
-									<td className="px-4 py-3">{row.goals_made}</td>
-									<td className="px-4 py-3">{row.goals_received}</td>
-									<td className="px-4 py-3">{row.shots_received}</td>
-									<td className="px-4 py-3">{formatSaveRate(row.goalie_save_rate)}</td>
+									<td className="px-4 py-3 text-center">{row.games_played}</td>
+									<td className="px-4 py-3 text-center">{row.wins}</td>
+									<td className="px-4 py-3 text-center">{row.losses}</td>
+									<td className="px-4 py-3 text-center">{row.shots_made}</td>
+									<td className="px-4 py-3 text-center">{row.goals_made}</td>
+									<td className="px-4 py-3 text-center">{row.goals_received}</td>
+									<td className="px-4 py-3 text-center">{row.shots_received}</td>
+									<td className="px-4 py-3 text-center">{formatSaveRate(row.goalie_save_rate)}</td>
 								</tr>
 							))
 						)}

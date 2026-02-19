@@ -15,6 +15,9 @@ declare
   v_parent_side text;
   v_home uuid;
   v_away uuid;
+  v_seed_positions int[];
+  v_next_positions int[];
+  v_pos int;
 begin
   select preset_id into v_preset
   from public.tournaments
@@ -148,15 +151,29 @@ begin
     return;
   end if;
 
-  -- assign Round 1 using standard seeding positions: 1 vs S, 2 vs S-1, ...
+  -- assign Round 1 using balanced bracket seed order so top seeds start in opposite branches
+  -- e.g. S=8 => [1,8,4,5,2,7,3,6], yielding pairs (1v8),(4v5),(2v7),(3v6)
+  v_seed_positions := array[1, 2];
+  while array_length(v_seed_positions, 1) < v_s loop
+    v_next_positions := '{}'::int[];
+    foreach v_pos in array v_seed_positions loop
+      v_next_positions := array_append(v_next_positions, v_pos);
+      v_next_positions := array_append(v_next_positions, array_length(v_seed_positions, 1) * 2 + 1 - v_pos);
+    end loop;
+    v_seed_positions := v_next_positions;
+  end loop;
+
   v_matches_in_round := v_s / 2;
 
   for v_slot in 1..v_matches_in_round loop
-    -- seed positions in a size S bracket
-    -- home seed position = slot
-    -- away seed position = S - slot + 1
-    v_home := case when v_slot <= v_n then v_seeded[v_slot] else null end;
-    v_away := case when (v_s - v_slot + 1) <= v_n then v_seeded[v_s - v_slot + 1] else null end;
+    v_home := case
+      when v_seed_positions[(v_slot - 1) * 2 + 1] <= v_n then v_seeded[v_seed_positions[(v_slot - 1) * 2 + 1]]
+      else null
+    end;
+    v_away := case
+      when v_seed_positions[(v_slot - 1) * 2 + 2] <= v_n then v_seeded[v_seed_positions[(v_slot - 1) * 2 + 2]]
+      else null
+    end;
 
     update public.matches
     set home_participant_id = v_home,

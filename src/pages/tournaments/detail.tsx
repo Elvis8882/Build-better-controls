@@ -646,6 +646,37 @@ export default function TournamentDetailPage() {
 		}
 	}
 
+	const placementRevealKeys = new Set<string>();
+	if (allPlayoffMatchesLocked) {
+		type LastAppearance = { matchId: string; side: "HOME" | "AWAY"; round: number };
+		const lastAppearanceByParticipantId = new Map<string, LastAppearance>();
+		for (const match of [...winnersBracketMatchesRaw, ...placementBracketMatchesRaw]) {
+			if (match.home_participant_id) {
+				const prev = lastAppearanceByParticipantId.get(match.home_participant_id);
+				if (!prev || match.round >= prev.round) {
+					lastAppearanceByParticipantId.set(match.home_participant_id, {
+						matchId: match.id,
+						side: "HOME",
+						round: match.round,
+					});
+				}
+			}
+			if (match.away_participant_id) {
+				const prev = lastAppearanceByParticipantId.get(match.away_participant_id);
+				if (!prev || match.round >= prev.round) {
+					lastAppearanceByParticipantId.set(match.away_participant_id, {
+						matchId: match.id,
+						side: "AWAY",
+						round: match.round,
+					});
+				}
+			}
+		}
+		for (const value of lastAppearanceByParticipantId.values()) {
+			placementRevealKeys.add(`${value.matchId}:${value.side}`);
+		}
+	}
+
 	const medalByParticipantId = new Map<string, "gold" | "silver" | "bronze">();
 	for (const [participantId, standing] of standingByParticipantId.entries()) {
 		if (standing === 1) medalByParticipantId.set(participantId, "gold");
@@ -793,6 +824,7 @@ export default function TournamentDetailPage() {
 								teamById={teamById}
 								standingByParticipantId={standingByParticipantId}
 								medalByParticipantId={medalByParticipantId}
+								placementRevealKeys={placementRevealKeys}
 							/>
 						}
 						table={
@@ -814,6 +846,7 @@ export default function TournamentDetailPage() {
 								}
 								standingByParticipantId={standingByParticipantId}
 								medalByParticipantId={medalByParticipantId}
+								placementRevealKeys={placementRevealKeys}
 							/>
 						}
 						placementDiagram={
@@ -825,6 +858,7 @@ export default function TournamentDetailPage() {
 									teamById={teamById}
 									standingByParticipantId={standingByParticipantId}
 									medalByParticipantId={medalByParticipantId}
+									placementRevealKeys={placementRevealKeys}
 								/>
 							) : undefined
 						}
@@ -848,6 +882,7 @@ export default function TournamentDetailPage() {
 									}
 									standingByParticipantId={standingByParticipantId}
 									medalByParticipantId={medalByParticipantId}
+									placementRevealKeys={placementRevealKeys}
 								/>
 							) : undefined
 						}

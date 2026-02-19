@@ -34,6 +34,20 @@ function isSkippedMatch(match: MatchWithResult): boolean {
 	return !match.result?.locked && (!match.home_participant_id || !match.away_participant_id);
 }
 
+function getPlacementRevealKey(matchId: string, side: "HOME" | "AWAY"): string {
+	return `${matchId}:${side}`;
+}
+
+function getBracketTeamLabel(match: MatchWithResult, side: "HOME" | "AWAY"): string {
+	const participantId = side === "HOME" ? match.home_participant_id : match.away_participant_id;
+	const participantName = (side === "HOME" ? match.home_participant_name : match.away_participant_name) ?? "";
+	const normalized = participantName.trim().toUpperCase();
+	if (participantId || (normalized !== "" && normalized !== "TBD")) {
+		return participantName || "TBD";
+	}
+	return isSkippedMatch(match) ? "-" : "TBD";
+}
+
 function TeamName({ teamName, team }: { teamName: string; team?: Team | null }) {
 	return <span className="text-sm font-medium">{team?.name ?? teamName}</span>;
 }
@@ -105,6 +119,7 @@ export function BracketDiagram({
 	teamById,
 	standingByParticipantId,
 	medalByParticipantId,
+	placementRevealKeys,
 }: {
 	title: string;
 	matches: MatchWithResult[];
@@ -112,106 +127,131 @@ export function BracketDiagram({
 	teamById: Map<string, Team>;
 	standingByParticipantId?: Map<string, number>;
 	medalByParticipantId?: Map<string, "gold" | "silver" | "bronze">;
+	placementRevealKeys?: Set<string>;
 }) {
 	const roundSlots = useMemo(() => buildBracketSlots(matches, bracketKind === "PLACEMENT"), [matches, bracketKind]);
+	const roundDisplayByRound = useMemo(() => {
+		const map = new Map<number, number>();
+		let nextRound = 1;
+		for (const slots of roundSlots) {
+			const firstWithMatch = slots.find((slot) => slot.match);
+			if (!firstWithMatch) continue;
+			const hasPlayable = slots.some((slot) => slot.match && !isSkippedMatch(slot.match));
+			if (hasPlayable) {
+				map.set(firstWithMatch.round, nextRound);
+				nextRound += 1;
+			}
+		}
+		return map;
+	}, [roundSlots]);
 
 	return (
 		<section className="space-y-3 rounded-lg border p-4">
 			<h2 className="text-lg font-semibold">{title}</h2>
 			<div className="overflow-x-auto">
 				<div className="flex min-w-[980px] gap-10">
-					{roundSlots.map((slots, roundIndex) => (
-						<div key={`round-${roundIndex + 1}`} className="min-w-[220px] space-y-3">
-							<h3 className="text-center text-sm font-semibold text-muted-foreground">
-								{getRoundLabel(roundIndex + 1, roundSlots.length)}
-							</h3>
-							{slots.map((entry, index) => {
-								if (!entry.match) {
+					{roundSlots.map((slots, roundIndex) => {
+						const currentRound = slots[0]?.round ?? roundIndex + 1;
+						const displayRound = roundDisplayByRound.get(currentRound) ?? currentRound;
+						return (
+							<div key={`round-${roundIndex + 1}`} className="min-w-[220px] space-y-3">
+								<h3 className="text-center text-sm font-semibold text-muted-foreground">
+									{getRoundLabel(displayRound, roundDisplayByRound.size || roundSlots.length)}
+								</h3>
+								{slots.map((entry, index) => {
+									if (!entry.match) {
+										return (
+											<div
+												key={`${entry.round}-${entry.slot}`}
+												className="rounded-md border border-dashed bg-muted/20 p-3"
+											>
+												<div className="space-y-1">
+													<div className="rounded px-1 text-sm text-muted-foreground">TBD</div>
+													<div className="rounded px-1 text-sm text-muted-foreground">TBD</div>
+												</div>
+											</div>
+										);
+									}
+									const match = entry.match;
+									const homeTeam = match.home_team_id ? teamById.get(match.home_team_id) : null;
+									const awayTeam = match.away_team_id ? teamById.get(match.away_team_id) : null;
+									const winningSide = getWinningSide(match);
+									const homeStanding = match.home_participant_id
+										? standingByParticipantId?.get(match.home_participant_id)
+										: undefined;
+									const awayStanding = match.away_participant_id
+										? standingByParticipantId?.get(match.away_participant_id)
+										: undefined;
+									const homeMedal = match.home_participant_id
+										? medalByParticipantId?.get(match.home_participant_id)
+										: undefined;
+									const awayMedal = match.away_participant_id
+										? medalByParticipantId?.get(match.away_participant_id)
+										: undefined;
+
+									const skipped = isSkippedMatch(match);
+									const showHomePlacement = placementRevealKeys
+										? placementRevealKeys.has(getPlacementRevealKey(match.id, "HOME"))
+										: true;
+									const showAwayPlacement = placementRevealKeys
+										? placementRevealKeys.has(getPlacementRevealKey(match.id, "AWAY"))
+										: true;
+
 									return (
 										<div
-											key={`${entry.round}-${entry.slot}`}
-											className="rounded-md border border-dashed bg-muted/20 p-3"
+											key={match.id}
+											className={`relative rounded-md border p-3 ${skipped ? "border-dashed border-muted-foreground/40 bg-muted/40" : "bg-card"}`}
 										>
 											<div className="space-y-1">
-												<div className="rounded px-1 text-sm text-muted-foreground">TBD</div>
-												<div className="rounded px-1 text-sm text-muted-foreground">TBD</div>
+												<div
+													className={`flex items-center justify-between gap-2 rounded px-1 ${winningSide === "HOME" ? "bg-green-100/80" : ""}`}
+												>
+													<div className="flex items-center">
+														{showHomePlacement && <PlacementPrefix standing={homeStanding} medal={homeMedal} />}
+														<TeamName team={homeTeam} teamName={getBracketTeamLabel(match, "HOME")} />
+													</div>
+													<span className="text-sm font-bold">{match.result?.home_score ?? "-"}</span>
+												</div>
+												<div
+													className={`flex items-center justify-between gap-2 rounded px-1 ${winningSide === "AWAY" ? "bg-green-100/80" : ""}`}
+												>
+													<div className="flex items-center">
+														{showAwayPlacement && <PlacementPrefix standing={awayStanding} medal={awayMedal} />}
+														<TeamName team={awayTeam} teamName={getBracketTeamLabel(match, "AWAY")} />
+													</div>
+													<span className="text-sm font-bold">{match.result?.away_score ?? "-"}</span>
+												</div>
 											</div>
+											<div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
+												<span>{match.result?.decision ?? "R"}</span>
+												{skipped && <Badge variant="outline">Skipped</Badge>}
+												{match.result?.locked && <Badge>Locked</Badge>}
+											</div>
+											{roundIndex < roundSlots.length - 1 && (
+												<>
+													<div
+														className="pointer-events-none absolute -right-4 top-1/2 h-px w-4 bg-border"
+														aria-hidden="true"
+													/>
+													{index % 2 === 0 ? (
+														<div
+															className="pointer-events-none absolute -right-4 top-1/2 h-[calc(100%+0.75rem)] w-px bg-border"
+															aria-hidden="true"
+														/>
+													) : (
+														<div
+															className="pointer-events-none absolute -right-4 bottom-1/2 h-[calc(100%+0.75rem)] w-px bg-border"
+															aria-hidden="true"
+														/>
+													)}
+												</>
+											)}
 										</div>
 									);
-								}
-								const match = entry.match;
-								const homeTeam = match.home_team_id ? teamById.get(match.home_team_id) : null;
-								const awayTeam = match.away_team_id ? teamById.get(match.away_team_id) : null;
-								const winningSide = getWinningSide(match);
-								const homeStanding = match.home_participant_id
-									? standingByParticipantId?.get(match.home_participant_id)
-									: undefined;
-								const awayStanding = match.away_participant_id
-									? standingByParticipantId?.get(match.away_participant_id)
-									: undefined;
-								const homeMedal = match.home_participant_id
-									? medalByParticipantId?.get(match.home_participant_id)
-									: undefined;
-								const awayMedal = match.away_participant_id
-									? medalByParticipantId?.get(match.away_participant_id)
-									: undefined;
-
-								const skipped = isSkippedMatch(match);
-
-								return (
-									<div
-										key={match.id}
-										className={`relative rounded-md border p-3 ${skipped ? "border-dashed border-muted-foreground/40 bg-muted/40" : "bg-card"}`}
-									>
-										<div className="space-y-1">
-											<div
-												className={`flex items-center justify-between gap-2 rounded px-1 ${winningSide === "HOME" ? "bg-green-100/80" : ""}`}
-											>
-												<div className="flex items-center">
-													<PlacementPrefix standing={homeStanding} medal={homeMedal} />
-													<TeamName team={homeTeam} teamName={match.home_participant_name || "TBD"} />
-												</div>
-												<span className="text-sm font-bold">{match.result?.home_score ?? "-"}</span>
-											</div>
-											<div
-												className={`flex items-center justify-between gap-2 rounded px-1 ${winningSide === "AWAY" ? "bg-green-100/80" : ""}`}
-											>
-												<div className="flex items-center">
-													<PlacementPrefix standing={awayStanding} medal={awayMedal} />
-													<TeamName team={awayTeam} teamName={match.away_participant_name || "TBD"} />
-												</div>
-												<span className="text-sm font-bold">{match.result?.away_score ?? "-"}</span>
-											</div>
-										</div>
-										<div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
-											<span>{match.result?.decision ?? "R"}</span>
-											{skipped && <Badge variant="outline">Skipped</Badge>}
-											{match.result?.locked && <Badge>Locked</Badge>}
-										</div>
-										{roundIndex < roundSlots.length - 1 && (
-											<>
-												<div
-													className="pointer-events-none absolute -right-4 top-1/2 h-px w-4 bg-border"
-													aria-hidden="true"
-												/>
-												{index % 2 === 0 ? (
-													<div
-														className="pointer-events-none absolute -right-4 top-1/2 h-[calc(100%+0.75rem)] w-px bg-border"
-														aria-hidden="true"
-													/>
-												) : (
-													<div
-														className="pointer-events-none absolute -right-4 bottom-1/2 h-[calc(100%+0.75rem)] w-px bg-border"
-														aria-hidden="true"
-													/>
-												)}
-											</>
-										)}
-									</div>
-								);
-							})}
-						</div>
-					))}
+								})}
+							</div>
+						);
+					})}
 				</div>
 			</div>
 		</section>
@@ -230,6 +270,7 @@ export function PlayoffMatchesTable({
 	onEditResult,
 	standingByParticipantId,
 	medalByParticipantId,
+	placementRevealKeys,
 }: {
 	title: string;
 	matches: MatchWithResult[];
@@ -242,7 +283,18 @@ export function PlayoffMatchesTable({
 	onEditResult?: (matchId: string) => void;
 	standingByParticipantId?: Map<string, number>;
 	medalByParticipantId?: Map<string, "gold" | "silver" | "bronze">;
+	placementRevealKeys?: Set<string>;
 }) {
+	const roundDisplayByRound = useMemo(() => {
+		const map = new Map<number, number>();
+		let nextRound = 1;
+		for (const match of matches) {
+			if (map.has(match.round)) continue;
+			map.set(match.round, nextRound);
+			nextRound += 1;
+		}
+		return map;
+	}, [matches]);
 	if (matches.length === 0) {
 		return (
 			<section className="space-y-3 rounded-lg border p-4">
@@ -279,13 +331,19 @@ export function PlayoffMatchesTable({
 					const awayMedal = match.away_participant_id
 						? medalByParticipantId?.get(match.away_participant_id)
 						: undefined;
+					const showHomePlacement = placementRevealKeys
+						? placementRevealKeys.has(getPlacementRevealKey(match.id, "HOME"))
+						: true;
+					const showAwayPlacement = placementRevealKeys
+						? placementRevealKeys.has(getPlacementRevealKey(match.id, "AWAY"))
+						: true;
 					const disabled = !canEditMatch(match);
 
 					return (
 						<div key={match.id} className="rounded-xl border bg-gradient-to-b from-card to-muted/10 p-4 shadow-sm">
 							<div className="mb-4 flex items-center justify-between gap-3">
 								<h3 className="text-xl font-bold">
-									Game {match.round}
+									Game {roundDisplayByRound.get(match.round) ?? match.round}
 									{match.bracket_slot ? `.${match.bracket_slot}` : ""}
 								</h3>
 								{match.result?.locked && <Badge className="text-xs">Locked</Badge>}
@@ -304,7 +362,7 @@ export function PlayoffMatchesTable({
 											/>
 										)}
 										<p className="text-base font-semibold">
-											<PlacementPrefix standing={homeStanding} medal={homeMedal} />
+											{showHomePlacement && <PlacementPrefix standing={homeStanding} medal={homeMedal} />}
 											{homeTeam?.name ?? (match.home_participant_name || "BYE")}
 										</p>
 									</div>
@@ -333,7 +391,7 @@ export function PlayoffMatchesTable({
 									<p className="text-xs font-semibold uppercase tracking-wide text-secondary-foreground">Away Team</p>
 									<div className="mt-1 flex items-center justify-end gap-2">
 										<p className="text-base font-semibold">
-											<PlacementPrefix standing={awayStanding} medal={awayMedal} />
+											{showAwayPlacement && <PlacementPrefix standing={awayStanding} medal={awayMedal} />}
 											{awayTeam?.name ?? (match.away_participant_name || "BYE")}
 										</p>
 										{awayTeam && (
@@ -375,6 +433,7 @@ export function PlayoffMatchesTable({
 									<Input
 										type="number"
 										min={0}
+										className="text-right"
 										disabled={disabled}
 										value={draft.away_score}
 										placeholder="0"
@@ -384,6 +443,7 @@ export function PlayoffMatchesTable({
 									<Input
 										type="number"
 										min={0}
+										className="text-right"
 										disabled={disabled}
 										value={draft.away_shots}
 										placeholder="0"

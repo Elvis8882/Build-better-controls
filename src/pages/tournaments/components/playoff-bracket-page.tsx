@@ -133,6 +133,16 @@ export function BracketDiagram({
 }) {
 	const roundSlots = useMemo(() => buildBracketSlots(matches), [matches]);
 	const totalRoundCount = useMemo(() => roundSlots.length || 1, [roundSlots]);
+
+	if (matches.length === 0) {
+		return (
+			<section className="space-y-3 rounded-lg border p-3 md:p-4">
+				<h2 className="text-lg font-semibold">{title}</h2>
+				<p className="text-sm text-muted-foreground">No placement games generated yet.</p>
+			</section>
+		);
+	}
+
 	return (
 		<section className="space-y-3 rounded-lg border p-3 md:p-4">
 			<h2 className="text-lg font-semibold">{title}</h2>

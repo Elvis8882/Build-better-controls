@@ -550,11 +550,11 @@ export function GroupStagePage({
 	matchesTable: ReactNode;
 }) {
 	return (
-		<div className="overflow-x-auto">
-			<div className="min-w-[760px] space-y-4 md:min-w-0">
-				{standingsTable}
-				{matchesTable}
+		<div className="space-y-4">
+			<div className="overflow-x-auto">
+				<div className="min-w-[760px] md:min-w-0">{standingsTable}</div>
 			</div>
+			{matchesTable}
 		</div>
 	);
 }

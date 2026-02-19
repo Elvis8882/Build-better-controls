@@ -589,15 +589,16 @@ export default function TournamentDetailPage() {
 	if (loading) return <div className="p-6 text-sm text-muted-foreground">Loading tournament...</div>;
 	if (!tournament) return <div className="p-6 text-sm text-muted-foreground">Tournament not found.</div>;
 
-	const winnersBracketMatches = playoffMatches
+	const winnersBracketMatchesRaw = playoffMatches
 		.filter((match) => match.bracket_type === "WINNERS")
-		.filter(isMatchDisplayable)
 		.sort((left, right) => left.round - right.round || (left.bracket_slot ?? 0) - (right.bracket_slot ?? 0));
-	const placementBracketMatches = playoffMatches
+	const winnersBracketMatches = winnersBracketMatchesRaw.filter(isMatchDisplayable);
+	const placementBracketMatchesRaw = playoffMatches
 		.filter((match) => match.bracket_type === "LOSERS")
-		.filter(isMatchDisplayable)
 		.sort((left, right) => left.round - right.round || (left.bracket_slot ?? 0) - (right.bracket_slot ?? 0));
-	const shouldShowPlacementBracket = placementBracketMatches.length > 0;
+	const placementBracketMatches = placementBracketMatchesRaw.filter(isMatchDisplayable);
+	const shouldShowPlacementBracket =
+		tournament.preset_id === "full_with_losers" || placementBracketMatchesRaw.length > 0;
 	const allPlayoffMatchesLocked =
 		(winnersBracketMatches.length > 0 || placementBracketMatches.length > 0) &&
 		[...winnersBracketMatches, ...placementBracketMatches].every((match) => Boolean(match.result?.locked));
@@ -612,10 +613,12 @@ export default function TournamentDetailPage() {
 			if (loser) standingByParticipantId.set(loser, 2);
 		}
 
-		const thirdPlaceMatch = placementBracketMatches.find((match) => match.round === 1 && match.bracket_slot === 1);
-		if (thirdPlaceMatch) {
-			const winner = resolveWinner(thirdPlaceMatch);
-			const loser = resolveLoser(thirdPlaceMatch);
+		const placementFinal = [...placementBracketMatches].sort(
+			(a, b) => b.round - a.round || (a.bracket_slot ?? 0) - (b.bracket_slot ?? 0),
+		)[0];
+		if (placementFinal) {
+			const winner = resolveWinner(placementFinal);
+			const loser = resolveLoser(placementFinal);
 			if (winner) standingByParticipantId.set(winner, 3);
 			if (loser) standingByParticipantId.set(loser, 4);
 		}
@@ -731,6 +734,7 @@ export default function TournamentDetailPage() {
 									standings={standings}
 									teamById={teamById}
 									showPlacement={allGroupMatchesLocked}
+									groupMatches={groupMatches}
 								/>
 							}
 							matchesTable={
@@ -778,7 +782,7 @@ export default function TournamentDetailPage() {
 						diagram={
 							<BracketDiagram
 								title="Winners bracket"
-								matches={winnersBracketMatches}
+								matches={winnersBracketMatchesRaw}
 								teamById={teamById}
 								standingByParticipantId={standingByParticipantId}
 								medalByParticipantId={medalByParticipantId}
@@ -809,7 +813,7 @@ export default function TournamentDetailPage() {
 							shouldShowPlacementBracket ? (
 								<BracketDiagram
 									title="Placement bracket"
-									matches={placementBracketMatches}
+									matches={placementBracketMatchesRaw}
 									teamById={teamById}
 									standingByParticipantId={standingByParticipantId}
 									medalByParticipantId={medalByParticipantId}

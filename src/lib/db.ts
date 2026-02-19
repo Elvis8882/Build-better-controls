@@ -141,6 +141,7 @@ export type PlayerTeamStat = {
 	team_name: string;
 	games_played: number;
 	wins: number;
+	losses: number;
 	shots_made: number;
 	goals_made: number;
 	shots_received: number;
@@ -847,6 +848,7 @@ export async function listUserTeamStats(userId: string): Promise<PlayerTeamStat[
 			team_name: row.team_name,
 			games_played: 0,
 			wins: 0,
+			losses: 0,
 			shots_made: 0,
 			goals_made: 0,
 			shots_received: 0,
@@ -855,54 +857,17 @@ export async function listUserTeamStats(userId: string): Promise<PlayerTeamStat[
 		};
 
 		current.games_played += 1;
+		if (row.goals_made > row.goals_received) {
+			current.wins += 1;
+		} else if (row.goals_made < row.goals_received) {
+			current.losses += 1;
+		}
 		current.shots_made += row.shots_made;
 		current.goals_made += row.goals_made;
 		current.shots_received += row.shots_received;
 		current.goals_received += row.goals_received;
 
 		aggregates.set(row.team_id, current);
-	}
-
-	const tournamentWinnerByParticipantId = new Map<string, Set<string>>();
-	const finalsByTournament = new Map<string, typeof matches>();
-
-	for (const match of matches) {
-		if (match.stage !== "PLAYOFF" || match.bracket_type === "LOSERS") continue;
-		if (!resultsByMatch.has(match.id)) continue;
-		if (match.next_match_id !== null) continue;
-
-		const current = finalsByTournament.get(match.tournament_id) ?? [];
-		current.push(match);
-		finalsByTournament.set(match.tournament_id, current);
-	}
-
-	for (const [tournamentId, finals] of finalsByTournament.entries()) {
-		const finalRound = Math.max(...finals.map((item) => item.round));
-		const candidates = finals.filter((item) => item.round === finalRound);
-
-		for (const finalMatch of candidates) {
-			const result = resultsByMatch.get(finalMatch.id);
-			if (!result || result.home_score === result.away_score) continue;
-
-			const winnerParticipantId =
-				result.home_score > result.away_score ? finalMatch.home_participant_id : finalMatch.away_participant_id;
-			if (!winnerParticipantId) continue;
-
-			const tournaments = tournamentWinnerByParticipantId.get(winnerParticipantId) ?? new Set<string>();
-			tournaments.add(tournamentId);
-			tournamentWinnerByParticipantId.set(winnerParticipantId, tournaments);
-		}
-	}
-
-	for (const [participantId, tournaments] of tournamentWinnerByParticipantId.entries()) {
-		const team = participantToTeam.get(participantId);
-		if (!team) continue;
-
-		const current = aggregates.get(team.team_id);
-		if (!current) continue;
-
-		current.wins += tournaments.size;
-		aggregates.set(team.team_id, current);
 	}
 
 	return [...aggregates.values()]
@@ -914,4 +879,85 @@ export async function listUserTeamStats(userId: string): Promise<PlayerTeamStat[
 					: 0,
 		}))
 		.sort((a, b) => b.games_played - a.games_played || a.team_name.localeCompare(b.team_name));
+}
+
+export async function countUserTournamentWins(userId: string): Promise<number> {
+	const { data: participantsData, error: participantsError } = await supabase
+		.from("tournament_participants")
+		.select("id")
+		.eq("user_id", userId);
+	throwOnError(participantsError, "Unable to load player participants");
+
+	const participantIds = (participantsData ?? []).map((item) => item.id as string).filter(Boolean);
+	if (participantIds.length === 0) {
+		return 0;
+	}
+
+	const participantsFilter = participantIds.join(",");
+	const { data: finalsData, error: finalsError } = await supabase
+		.from("matches")
+		.select("id, tournament_id, round, home_participant_id, away_participant_id")
+		.eq("stage", "PLAYOFF")
+		.is("next_match_id", null)
+		.neq("bracket_type", "LOSERS")
+		.or(`home_participant_id.in.(${participantsFilter}),away_participant_id.in.(${participantsFilter})`);
+	throwOnError(finalsError, "Unable to load playoff finals");
+
+	const finals = (finalsData ?? []) as Array<{
+		id: string;
+		tournament_id: string;
+		round: number;
+		home_participant_id: string | null;
+		away_participant_id: string | null;
+	}>;
+
+	if (finals.length === 0) {
+		return 0;
+	}
+
+	const { data: resultsData, error: resultsError } = await supabase
+		.from("match_results")
+		.select("match_id, home_score, away_score")
+		.in(
+			"match_id",
+			finals.map((item) => item.id),
+		);
+	throwOnError(resultsError, "Unable to load playoff final results");
+
+	const resultByMatch = new Map<string, { home_score: number; away_score: number }>();
+	for (const result of resultsData ?? []) {
+		if (typeof result.home_score !== "number" || typeof result.away_score !== "number") continue;
+		resultByMatch.set(result.match_id as string, {
+			home_score: result.home_score,
+			away_score: result.away_score,
+		});
+	}
+
+	const participantIdSet = new Set(participantIds);
+	const wonTournaments = new Set<string>();
+	const finalsByTournament = new Map<string, typeof finals>();
+
+	for (const final of finals) {
+		const current = finalsByTournament.get(final.tournament_id) ?? [];
+		current.push(final);
+		finalsByTournament.set(final.tournament_id, current);
+	}
+
+	for (const [tournamentId, tournamentFinals] of finalsByTournament.entries()) {
+		const finalRound = Math.max(...tournamentFinals.map((item) => item.round));
+		const candidates = tournamentFinals.filter((item) => item.round === finalRound);
+
+		for (const candidate of candidates) {
+			const result = resultByMatch.get(candidate.id);
+			if (!result || result.home_score === result.away_score) continue;
+
+			const winnerId =
+				result.home_score > result.away_score ? candidate.home_participant_id : candidate.away_participant_id;
+			if (!winnerId || !participantIdSet.has(winnerId)) continue;
+
+			wonTournaments.add(tournamentId);
+		}
+	}
+
+	return wonTournaments.size;
 }

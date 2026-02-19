@@ -12,7 +12,7 @@ begin
   from public.matches
   where id = new.match_id;
 
-  if m.stage <> 'PLAYOFF' or m.bracket_type <> 'WINNERS' then
+  if m.stage <> 'PLAYOFF' then
     return new;
   end if;
 

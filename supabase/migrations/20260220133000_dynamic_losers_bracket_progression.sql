@@ -1,3 +1,91 @@
+create or replace function public.ensure_losers_bracket(p_tournament_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_preset text;
+  v_n int;
+  v_s int;
+begin
+  select preset_id into v_preset from public.tournaments where id = p_tournament_id;
+  if v_preset is null then
+    return;
+  end if;
+
+  select count(*) into v_n from public.tournament_participants where tournament_id = p_tournament_id;
+  if v_n < 4 then
+    return;
+  end if;
+
+  v_s := 1;
+  while v_s < v_n loop v_s := v_s * 2; end loop;
+
+  if v_preset <> 'full_with_losers' then
+    insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot)
+    select p_tournament_id, 'PLAYOFF', 'LOSERS', 1, 1
+    where not exists (
+      select 1
+      from public.matches mx
+      where mx.tournament_id = p_tournament_id
+        and mx.stage = 'PLAYOFF'
+        and mx.bracket_type = 'LOSERS'
+        and mx.round = 1
+        and mx.bracket_slot = 1
+    );
+  end if;
+end;
+$$;
+
+create or replace function public.trg_advance_playoff_winner()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  m record;
+  winner uuid;
+begin
+  if new.locked is distinct from true then
+    return new;
+  end if;
+
+  select * into m from public.matches where id = new.match_id;
+  if m.stage <> 'PLAYOFF' then
+    return new;
+  end if;
+
+  if new.home_score > new.away_score then
+    winner := m.home_participant_id;
+  elsif new.away_score > new.home_score then
+    winner := m.away_participant_id;
+  else
+    return new;
+  end if;
+
+  if m.next_match_id is null or m.next_match_side is null then
+    return new;
+  end if;
+
+  if m.next_match_side = 'HOME' then
+    update public.matches set home_participant_id = winner where id = m.next_match_id;
+  else
+    update public.matches set away_participant_id = winner where id = m.next_match_id;
+  end if;
+
+  perform public.sync_match_identities_from_participants(m.next_match_id);
+  return new;
+end;
+$$;
+
+create or replace function public.trg_place_losers_into_losers_bracket()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
 declare
   m record;
   loser uuid;
@@ -22,7 +110,6 @@ begin
     return new;
   end if;
 
-  -- determine loser
   if new.home_score > new.away_score then
     loser := m.away_participant_id;
   elsif new.away_score > new.home_score then
@@ -44,9 +131,7 @@ begin
   v_semifinal_round := greatest(v_max_round - 1, 1);
   v_quarter_round := greatest(v_max_round - 2, 1);
 
-  -- full_with_losers: dynamic 5-8 + 3/4 flow (QF losers -> placement QF, SF losers join, then final)
   if v_preset = 'full_with_losers' and v_max_round >= 3 then
-    -- quarter-final losers enter placement round 1 grouped by their parent semifinal slot
     if m.round = v_quarter_round then
       v_group_slot := ceil(coalesce(m.bracket_slot, 1) / 2.0)::int;
 
@@ -98,7 +183,6 @@ begin
       return new;
     end if;
 
-    -- semifinal losers enter placement round 2 (home side), against placement round-1 winners.
     if m.round = v_semifinal_round then
       v_group_slot := coalesce(m.bracket_slot, 1);
 
@@ -153,7 +237,6 @@ begin
     return new;
   end if;
 
-  -- full_no_losers / playoffs_only: semifinal losers play a dedicated 3rd-place match.
   perform public.ensure_losers_bracket(m.tournament_id);
 
   if m.round = v_semifinal_round then
@@ -174,3 +257,4 @@ begin
 
   return new;
 end;
+$$;

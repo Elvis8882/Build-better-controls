@@ -655,7 +655,7 @@ export default function TournamentDetailPage() {
 	const placementBracketMatchesRaw = playoffMatches
 		.filter((match) => match.bracket_type === "LOSERS")
 		.sort((left, right) => left.round - right.round || (left.bracket_slot ?? 0) - (right.bracket_slot ?? 0));
-	const placementBracketMatches = placementBracketMatchesRaw.filter(isMatchDisplayable);
+	const placementBracketMatches = placementBracketMatchesRaw;
 	const shouldShowPlacementBracket =
 		tournament.preset_id === "full_with_losers" || placementBracketMatchesRaw.length > 0;
 	const allPlayoffMatchesLocked =
@@ -749,28 +749,30 @@ export default function TournamentDetailPage() {
 		}
 	}
 
-	const placementRevealKeys = allPlayoffMatchesLocked ? undefined : new Set<string>();
-	if (placementRevealKeys) {
-		type LastAppearance = { matchId: string; side: "HOME" | "AWAY"; round: number };
+	const placementRevealKeys = new Set<string>();
+	if (allPlayoffMatchesLocked) {
+		type LastAppearance = { matchId: string; side: "HOME" | "AWAY"; round: number; createdAt: string };
 		const lastAppearanceByParticipantId = new Map<string, LastAppearance>();
 		for (const match of [...winnersBracketMatchesRaw, ...placementBracketMatchesRaw]) {
 			if (match.home_participant_id) {
 				const prev = lastAppearanceByParticipantId.get(match.home_participant_id);
-				if (!prev || match.round >= prev.round) {
+				if (!prev || match.round > prev.round || (match.round === prev.round && match.created_at >= prev.createdAt)) {
 					lastAppearanceByParticipantId.set(match.home_participant_id, {
 						matchId: match.id,
 						side: "HOME",
 						round: match.round,
+						createdAt: match.created_at,
 					});
 				}
 			}
 			if (match.away_participant_id) {
 				const prev = lastAppearanceByParticipantId.get(match.away_participant_id);
-				if (!prev || match.round >= prev.round) {
+				if (!prev || match.round > prev.round || (match.round === prev.round && match.created_at >= prev.createdAt)) {
 					lastAppearanceByParticipantId.set(match.away_participant_id, {
 						matchId: match.id,
 						side: "AWAY",
 						round: match.round,
+						createdAt: match.created_at,
 					});
 				}
 			}

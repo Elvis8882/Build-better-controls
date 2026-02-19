@@ -32,6 +32,7 @@ function isEmptySlotMatch(match: MatchWithResult | null): boolean {
 
 function isSkippedMatch(match: MatchWithResult): boolean {
 	if (match.result?.locked) return false;
+	if (match.round > 1) return false;
 	const hasHome = Boolean(match.home_participant_id);
 	const hasAway = Boolean(match.away_participant_id);
 	return hasHome !== hasAway;
@@ -134,6 +135,16 @@ export function BracketDiagram({
 }) {
 	const roundSlots = useMemo(() => buildBracketSlots(matches, bracketKind === "PLACEMENT"), [matches, bracketKind]);
 	const totalRoundCount = useMemo(() => roundSlots.length || 1, [roundSlots]);
+
+	if (matches.length === 0) {
+		return (
+			<section className="space-y-3 rounded-lg border p-3 md:p-4">
+				<h2 className="text-lg font-semibold">{title}</h2>
+				<p className="text-sm text-muted-foreground">No placement games generated yet.</p>
+			</section>
+		);
+	}
+
 	return (
 		<section className="space-y-3 rounded-lg border p-3 md:p-4">
 			<h2 className="text-lg font-semibold">{title}</h2>
@@ -180,10 +191,10 @@ export function BracketDiagram({
 									const skipped = isSkippedMatch(match);
 									const showHomePlacement = placementRevealKeys
 										? placementRevealKeys.has(getPlacementRevealKey(match.id, "HOME"))
-										: true;
+										: false;
 									const showAwayPlacement = placementRevealKeys
 										? placementRevealKeys.has(getPlacementRevealKey(match.id, "AWAY"))
-										: true;
+										: false;
 
 									return (
 										<div
@@ -340,10 +351,10 @@ export function PlayoffMatchesTable({
 						: undefined;
 					const showHomePlacement = placementRevealKeys
 						? placementRevealKeys.has(getPlacementRevealKey(match.id, "HOME"))
-						: true;
+						: false;
 					const showAwayPlacement = placementRevealKeys
 						? placementRevealKeys.has(getPlacementRevealKey(match.id, "AWAY"))
-						: true;
+						: false;
 					const disabled = !canEditMatch(match);
 
 					return (
@@ -379,7 +390,7 @@ export function PlayoffMatchesTable({
 										Score: {match.result?.home_score ?? "-"} • SOG: {match.result?.home_shots ?? "-"}
 									</p>
 								</div>
-								<div className="order-first flex flex-col items-center justify-center gap-2 md:order-none">
+								<div className="hidden flex-col items-center justify-center gap-2 md:flex">
 									<span className="text-2xl font-black">VS</span>
 									<select
 										className="h-10 rounded-md border bg-background px-3 text-sm"
@@ -393,6 +404,9 @@ export function PlayoffMatchesTable({
 										<option value="OT">OT</option>
 										<option value="SO">SO</option>
 									</select>
+								</div>
+								<div className="flex justify-center md:hidden">
+									<span className="text-2xl font-black">VS</span>
 								</div>
 								<div
 									className={`rounded-lg border border-primary/20 p-3 text-right ${winningSide === "AWAY" ? "bg-green-100/80" : ""}`}
@@ -414,6 +428,20 @@ export function PlayoffMatchesTable({
 									<p className="mt-1 text-xs text-muted-foreground">
 										Score: {match.result?.away_score ?? "-"} • SOG: {match.result?.away_shots ?? "-"}
 									</p>
+								</div>
+								<div className="flex justify-center md:hidden">
+									<select
+										className="h-10 rounded-md border bg-background px-3 text-sm"
+										disabled={disabled}
+										value={draft.decision}
+										onChange={(e) =>
+											onResultDraftChange(match.id, { ...draft, decision: e.target.value as MatchParticipantDecision })
+										}
+									>
+										<option value="R">R</option>
+										<option value="OT">OT</option>
+										<option value="SO">SO</option>
+									</select>
 								</div>
 							</div>
 							<div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">

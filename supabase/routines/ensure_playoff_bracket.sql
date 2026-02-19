@@ -94,6 +94,9 @@ begin
     end loop;
   end loop;
 
+  -- ensure placement shell can still appear for existing tournaments even when winners are frozen
+  perform public.ensure_losers_bracket(p_tournament_id);
+
   -- If frozen, don't reseed/overwrite Round 1 assignments
   if v_any_playoff_locked then
     return;
@@ -239,10 +242,6 @@ begin
   loop
     perform public.sync_match_identities_from_participants(r.id);
   end loop;
-
-
-  -- ensure 3rd-place / placement bracket shell exists when applicable
-  perform public.ensure_losers_bracket(p_tournament_id);
 
   -- stage can be PLAYOFF even if group exists; leave to triggers/logic
 end;

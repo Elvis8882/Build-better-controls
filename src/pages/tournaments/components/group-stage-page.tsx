@@ -429,7 +429,7 @@ export function GroupMatchesTable({
 										Score: {match.result?.home_score ?? "-"} • SOG: {match.result?.home_shots ?? "-"}
 									</p>
 								</div>
-								<div className="order-first flex flex-col items-center justify-center gap-2 md:order-none">
+								<div className="hidden flex-col items-center justify-center gap-2 md:flex">
 									<span className="text-2xl font-black">VS</span>
 									<select
 										className="h-10 rounded-md border bg-background px-3 text-sm"
@@ -443,6 +443,9 @@ export function GroupMatchesTable({
 										<option value="OT">OT</option>
 										<option value="SO">SO</option>
 									</select>
+								</div>
+								<div className="flex justify-center md:hidden">
+									<span className="text-2xl font-black">VS</span>
 								</div>
 								<div
 									className={`rounded-lg border border-primary/20 p-3 text-right ${winningSide === "AWAY" ? "bg-green-100/80" : ""}`}
@@ -461,6 +464,20 @@ export function GroupMatchesTable({
 									<p className="mt-1 text-xs text-muted-foreground">
 										Score: {match.result?.away_score ?? "-"} • SOG: {match.result?.away_shots ?? "-"}
 									</p>
+								</div>
+								<div className="flex justify-center md:hidden">
+									<select
+										className="h-10 rounded-md border bg-background px-3 text-sm"
+										disabled={disabled}
+										value={draft.decision}
+										onChange={(e) =>
+											onResultDraftChange(match.id, { ...draft, decision: e.target.value as MatchParticipantDecision })
+										}
+									>
+										<option value="R">R</option>
+										<option value="OT">OT</option>
+										<option value="SO">SO</option>
+									</select>
 								</div>
 							</div>
 							<div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -533,9 +550,11 @@ export function GroupStagePage({
 	matchesTable: ReactNode;
 }) {
 	return (
-		<div className="space-y-4">
-			{standingsTable}
-			{matchesTable}
+		<div className="overflow-x-auto">
+			<div className="min-w-[760px] space-y-4 md:min-w-0">
+				{standingsTable}
+				{matchesTable}
+			</div>
 		</div>
 	);
 }

@@ -154,6 +154,8 @@ begin
     end loop;
   end loop;
 
+  perform public.ensure_losers_bracket(p_tournament_id);
+
   if v_any_playoff_locked then
     return;
   end if;

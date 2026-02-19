@@ -13,6 +13,12 @@ type EditableResult = {
 	decision: MatchParticipantDecision;
 };
 
+type BracketSlot = {
+	round: number;
+	slot: number;
+	match: MatchWithResult | null;
+};
+
 function TeamName({ teamName, team }: { teamName: string; team?: Team | null }) {
 	return <span className="text-sm font-medium">{team?.name ?? teamName}</span>;
 }
@@ -24,11 +30,54 @@ function getWinningSide(match: MatchWithResult): "HOME" | "AWAY" | null {
 	return null;
 }
 
-function getMedalClass(medal?: "gold" | "silver" | "bronze"): string {
-	if (medal === "gold") return "border-yellow-300 bg-yellow-100/70";
-	if (medal === "silver") return "border-slate-300 bg-slate-100/70";
-	if (medal === "bronze") return "border-amber-300 bg-amber-100/70";
-	return "";
+function getMedalColor(medal?: "gold" | "silver" | "bronze"): string | undefined {
+	if (medal === "gold") return "#D4AF37";
+	if (medal === "silver") return "#BCC6CC";
+	if (medal === "bronze") return "#A97142";
+	return undefined;
+}
+
+function getRoundLabel(round: number, totalRounds: number): string {
+	if (totalRounds === 1) return "Final";
+	if (round === totalRounds) return "Final";
+	if (round === totalRounds - 1) return "Semi-finals";
+	if (round === totalRounds - 2) return "Quarter-finals";
+	if (round === totalRounds - 3) return "Round of 16";
+	return `Round ${round}`;
+}
+
+function PlacementPrefix({ standing, medal }: { standing?: number; medal?: "gold" | "silver" | "bronze" }) {
+	if (!standing) return null;
+	return (
+		<span
+			className="mr-2 inline-flex rounded px-1.5 py-0.5 text-xs font-semibold"
+			style={{ color: getMedalColor(medal) }}
+		>
+			#{standing}
+		</span>
+	);
+}
+
+function buildBracketSlots(matches: MatchWithResult[]): BracketSlot[][] {
+	const grouped = new Map<number, MatchWithResult[]>();
+	for (const match of matches) {
+		const items = grouped.get(match.round) ?? [];
+		items.push(match);
+		grouped.set(match.round, items);
+	}
+	const maxRound = Math.max(...matches.map((match) => match.round), 1);
+	const firstRoundCount = grouped.get(1)?.length ?? 1;
+	const rounds: BracketSlot[][] = [];
+	for (let round = 1; round <= maxRound; round += 1) {
+		const expectedCount = Math.max(1, Math.ceil(firstRoundCount / 2 ** (round - 1)));
+		const bySlot = new Map((grouped.get(round) ?? []).map((match) => [match.bracket_slot ?? 0, match]));
+		const slots: BracketSlot[] = [];
+		for (let slot = 1; slot <= expectedCount; slot += 1) {
+			slots.push({ round, slot, match: bySlot.get(slot) ?? null });
+		}
+		rounds.push(slots);
+	}
+	return rounds;
 }
 
 export function BracketDiagram({
@@ -44,82 +93,103 @@ export function BracketDiagram({
 	standingByParticipantId?: Map<string, number>;
 	medalByParticipantId?: Map<string, "gold" | "silver" | "bronze">;
 }) {
-	const rounds = useMemo(() => {
-		const grouped = new Map<number, MatchWithResult[]>();
-		for (const match of matches) {
-			const items = grouped.get(match.round) ?? [];
-			items.push(match);
-			grouped.set(match.round, items);
-		}
-		return [...grouped.entries()].sort(([a], [b]) => a - b);
-	}, [matches]);
-
-	const matchById = useMemo(() => new Map(matches.map((match) => [match.id, match])), [matches]);
+	const roundSlots = useMemo(() => buildBracketSlots(matches), [matches]);
+	const finalRound = roundSlots.length;
 
 	return (
 		<section className="space-y-3 rounded-lg border p-4">
 			<h2 className="text-lg font-semibold">{title}</h2>
 			<div className="overflow-x-auto">
-				<div className="flex min-w-[980px] gap-6">
-					{rounds.map(([round, roundMatches]) => (
-						<div key={round} className="min-w-[220px] space-y-3">
+				<div className="flex min-w-[980px] gap-8">
+					{roundSlots.map((slots, roundIndex) => (
+						<div key={`round-${roundIndex + 1}`} className="min-w-[220px] space-y-3">
 							<h3 className="text-sm font-semibold text-muted-foreground">
-								{round === rounds.length ? "Final" : `Round ${round}`}
+								{getRoundLabel(roundIndex + 1, roundSlots.length)}
 							</h3>
-							{roundMatches
-								.sort((a, b) => (a.bracket_slot ?? 0) - (b.bracket_slot ?? 0))
-								.map((match) => {
-									const homeTeam = match.home_team_id ? teamById.get(match.home_team_id) : null;
-									const awayTeam = match.away_team_id ? teamById.get(match.away_team_id) : null;
-									const winningSide = getWinningSide(match);
-									const homeStanding = match.home_participant_id
-										? standingByParticipantId?.get(match.home_participant_id)
-										: undefined;
-									const awayStanding = match.away_participant_id
-										? standingByParticipantId?.get(match.away_participant_id)
-										: undefined;
-									const homeMedal = match.home_participant_id
-										? medalByParticipantId?.get(match.home_participant_id)
-										: undefined;
-									const awayMedal = match.away_participant_id
-										? medalByParticipantId?.get(match.away_participant_id)
-										: undefined;
-									const nextMatch = match.next_match_id ? matchById.get(match.next_match_id) : null;
+							{slots.map((entry, index) => {
+								if (!entry.match) {
 									return (
-										<div key={match.id} className="relative rounded-md border bg-card p-3">
+										<div
+											key={`${entry.round}-${entry.slot}`}
+											className="rounded-md border border-dashed bg-muted/20 p-3"
+										>
 											<div className="space-y-1">
-												<div
-													className={`flex items-center justify-between gap-2 rounded px-1 ${winningSide === "HOME" ? "bg-green-100/80" : ""} ${getMedalClass(homeMedal)}`}
-												>
-													<TeamName team={homeTeam} teamName={match.home_participant_name || "BYE"} />
-													<span className="text-sm font-bold">
-														{homeStanding ? `#${homeStanding} ` : ""}
-														{match.result?.home_score ?? "-"}
-													</span>
-												</div>
-												<div
-													className={`flex items-center justify-between gap-2 rounded px-1 ${winningSide === "AWAY" ? "bg-green-100/80" : ""} ${getMedalClass(awayMedal)}`}
-												>
-													<TeamName team={awayTeam} teamName={match.away_participant_name || "BYE"} />
-													<span className="text-sm font-bold">
-														{awayStanding ? `#${awayStanding} ` : ""}
-														{match.result?.away_score ?? "-"}
-													</span>
-												</div>
+												<div className="rounded px-1 text-sm text-muted-foreground">TBD</div>
+												<div className="rounded px-1 text-sm text-muted-foreground">TBD</div>
 											</div>
-											<div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
-												<span>{match.result?.decision ?? "R"}</span>
-												{match.result?.locked && <Badge>Locked</Badge>}
-											</div>
-											{nextMatch && (
-												<div
-													className="pointer-events-none absolute -right-5 top-1/2 h-px w-5 bg-border"
-													aria-hidden="true"
-												/>
-											)}
 										</div>
 									);
-								})}
+								}
+								const match = entry.match;
+								const homeTeam = match.home_team_id ? teamById.get(match.home_team_id) : null;
+								const awayTeam = match.away_team_id ? teamById.get(match.away_team_id) : null;
+								const winningSide = getWinningSide(match);
+								const isFinalRound = match.round === finalRound;
+								const homeStanding =
+									isFinalRound && match.home_participant_id
+										? standingByParticipantId?.get(match.home_participant_id)
+										: undefined;
+								const awayStanding =
+									isFinalRound && match.away_participant_id
+										? standingByParticipantId?.get(match.away_participant_id)
+										: undefined;
+								const homeMedal =
+									isFinalRound && match.home_participant_id
+										? medalByParticipantId?.get(match.home_participant_id)
+										: undefined;
+								const awayMedal =
+									isFinalRound && match.away_participant_id
+										? medalByParticipantId?.get(match.away_participant_id)
+										: undefined;
+
+								return (
+									<div key={match.id} className="relative rounded-md border bg-card p-3">
+										<div className="space-y-1">
+											<div
+												className={`flex items-center justify-between gap-2 rounded px-1 ${winningSide === "HOME" ? "bg-green-100/80" : ""}`}
+											>
+												<div className="flex items-center">
+													<PlacementPrefix standing={homeStanding} medal={homeMedal} />
+													<TeamName team={homeTeam} teamName={match.home_participant_name || "TBD"} />
+												</div>
+												<span className="text-sm font-bold">{match.result?.home_score ?? "-"}</span>
+											</div>
+											<div
+												className={`flex items-center justify-between gap-2 rounded px-1 ${winningSide === "AWAY" ? "bg-green-100/80" : ""}`}
+											>
+												<div className="flex items-center">
+													<PlacementPrefix standing={awayStanding} medal={awayMedal} />
+													<TeamName team={awayTeam} teamName={match.away_participant_name || "TBD"} />
+												</div>
+												<span className="text-sm font-bold">{match.result?.away_score ?? "-"}</span>
+											</div>
+										</div>
+										<div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
+											<span>{match.result?.decision ?? "R"}</span>
+											{match.result?.locked && <Badge>Locked</Badge>}
+										</div>
+										{roundIndex < roundSlots.length - 1 && (
+											<>
+												<div
+													className="pointer-events-none absolute -right-4 top-1/2 h-px w-4 bg-border"
+													aria-hidden="true"
+												/>
+												{index % 2 === 0 ? (
+													<div
+														className="pointer-events-none absolute -right-4 top-1/2 h-[calc(100%+0.75rem)] w-px bg-border"
+														aria-hidden="true"
+													/>
+												) : (
+													<div
+														className="pointer-events-none absolute -right-4 bottom-1/2 h-[calc(100%+0.75rem)] w-px bg-border"
+														aria-hidden="true"
+													/>
+												)}
+											</>
+										)}
+									</div>
+								);
+							})}
 						</div>
 					))}
 				</div>
@@ -153,6 +223,17 @@ export function PlayoffMatchesTable({
 	standingByParticipantId?: Map<string, number>;
 	medalByParticipantId?: Map<string, "gold" | "silver" | "bronze">;
 }) {
+	const finalRound = useMemo(() => Math.max(...matches.map((match) => match.round), 0), [matches]);
+
+	if (matches.length === 0) {
+		return (
+			<section className="space-y-3 rounded-lg border p-4">
+				<h2 className="text-lg font-semibold">{title}</h2>
+				<p className="text-sm text-muted-foreground">No playable matches in this bracket yet.</p>
+			</section>
+		);
+	}
+
 	return (
 		<section className="space-y-3 rounded-lg border p-4">
 			<h2 className="text-lg font-semibold">{title}</h2>
@@ -168,18 +249,23 @@ export function PlayoffMatchesTable({
 					const homeTeam = match.home_team_id ? teamById.get(match.home_team_id) : null;
 					const awayTeam = match.away_team_id ? teamById.get(match.away_team_id) : null;
 					const winningSide = getWinningSide(match);
-					const homeStanding = match.home_participant_id
-						? standingByParticipantId?.get(match.home_participant_id)
-						: undefined;
-					const awayStanding = match.away_participant_id
-						? standingByParticipantId?.get(match.away_participant_id)
-						: undefined;
-					const homeMedal = match.home_participant_id
-						? medalByParticipantId?.get(match.home_participant_id)
-						: undefined;
-					const awayMedal = match.away_participant_id
-						? medalByParticipantId?.get(match.away_participant_id)
-						: undefined;
+					const isFinalRound = match.round === finalRound;
+					const homeStanding =
+						isFinalRound && match.home_participant_id
+							? standingByParticipantId?.get(match.home_participant_id)
+							: undefined;
+					const awayStanding =
+						isFinalRound && match.away_participant_id
+							? standingByParticipantId?.get(match.away_participant_id)
+							: undefined;
+					const homeMedal =
+						isFinalRound && match.home_participant_id
+							? medalByParticipantId?.get(match.home_participant_id)
+							: undefined;
+					const awayMedal =
+						isFinalRound && match.away_participant_id
+							? medalByParticipantId?.get(match.away_participant_id)
+							: undefined;
 					const disabled = !canEditMatch(match);
 
 					return (
@@ -193,7 +279,7 @@ export function PlayoffMatchesTable({
 							</div>
 							<div className="grid grid-cols-[1fr_auto_1fr] items-start gap-4">
 								<div
-									className={`rounded-lg border border-primary/20 p-3 text-left ${winningSide === "HOME" ? "bg-green-100/80" : "bg-primary/5"} ${getMedalClass(homeMedal)}`}
+									className={`rounded-lg border border-primary/20 p-3 text-left ${winningSide === "HOME" ? "bg-green-100/80" : ""}`}
 								>
 									<p className="text-xs font-semibold uppercase tracking-wide text-primary">Home Team</p>
 									<div className="mt-1 flex items-center gap-2">
@@ -205,7 +291,7 @@ export function PlayoffMatchesTable({
 											/>
 										)}
 										<p className="text-base font-semibold">
-											{homeStanding ? `#${homeStanding} ` : ""}
+											<PlacementPrefix standing={homeStanding} medal={homeMedal} />
 											{homeTeam?.name ?? (match.home_participant_name || "BYE")}
 										</p>
 									</div>
@@ -229,12 +315,12 @@ export function PlayoffMatchesTable({
 									</select>
 								</div>
 								<div
-									className={`rounded-lg border border-secondary/40 p-3 text-right ${winningSide === "AWAY" ? "bg-green-100/80" : "bg-secondary/10"} ${getMedalClass(awayMedal)}`}
+									className={`rounded-lg border border-secondary/40 p-3 text-right ${winningSide === "AWAY" ? "bg-green-100/80" : ""}`}
 								>
 									<p className="text-xs font-semibold uppercase tracking-wide text-secondary-foreground">Away Team</p>
 									<div className="mt-1 flex items-center justify-end gap-2">
 										<p className="text-base font-semibold">
-											{awayStanding ? `#${awayStanding} ` : ""}
+											<PlacementPrefix standing={awayStanding} medal={awayMedal} />
 											{awayTeam?.name ?? (match.away_participant_name || "BYE")}
 										</p>
 										{awayTeam && (

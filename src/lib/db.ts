@@ -546,6 +546,11 @@ export async function generatePlayoffs(tournamentId: string): Promise<void> {
 	throwOnError(error, "Unable to generate playoff bracket");
 }
 
+export async function updateTournamentStatus(tournamentId: string, status: string): Promise<void> {
+	const { error } = await supabase.from("tournaments").update({ status }).eq("id", tournamentId);
+	throwOnError(error, "Unable to update tournament status");
+}
+
 export async function ensurePlayoffBracket(tournamentId: string): Promise<void> {
 	const { error } = await supabase.rpc("ensure_playoff_bracket", { p_tournament_id: tournamentId });
 	throwOnError(error, "Unable to ensure playoff bracket");

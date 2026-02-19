@@ -117,9 +117,9 @@ export function ParticipantsTable({
 				<table className="w-full min-w-[760px] text-sm">
 					<thead>
 						<tr className="border-b">
-							<th className="px-2 py-2 text-left">Participant</th>
-							<th className="px-2 py-2 text-left">Team</th>
-							<th className="px-2 py-2 text-left">Actions</th>
+							<th className="px-2 py-2 text-center">Participant</th>
+							<th className="px-2 py-2 text-center">Team</th>
+							<th className="px-2 py-2 text-center">Actions</th>
 						</tr>
 					</thead>
 					<tbody>
@@ -237,11 +237,13 @@ export function GroupStandings({
 	standings,
 	teamById,
 	showPlacement,
+	groupMatches,
 }: {
 	groups: TournamentGroup[];
 	standings: GroupStanding[];
 	teamById: Map<string, Team>;
 	showPlacement: boolean;
+	groupMatches: MatchWithResult[];
 }) {
 	const overallPlacementByParticipantId = useMemo(() => {
 		if (!showPlacement) return new Map<string, number>();
@@ -263,6 +265,27 @@ export function GroupStandings({
 		}
 		return map;
 	}, [standings]);
+	const statsByParticipantId = useMemo(() => {
+		const map = new Map<string, { gamesPlayed: number; wins: number; losses: number }>();
+		for (const match of groupMatches) {
+			if (!match.result?.locked || !match.home_participant_id || !match.away_participant_id) continue;
+			const home = map.get(match.home_participant_id) ?? { gamesPlayed: 0, wins: 0, losses: 0 };
+			const away = map.get(match.away_participant_id) ?? { gamesPlayed: 0, wins: 0, losses: 0 };
+			home.gamesPlayed += 1;
+			away.gamesPlayed += 1;
+			if ((match.result.home_score ?? 0) > (match.result.away_score ?? 0)) {
+				home.wins += 1;
+				away.losses += 1;
+			}
+			if ((match.result.away_score ?? 0) > (match.result.home_score ?? 0)) {
+				away.wins += 1;
+				home.losses += 1;
+			}
+			map.set(match.home_participant_id, home);
+			map.set(match.away_participant_id, away);
+		}
+		return map;
+	}, [groupMatches]);
 
 	return (
 		<section className="space-y-3 rounded-lg border p-4">
@@ -274,10 +297,13 @@ export function GroupStandings({
 						<table className="w-full text-sm">
 							<thead>
 								<tr className="border-b">
-									{showPlacement && <th className="py-1 text-right">Placement</th>}
 									<th className="py-1 text-left">Team</th>
+									<th className="py-1 text-right">GP</th>
+									<th className="py-1 text-right">W</th>
+									<th className="py-1 text-right">L</th>
 									<th className="py-1 text-right">GF:GA</th>
 									<th className="py-1 text-right">Pts</th>
+									{showPlacement && <th className="py-1 text-right">Placement</th>}
 								</tr>
 							</thead>
 							<tbody>
@@ -288,12 +314,17 @@ export function GroupStandings({
 										const placement = overallPlacementByParticipantId.get(row.participant_id);
 										return (
 											<tr key={row.participant_id} className="border-b">
-												{showPlacement && <td className="py-1 text-right font-semibold">#{placement}</td>}
 												<td className="py-1">{team?.name ?? `Participant ${row.participant_id.slice(0, 6)}`}</td>
+												<td className="py-1 text-right">
+													{statsByParticipantId.get(row.participant_id)?.gamesPlayed ?? 0}
+												</td>
+												<td className="py-1 text-right">{statsByParticipantId.get(row.participant_id)?.wins ?? 0}</td>
+												<td className="py-1 text-right">{statsByParticipantId.get(row.participant_id)?.losses ?? 0}</td>
 												<td className="py-1 text-right">
 													{row.goals_for}:{row.goals_against}
 												</td>
 												<td className="py-1 text-right font-semibold">{row.points}</td>
+												{showPlacement && <td className="py-1 text-right font-semibold">#{placement}</td>}
 											</tr>
 										);
 									})}
@@ -358,7 +389,7 @@ export function GroupMatchesTable({
 							</div>
 							<div className="grid grid-cols-[1fr_auto_1fr] items-start gap-4">
 								<div
-									className={`rounded-lg border border-primary/20 p-3 text-left ${winningSide === "HOME" ? "bg-green-100/80" : "bg-primary/5"}`}
+									className={`rounded-lg border border-primary/20 p-3 text-left ${winningSide === "HOME" ? "bg-green-100/80" : ""}`}
 								>
 									<p className="text-xs font-semibold uppercase tracking-wide text-primary">Home Team</p>
 									<div className="mt-1 flex items-center gap-2">
@@ -391,7 +422,7 @@ export function GroupMatchesTable({
 									</select>
 								</div>
 								<div
-									className={`rounded-lg border border-secondary/40 p-3 text-right ${winningSide === "AWAY" ? "bg-green-100/80" : "bg-secondary/10"}`}
+									className={`rounded-lg border border-secondary/40 p-3 text-right ${winningSide === "AWAY" ? "bg-green-100/80" : ""}`}
 								>
 									<p className="text-xs font-semibold uppercase tracking-wide text-secondary-foreground">Away Team</p>
 									<div className="mt-1 flex items-center justify-end gap-2">

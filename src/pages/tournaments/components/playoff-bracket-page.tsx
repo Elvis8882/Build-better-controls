@@ -133,10 +133,7 @@ export function BracketDiagram({
 	placementRevealKeys?: Set<string>;
 }) {
 	const roundSlots = useMemo(() => buildBracketSlots(matches, bracketKind === "PLACEMENT"), [matches, bracketKind]);
-	const totalMeaningfulRounds = useMemo(() => {
-		const meaningful = roundSlots.filter((slots) => slots.some((slot) => !isEmptySlotMatch(slot.match)));
-		return meaningful.length || roundSlots.length || 1;
-	}, [roundSlots]);
+	const totalRoundCount = useMemo(() => roundSlots.length || 1, [roundSlots]);
 	return (
 		<section className="space-y-3 rounded-lg border p-3 md:p-4">
 			<h2 className="text-lg font-semibold">{title}</h2>
@@ -147,7 +144,7 @@ export function BracketDiagram({
 						return (
 							<div key={`round-${roundIndex + 1}`} className="min-w-[180px] space-y-3 md:min-w-[220px]">
 								<h3 className="text-center text-sm font-semibold text-muted-foreground">
-									{getRoundLabel(Math.min(currentRound, totalMeaningfulRounds), totalMeaningfulRounds)}
+									{getRoundLabel(Math.min(currentRound, totalRoundCount), totalRoundCount)}
 								</h3>
 								{slots.map((entry, index) => {
 									if (!entry.match) {
@@ -398,7 +395,7 @@ export function PlayoffMatchesTable({
 									</select>
 								</div>
 								<div
-									className={`rounded-lg border border-secondary/40 p-3 text-right ${winningSide === "AWAY" ? "bg-green-100/80" : ""}`}
+									className={`rounded-lg border border-primary/20 p-3 text-right ${winningSide === "AWAY" ? "bg-green-100/80" : ""}`}
 								>
 									<p className="text-xs font-semibold uppercase tracking-wide text-secondary-foreground">Away Team</p>
 									<div className="mt-1 flex items-center justify-end gap-2">

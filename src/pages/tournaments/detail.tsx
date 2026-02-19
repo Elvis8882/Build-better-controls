@@ -651,29 +651,29 @@ export default function TournamentDetailPage() {
 		[...winnersBracketMatches, ...placementBracketMatches].every((match) => Boolean(match.result?.locked));
 
 	const standingByParticipantId = new Map<string, number>();
+	const winnersFinal = [...winnersBracketMatches].sort((a, b) => b.round - a.round)[0];
+	if (winnersFinal?.result?.locked) {
+		const winner = resolveWinner(winnersFinal);
+		const loser = resolveLoser(winnersFinal);
+		if (winner) standingByParticipantId.set(winner, 1);
+		if (loser) standingByParticipantId.set(loser, 2);
+	}
+
+	const resolvedPlacementMatches = placementBracketMatches
+		.filter((match) => Boolean(match.result?.locked))
+		.sort((a, b) => b.round - a.round || (a.bracket_slot ?? 0) - (b.bracket_slot ?? 0));
+	for (const match of resolvedPlacementMatches) {
+		const winner = resolveWinner(match);
+		const loser = resolveLoser(match);
+		if (winner && !standingByParticipantId.has(winner)) {
+			standingByParticipantId.set(winner, standingByParticipantId.size + 1);
+		}
+		if (loser && !standingByParticipantId.has(loser)) {
+			standingByParticipantId.set(loser, standingByParticipantId.size + 1);
+		}
+	}
+
 	if (allPlayoffMatchesLocked) {
-		const winnersFinal = [...winnersBracketMatches].sort((a, b) => b.round - a.round)[0];
-		if (winnersFinal) {
-			const winner = resolveWinner(winnersFinal);
-			const loser = resolveLoser(winnersFinal);
-			if (winner) standingByParticipantId.set(winner, 1);
-			if (loser) standingByParticipantId.set(loser, 2);
-		}
-
-		const resolvedPlacementMatches = placementBracketMatches
-			.filter((match) => Boolean(match.result?.locked))
-			.sort((a, b) => b.round - a.round || (a.bracket_slot ?? 0) - (b.bracket_slot ?? 0));
-		for (const match of resolvedPlacementMatches) {
-			const winner = resolveWinner(match);
-			const loser = resolveLoser(match);
-			if (winner && !standingByParticipantId.has(winner)) {
-				standingByParticipantId.set(winner, standingByParticipantId.size + 1);
-			}
-			if (loser && !standingByParticipantId.has(loser)) {
-				standingByParticipantId.set(loser, standingByParticipantId.size + 1);
-			}
-		}
-
 		const unresolvedIds = new Set<string>();
 		for (const match of [...winnersBracketMatches, ...placementBracketMatches]) {
 			if (match.home_participant_id && !standingByParticipantId.has(match.home_participant_id)) {
@@ -691,8 +691,8 @@ export default function TournamentDetailPage() {
 		}
 	}
 
-	const placementRevealKeys = new Set<string>();
-	if (allPlayoffMatchesLocked) {
+	const placementRevealKeys = allPlayoffMatchesLocked ? new Set<string>() : undefined;
+	if (placementRevealKeys) {
 		type LastAppearance = { matchId: string; side: "HOME" | "AWAY"; round: number };
 		const lastAppearanceByParticipantId = new Map<string, LastAppearance>();
 		for (const match of [...winnersBracketMatchesRaw, ...placementBracketMatchesRaw]) {

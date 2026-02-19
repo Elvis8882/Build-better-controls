@@ -70,7 +70,7 @@ export function ParticipantsTable({
 	const hasOpenSlots = participants.length < tournament.default_participants;
 
 	return (
-		<section className="space-y-3 rounded-lg border p-4">
+		<section className="space-y-3 rounded-lg border p-3 md:p-4">
 			<h2 className="text-lg font-semibold">Participants & Teams</h2>
 			{hasOpenSlots && (
 				<div className="grid gap-3 md:grid-cols-2">
@@ -114,7 +114,7 @@ export function ParticipantsTable({
 				</div>
 			)}
 			<div className="overflow-x-auto">
-				<table className="w-full min-w-[760px] text-sm">
+				<table className="w-full min-w-[640px] text-sm md:min-w-[760px]">
 					<thead>
 						<tr className="border-b">
 							<th className="px-2 py-2 text-center">Participant</th>
@@ -130,10 +130,11 @@ export function ParticipantsTable({
 								<tr key={participant.id} className="border-b">
 									<td className="px-2 py-2 text-center align-middle">{participant.display_name}</td>
 									<td className="px-2 py-2 align-middle">
-										<div className="flex flex-wrap items-center justify-center gap-2">
+										<div className="flex flex-col items-center justify-center gap-2 md:flex-row">
 											<span className="text-xs text-muted-foreground">Filter</span>
 											<select
 												className="h-8 rounded-md border px-2 text-xs"
+												disabled={participant.locked && !editingParticipantIds.has(participant.id)}
 												value={teamFilter}
 												onChange={(event) =>
 													setTeamFilterByParticipantId((previous) => ({
@@ -149,7 +150,7 @@ export function ParticipantsTable({
 												<option value="Bottom Tier">Bottom Tier</option>
 											</select>
 											<select
-												className="h-9 min-w-[220px] rounded-md border px-2"
+												className="h-9 w-full min-w-[180px] rounded-md border px-2 md:min-w-[220px]"
 												disabled={participant.locked && !editingParticipantIds.has(participant.id)}
 												value={participant.team_id ?? ""}
 												onChange={(event) => void onTeamChange(participant, event.target.value || null)}
@@ -172,7 +173,7 @@ export function ParticipantsTable({
 														alt={`${participant.team.name} logo`}
 														className="h-7 w-7 rounded-sm object-contain"
 													/>
-													<p className="text-xs text-muted-foreground">
+													<p className="text-center text-xs text-muted-foreground md:text-left">
 														OVR {participant.team.overall} • OFF {participant.team.offense} • DEF{" "}
 														{participant.team.defense} • GOA {participant.team.goalie}
 													</p>
@@ -181,8 +182,13 @@ export function ParticipantsTable({
 										</div>
 									</td>
 									<td className="px-2 py-2 align-middle">
-										<div className="flex justify-center gap-2">
-											<Button size="sm" variant="outline" onClick={() => void onRandomizeTeam(participant, teamFilter)}>
+										<div className="flex flex-wrap justify-center gap-2">
+											<Button
+												size="sm"
+												variant="outline"
+												disabled={participant.locked && !editingParticipantIds.has(participant.id)}
+												onClick={() => void onRandomizeTeam(participant, teamFilter)}
+											>
 												🎲
 											</Button>
 											<Button
@@ -383,7 +389,10 @@ export function GroupMatchesTable({
 					const disabled = !canEditMatch(match);
 
 					return (
-						<div key={match.id} className="rounded-xl border bg-gradient-to-b from-card to-muted/10 p-4 shadow-sm">
+						<div
+							key={match.id}
+							className="rounded-xl border bg-gradient-to-b from-card to-muted/10 p-3 shadow-sm md:p-4"
+						>
 							<div className="mb-4 flex items-center justify-between gap-3">
 								<h3 className="text-xl font-bold">
 									Game {match.round}
@@ -391,7 +400,7 @@ export function GroupMatchesTable({
 								</h3>
 								{match.result?.locked && <Badge className="text-xs">Locked</Badge>}
 							</div>
-							<div className="grid grid-cols-[1fr_auto_1fr] items-start gap-4">
+							<div className="grid grid-cols-1 items-start gap-4 md:grid-cols-[1fr_auto_1fr]">
 								<div
 									className={`rounded-lg border border-primary/20 p-3 text-left ${winningSide === "HOME" ? "bg-green-100/80" : ""}`}
 								>
@@ -410,7 +419,7 @@ export function GroupMatchesTable({
 										Score: {match.result?.home_score ?? "-"} • SOG: {match.result?.home_shots ?? "-"}
 									</p>
 								</div>
-								<div className="flex flex-col items-center justify-center gap-2">
+								<div className="order-first flex flex-col items-center justify-center gap-2 md:order-none">
 									<span className="text-2xl font-black">VS</span>
 									<select
 										className="h-10 rounded-md border bg-background px-3 text-sm"
@@ -426,7 +435,7 @@ export function GroupMatchesTable({
 									</select>
 								</div>
 								<div
-									className={`rounded-lg border border-secondary/40 p-3 text-right ${winningSide === "AWAY" ? "bg-green-100/80" : ""}`}
+									className={`rounded-lg border border-primary/20 p-3 text-right ${winningSide === "AWAY" ? "bg-green-100/80" : ""}`}
 								>
 									<p className="text-xs font-semibold uppercase tracking-wide text-secondary-foreground">Away Team</p>
 									<div className="mt-1 flex items-center justify-end gap-2">
@@ -444,7 +453,7 @@ export function GroupMatchesTable({
 									</p>
 								</div>
 							</div>
-							<div className="mt-4 grid grid-cols-2 gap-3">
+							<div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
 								<div className="space-y-2">
 									<p className="text-xs font-medium text-muted-foreground">Home Goal</p>
 									<Input

@@ -1,3 +1,9 @@
+create or replace function public.ensure_playoff_bracket(p_tournament_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
 declare
 	r record;
   v_preset text;
@@ -248,3 +254,4 @@ begin
 
   -- stage can be PLAYOFF even if group exists; leave to triggers/logic
 end;
+$$;

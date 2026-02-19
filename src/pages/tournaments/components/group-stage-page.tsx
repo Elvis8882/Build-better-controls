@@ -297,13 +297,13 @@ export function GroupStandings({
 						<table className="w-full table-fixed text-sm">
 							<thead>
 								<tr className="border-b">
-									<th className="w-[40%] py-1 text-left">Team</th>
+									<th className="w-[32%] py-1 text-left">Team</th>
 									<th className="w-[9%] py-1 text-right">GP</th>
 									<th className="w-[9%] py-1 text-right">W</th>
 									<th className="w-[9%] py-1 text-right">L</th>
-									<th className="w-[14%] py-1 text-right">GF:GA</th>
-									<th className="w-[9%] py-1 text-right">Pts</th>
-									{showPlacement && <th className="w-[10%] py-1 text-right">Placement</th>}
+									<th className="w-[12%] py-1 text-right">GF:GA</th>
+									<th className="w-[12%] py-1 text-right">Pts</th>
+									{showPlacement && <th className="w-[17%] py-1 text-right">Placement</th>}
 								</tr>
 							</thead>
 							<tbody>
@@ -470,6 +470,7 @@ export function GroupMatchesTable({
 									<Input
 										type="number"
 										min={0}
+										className="text-right"
 										disabled={disabled}
 										value={draft.away_score}
 										placeholder="0"
@@ -479,6 +480,7 @@ export function GroupMatchesTable({
 									<Input
 										type="number"
 										min={0}
+										className="text-right"
 										disabled={disabled}
 										value={draft.away_shots}
 										placeholder="0"

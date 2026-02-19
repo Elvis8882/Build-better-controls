@@ -2,7 +2,13 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/auth/AuthProvider";
 import { getTeamLogoUrl } from "@/lib/teamLogos";
-import { listUserTeamStats, searchRegisteredProfiles, type PlayerTeamStat, type RegisteredProfile } from "@/lib/db";
+import {
+	countUserTournamentWins,
+	listUserTeamStats,
+	searchRegisteredProfiles,
+	type PlayerTeamStat,
+	type RegisteredProfile,
+} from "@/lib/db";
 
 function formatSaveRate(value: number): string {
 	return value.toFixed(3);
@@ -15,6 +21,7 @@ export default function ProfilePage() {
 	const [query, setQuery] = useState("");
 	const [results, setResults] = useState<RegisteredProfile[]>([]);
 	const [selectedUser, setSelectedUser] = useState<RegisteredProfile | null>(null);
+	const [tournamentWins, setTournamentWins] = useState(0);
 
 	useEffect(() => {
 		if (!user?.id || !profile?.username) return;
@@ -30,8 +37,12 @@ export default function ProfilePage() {
 
 		try {
 			setLoading(true);
-			const rows = await listUserTeamStats(targetUserId);
+			const [rows, totalTournamentWins] = await Promise.all([
+				listUserTeamStats(targetUserId),
+				countUserTournamentWins(targetUserId),
+			]);
 			setStats(rows);
+			setTournamentWins(totalTournamentWins);
 		} catch (error) {
 			toast.error((error as Error).message);
 		} finally {
@@ -63,6 +74,18 @@ export default function ProfilePage() {
 			window.clearTimeout(timeoutId);
 		};
 	}, [query]);
+
+	const mostPlayedTeam = stats.reduce<PlayerTeamStat | null>((best, current) => {
+		if (!best) return current;
+		if (current.games_played > best.games_played) return current;
+		return best;
+	}, null);
+
+	const mostSkinnerMomentsTeam = stats.reduce<PlayerTeamStat | null>((worst, current) => {
+		if (!worst) return current;
+		if (current.goalie_save_rate < worst.goalie_save_rate) return current;
+		return worst;
+	}, null);
 
 	return (
 		<div className="space-y-4 p-4 md:p-6">
@@ -106,30 +129,62 @@ export default function ProfilePage() {
 				)}
 			</div>
 
+			<div className="grid gap-4 rounded-lg border p-4 text-center md:grid-cols-3">
+				<div className="flex flex-col items-center justify-center gap-2">
+					{mostPlayedTeam ? (
+						<img
+							src={getTeamLogoUrl(mostPlayedTeam.team_code, mostPlayedTeam.team_pool)}
+							alt={`${mostPlayedTeam.team_name} logo`}
+							className="h-16 w-16 object-contain"
+						/>
+					) : (
+						<span className="text-3xl font-semibold">-</span>
+					)}
+					<p className="text-sm text-muted-foreground">Most Played</p>
+				</div>
+				<div className="flex flex-col items-center justify-center gap-2">
+					<span className="text-4xl font-semibold">{tournamentWins}</span>
+					<p className="text-sm text-muted-foreground">Tournament Wins</p>
+				</div>
+				<div className="flex flex-col items-center justify-center gap-2">
+					{mostSkinnerMomentsTeam ? (
+						<img
+							src={getTeamLogoUrl(mostSkinnerMomentsTeam.team_code, mostSkinnerMomentsTeam.team_pool)}
+							alt={`${mostSkinnerMomentsTeam.team_name} logo`}
+							className="h-16 w-16 object-contain"
+						/>
+					) : (
+						<span className="text-3xl font-semibold">-</span>
+					)}
+					<p className="text-sm text-muted-foreground">Most Skinner Moments</p>
+				</div>
+			</div>
+
 			<div className="overflow-x-auto rounded-lg border">
 				<table className="w-full min-w-[860px] text-left text-sm">
 					<thead className="bg-muted/50 text-muted-foreground">
 						<tr>
-							<th className="px-4 py-3">Team</th>
-							<th className="px-4 py-3">Games played</th>
-							<th className="px-4 py-3">Wins</th>
-							<th className="px-4 py-3">Shots made</th>
-							<th className="px-4 py-3">Goals made</th>
-							<th className="px-4 py-3">Goals against</th>
-							<th className="px-4 py-3">Shots against</th>
-							<th className="px-4 py-3">Goalie save rate</th>
+							<th className="px-4 py-3 text-center">Team</th>
+							<th className="px-4 py-3 text-center">Games played</th>
+							<th className="px-4 py-3 text-center">Wins</th>
+							<th className="px-4 py-3 text-center">Losses</th>
+							<th className="px-4 py-3 text-center">Shots made</th>
+							<th className="px-4 py-3 text-center">Goals made</th>
+							<th className="px-4 py-3 text-center">Goals against</th>
+							<th className="px-4 py-3 text-center">Shots against</th>
+							<th className="px-4 py-3 text-center">Goalie save rate</th>
 						</tr>
 					</thead>
 					<tbody>
 						{loading ? (
 							<tr>
-								<td className="px-4 py-3" colSpan={8}>
+								<td className="px-4 py-3" colSpan={9}>
 									Loading statistics...
 								</td>
 							</tr>
 						) : stats.length === 0 ? (
 							<tr>
-								<td className="px-4 py-3" colSpan={8}>
+								<td className="px-4 py-3" colSpan={9}>
 									No statistics available yet.
 								</td>
 							</tr>
@@ -148,6 +203,7 @@ export default function ProfilePage() {
 									</td>
 									<td className="px-4 py-3">{row.games_played}</td>
 									<td className="px-4 py-3">{row.wins}</td>
+									<td className="px-4 py-3">{row.losses}</td>
 									<td className="px-4 py-3">{row.shots_made}</td>
 									<td className="px-4 py-3">{row.goals_made}</td>
 									<td className="px-4 py-3">{row.goals_received}</td>

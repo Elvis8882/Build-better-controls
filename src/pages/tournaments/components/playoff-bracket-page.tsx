@@ -128,6 +128,7 @@ export function BracketDiagram({
 	standingByParticipantId,
 	medalByParticipantId,
 	placementRevealKeys,
+	finalStandings,
 }: {
 	title: string;
 	matches: MatchWithResult[];
@@ -135,6 +136,7 @@ export function BracketDiagram({
 	standingByParticipantId?: Map<string, number>;
 	medalByParticipantId?: Map<string, "gold" | "silver" | "bronze">;
 	placementRevealKeys?: Set<string>;
+	finalStandings?: Array<{ participantId: string; name: string; placement: number }>;
 }) {
 	const roundSlots = useMemo(() => buildBracketSlots(matches), [matches]);
 	const totalRoundCount = useMemo(() => roundSlots.length || 1, [roundSlots]);
@@ -254,6 +256,33 @@ export function BracketDiagram({
 							</div>
 						);
 					})}
+					{finalStandings && finalStandings.length > 0 && (
+						<div className="min-w-[180px] space-y-3 md:min-w-[220px]">
+							<h3 className="text-center text-sm font-semibold text-muted-foreground">Final standings</h3>
+							<div className="space-y-2">
+								{finalStandings.map((row) => {
+									const podiumColor =
+										row.placement === 1
+											? "#D4AF3733"
+											: row.placement === 2
+												? "#BCC6CC33"
+												: row.placement === 3
+													? "#A9714233"
+													: "hsl(var(--muted) / 0.35)";
+									return (
+										<div
+											key={row.participantId}
+											className="flex items-center justify-between rounded-md px-2 py-1 text-xs"
+											style={{ backgroundColor: podiumColor }}
+										>
+											<span className="truncate pr-2">{row.name}</span>
+											<span className="font-semibold">#{row.placement}</span>
+										</div>
+									);
+								})}
+							</div>
+						</div>
+					)}
 				</div>
 			</div>
 		</section>

@@ -1,3 +1,26 @@
+create table if not exists public.playoff_placement_entrants (
+  id bigserial primary key,
+  tournament_id uuid not null references public.tournaments(id) on delete cascade,
+  participant_id uuid not null references public.tournament_participants(id) on delete cascade,
+  source_match_id uuid not null references public.matches(id) on delete cascade,
+  source_round int not null,
+  source_slot int not null,
+  source_stage text not null check (source_stage in ('QF', 'SF')),
+  source_group_slot int,
+  created_at timestamptz not null default now(),
+  unique (source_match_id, participant_id),
+  unique (tournament_id, participant_id)
+);
+
+create index if not exists idx_playoff_placement_entrants_tournament_stage_group
+  on public.playoff_placement_entrants(tournament_id, source_stage, source_group_slot);
+
+create or replace function public.trg_place_losers_into_losers_bracket()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
 declare
   m record;
   loser uuid;
@@ -338,3 +361,4 @@ begin
 
   return new;
 end;
+$$;

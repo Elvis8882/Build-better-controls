@@ -447,9 +447,17 @@ export default function TournamentDetailPage() {
 			toast.warning("Select a valid registered user.");
 			return;
 		}
+		const alreadyMember = members.some((member) => member.user_id === pickedOption.id);
+		const alreadyParticipant = participants.some((participant) => participant.user_id === pickedOption.id);
+		if (alreadyParticipant) {
+			toast.warning("User is already in the participant list.");
+			return;
+		}
 		setSaving(true);
 		try {
-			await inviteMember(id, pickedOption.id);
+			if (!alreadyMember) {
+				await inviteMember(id, pickedOption.id);
+			}
 			await createParticipant(id, {
 				userId: pickedOption.id,
 				displayName: pickedOption.username + (pickedOption.id === tournament?.created_by ? " (Host)" : ""),
@@ -506,14 +514,22 @@ export default function TournamentDetailPage() {
 			toast.warning("Select a friend to invite.");
 			return;
 		}
-		const pickedFriend = friends.find((friend) => friend.id === selectedFriendId);
+		const pickedFriend = inviteableFriends.find((friend) => friend.id === selectedFriendId);
 		if (!pickedFriend) {
-			toast.warning("Selected friend is no longer available.");
+			toast.warning("Selected friend is already invited or no longer available.");
+			return;
+		}
+		const alreadyMember = members.some((member) => member.user_id === pickedFriend.id);
+		const alreadyParticipant = participants.some((participant) => participant.user_id === pickedFriend.id);
+		if (alreadyParticipant) {
+			toast.warning("Friend is already in the participant list.");
 			return;
 		}
 		setSaving(true);
 		try {
-			await inviteMember(id, pickedFriend.id);
+			if (!alreadyMember) {
+				await inviteMember(id, pickedFriend.id);
+			}
 			await createParticipant(id, {
 				userId: pickedFriend.id,
 				displayName: pickedFriend.username + (pickedFriend.id === tournament?.created_by ? " (Host)" : ""),

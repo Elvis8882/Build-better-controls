@@ -153,7 +153,7 @@ export function BracketDiagram({
 	hideUnplayableMatches?: boolean;
 }) {
 	const roundSlots = useMemo(
-		() => buildBracketSlots(matches, hideUnplayableMatches, hideUnplayableMatches),
+		() => buildBracketSlots(matches, false, hideUnplayableMatches),
 		[matches, hideUnplayableMatches],
 	);
 	const totalRoundCount = useMemo(() => roundSlots.length || 1, [roundSlots]);

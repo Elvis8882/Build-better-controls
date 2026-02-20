@@ -1080,7 +1080,6 @@ export default function TournamentDetailPage() {
 									standingByParticipantId={standingByParticipantId}
 									medalByParticipantId={medalByParticipantId}
 									placementRevealKeys={placementRevealKeys}
-									hideUnplayableMatches
 								/>
 							) : undefined
 						}

@@ -991,14 +991,61 @@ export default function TournamentDetailPage() {
 									: undefined
 						}
 						diagram={
-							<BracketDiagram
-								title="Winners bracket"
-								matches={winnersBracketMatchesRaw}
-								teamById={teamById}
-								standingByParticipantId={standingByParticipantId}
-								medalByParticipantId={medalByParticipantId}
-								placementRevealKeys={placementRevealKeys}
-							/>
+							<div className="relative">
+								<BracketDiagram
+									title="Winners bracket"
+									matches={winnersBracketMatchesRaw}
+									teamById={teamById}
+									standingByParticipantId={standingByParticipantId}
+									medalByParticipantId={medalByParticipantId}
+									placementRevealKeys={placementRevealKeys}
+								/>
+								{allPlayoffMatchesLocked && finalStandings.length > 0 && (
+									<div className="pointer-events-none absolute right-3 top-12 hidden md:block">
+										<div className="pointer-events-auto w-[180px] rounded-md border bg-background/95 p-2 shadow-sm backdrop-blur-sm">
+											<p className="mb-1 text-xs font-semibold">Final standings</p>
+											<table className="w-full border-separate border-spacing-y-1 text-xs">
+												<tbody>
+													{finalStandings.map((row) => (
+														<tr key={row.participantId}>
+															<td
+																className="rounded-l-md px-2 py-1"
+																style={{
+																	backgroundColor:
+																		row.placement === 1
+																			? "#D4AF3733"
+																			: row.placement === 2
+																				? "#BCC6CC33"
+																				: row.placement === 3
+																					? "#A9714233"
+																					: "hsl(var(--muted) / 0.35)",
+																}}
+															>
+																{row.name}
+															</td>
+															<td
+																className="rounded-r-md px-2 py-1 text-right font-semibold"
+																style={{
+																	backgroundColor:
+																		row.placement === 1
+																			? "#D4AF3733"
+																			: row.placement === 2
+																				? "#BCC6CC33"
+																				: row.placement === 3
+																					? "#A9714233"
+																					: "hsl(var(--muted) / 0.35)",
+																}}
+															>
+																#{row.placement}
+															</td>
+														</tr>
+													))}
+												</tbody>
+											</table>
+										</div>
+									</div>
+								)}
+							</div>
 						}
 						table={
 							<Tabs defaultValue="upcoming" className="space-y-3">

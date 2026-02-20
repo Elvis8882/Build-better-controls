@@ -1,3 +1,27 @@
+-- Ensure entrant ingestion is idempotent per winners source match.
+with ranked as (
+  select
+    id,
+    row_number() over (partition by source_match_id order by id desc) as rn
+  from public.playoff_placement_entrants
+)
+delete from public.playoff_placement_entrants e
+using ranked r
+where e.id = r.id
+  and r.rn > 1;
+
+alter table public.playoff_placement_entrants
+  drop constraint if exists playoff_placement_entrants_source_match_id_participant_id_key;
+
+alter table public.playoff_placement_entrants
+  add constraint playoff_placement_entrants_source_match_id_key unique (source_match_id);
+
+create or replace function public.trg_place_losers_into_losers_bracket()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
 declare
   m record;
   loser uuid;
@@ -353,3 +377,4 @@ begin
 
   return new;
 end;
+$$;

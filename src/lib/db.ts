@@ -560,41 +560,11 @@ export async function listPendingFriendRequests(userId: string): Promise<FriendR
 }
 
 export async function acceptFriendRequest(requestId: string, receiverUserId: string): Promise<void> {
-	const { data: request, error: requestError } = await supabase
-		.from("friend_requests")
-		.select("id, sender_id, receiver_id, status")
-		.eq("id", requestId)
-		.eq("receiver_id", receiverUserId)
-		.maybeSingle();
-	throwOnError(requestError, "Unable to load friend request");
-
-	if (!request) {
-		throw new Error("Friend request not found.");
-	}
-
-	if (request.status === "rejected") {
-		throw new Error("Friend request was already rejected.");
-	}
-
-	const { error: friendshipError } = await supabase.from("friendships").upsert(
-		[
-			{ user_id: request.sender_id, friend_id: request.receiver_id },
-			{ user_id: request.receiver_id, friend_id: request.sender_id },
-		],
-		{ onConflict: "user_id,friend_id" },
-	);
-	throwOnError(friendshipError, "Unable to save friendship");
-
-	if (request.status === "accepted") {
-		return;
-	}
-
-	const { error: updateError } = await supabase
-		.from("friend_requests")
-		.update({ status: "accepted", responded_at: new Date().toISOString() })
-		.eq("id", requestId)
-		.eq("receiver_id", receiverUserId);
-	throwOnError(updateError, "Unable to accept friend request");
+	const { error } = await supabase.rpc("accept_friend_request", {
+		p_request_id: requestId,
+		p_receiver_id: receiverUserId,
+	});
+	throwOnError(error, "Unable to accept friend request");
 }
 
 export async function listFriends(userId: string): Promise<FriendProfile[]> {

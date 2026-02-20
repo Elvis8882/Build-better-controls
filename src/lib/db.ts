@@ -154,6 +154,12 @@ export type RegisteredProfile = {
 	username: string;
 };
 
+export type PublicProfile = {
+	id: string;
+	username: string | null;
+	role: string | null;
+};
+
 export type FriendRequest = {
 	id: string;
 	sender_id: string;
@@ -437,6 +443,17 @@ export async function searchRegisteredProfiles(query: string): Promise<Registere
 	return (data ?? []) as RegisteredProfile[];
 }
 
+export async function getPublicProfile(profileId: string): Promise<PublicProfile | null> {
+	const { data, error } = await supabase
+		.from("profiles")
+		.select("id, username, role")
+		.eq("id", profileId)
+		.maybeSingle();
+	throwOnError(error, "Unable to load profile");
+	if (!data) return null;
+	return data as PublicProfile;
+}
+
 export async function inviteMember(tournamentId: string, userId: string): Promise<void> {
 	const { error } = await supabase.from("tournament_members").insert({
 		tournament_id: tournamentId,
@@ -533,16 +550,10 @@ export async function acceptFriendRequest(requestId: string, receiverUserId: str
 	if (!request) {
 		throw new Error("Friend request not found.");
 	}
-	if (request.status !== "pending") {
-		throw new Error("Friend request is no longer pending.");
-	}
 
-	const { error: updateError } = await supabase
-		.from("friend_requests")
-		.update({ status: "accepted", responded_at: new Date().toISOString() })
-		.eq("id", requestId)
-		.eq("receiver_id", receiverUserId);
-	throwOnError(updateError, "Unable to accept friend request");
+	if (request.status === "rejected") {
+		throw new Error("Friend request was already rejected.");
+	}
 
 	const { error: friendshipError } = await supabase.from("friendships").upsert(
 		[
@@ -552,6 +563,17 @@ export async function acceptFriendRequest(requestId: string, receiverUserId: str
 		{ onConflict: "user_id,friend_id" },
 	);
 	throwOnError(friendshipError, "Unable to save friendship");
+
+	if (request.status === "accepted") {
+		return;
+	}
+
+	const { error: updateError } = await supabase
+		.from("friend_requests")
+		.update({ status: "accepted", responded_at: new Date().toISOString() })
+		.eq("id", requestId)
+		.eq("receiver_id", receiverUserId);
+	throwOnError(updateError, "Unable to accept friend request");
 }
 
 export async function listFriends(userId: string): Promise<FriendProfile[]> {

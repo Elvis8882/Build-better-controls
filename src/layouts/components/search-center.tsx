@@ -2,7 +2,13 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/auth/AuthProvider";
 import { Icon } from "@/components/icon";
-import { searchRegisteredProfiles, sendFriendRequest, type RegisteredProfile } from "@/lib/db";
+import {
+	getPublicProfile,
+	searchRegisteredProfiles,
+	sendFriendRequest,
+	type PublicProfile,
+	type RegisteredProfile,
+} from "@/lib/db";
 import { Badge } from "@/ui/badge";
 import { Button } from "@/ui/button";
 import { Input } from "@/ui/input";
@@ -15,6 +21,8 @@ export default function SearchCenter() {
 	const [users, setUsers] = useState<RegisteredProfile[]>([]);
 	const [loadingUsers, setLoadingUsers] = useState(false);
 	const [pendingUsernames, setPendingUsernames] = useState<Set<string>>(new Set());
+	const [selectedProfile, setSelectedProfile] = useState<PublicProfile | null>(null);
+	const [loadingProfile, setLoadingProfile] = useState(false);
 	const { user } = useAuth();
 
 	useEffect(() => {
@@ -62,21 +70,36 @@ export default function SearchCenter() {
 											<p className="text-sm font-medium truncate">{item.username}</p>
 											<Badge className="bg-emerald-500 text-white hover:bg-emerald-500">User</Badge>
 										</div>
-										<Button
-											size="sm"
-											disabled={isCurrentUser || isPending || !user?.id}
-											onClick={() => {
-												if (!user?.id || isCurrentUser) return;
-												void sendFriendRequest(user.id, item.username)
-													.then(() => {
-														setPendingUsernames((previous) => new Set(previous).add(item.username));
-														toast.success(`Friend request sent to ${item.username}.`);
-													})
-													.catch((error) => toast.error((error as Error).message));
-											}}
-										>
-											{isCurrentUser ? "You" : isPending ? "Request sent" : "Add friend"}
-										</Button>
+										<div className="flex gap-2">
+											<Button
+												size="sm"
+												variant="outline"
+												onClick={() => {
+													setLoadingProfile(true);
+													void getPublicProfile(item.id)
+														.then((profile) => setSelectedProfile(profile))
+														.catch((error) => toast.error((error as Error).message))
+														.finally(() => setLoadingProfile(false));
+												}}
+											>
+												View profile
+											</Button>
+											<Button
+												size="sm"
+												disabled={isCurrentUser || isPending || !user?.id}
+												onClick={() => {
+													if (!user?.id || isCurrentUser) return;
+													void sendFriendRequest(user.id, item.username)
+														.then(() => {
+															setPendingUsernames((previous) => new Set(previous).add(item.username));
+															toast.success(`Friend request sent to ${item.username}.`);
+														})
+														.catch((error) => toast.error((error as Error).message));
+												}}
+											>
+												{isCurrentUser ? "You" : isPending ? "Request sent" : "Add friend"}
+											</Button>
+										</div>
 									</div>
 								);
 							})}
@@ -85,6 +108,19 @@ export default function SearchCenter() {
 							)}
 						</div>
 					</ScrollArea>
+					<div className="border-t p-4 bg-muted/30">
+						{loadingProfile && <p className="text-xs text-muted-foreground">Loading profile…</p>}
+						{!loadingProfile && selectedProfile && (
+							<div className="space-y-1">
+								<p className="text-sm font-semibold">{selectedProfile.username ?? "Unknown user"}</p>
+								<p className="text-xs text-muted-foreground">Role: {selectedProfile.role ?? "user"}</p>
+								<p className="text-xs text-muted-foreground">Profile ID: {selectedProfile.id}</p>
+							</div>
+						)}
+						{!loadingProfile && !selectedProfile && (
+							<p className="text-xs text-muted-foreground">Select a user and click “View profile”.</p>
+						)}
+					</div>
 				</SheetContent>
 			</Sheet>
 		</>

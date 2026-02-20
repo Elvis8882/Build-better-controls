@@ -154,6 +154,26 @@ export type RegisteredProfile = {
 	username: string;
 };
 
+export type PublicProfile = {
+	id: string;
+	username: string | null;
+	role: string | null;
+};
+
+export type FriendRequest = {
+	id: string;
+	sender_id: string;
+	receiver_id: string;
+	status: "pending" | "accepted" | "rejected";
+	created_at: string;
+	sender_username: string;
+};
+
+export type FriendProfile = {
+	id: string;
+	username: string;
+};
+
 function throwOnError(error: { message: string } | null, fallbackMessage: string): void {
 	if (error) {
 		const message = `${error.message ?? ""}`;
@@ -423,6 +443,17 @@ export async function searchRegisteredProfiles(query: string): Promise<Registere
 	return (data ?? []) as RegisteredProfile[];
 }
 
+export async function getPublicProfile(profileId: string): Promise<PublicProfile | null> {
+	const { data, error } = await supabase
+		.from("profiles")
+		.select("id, username, role")
+		.eq("id", profileId)
+		.maybeSingle();
+	throwOnError(error, "Unable to load profile");
+	if (!data) return null;
+	return data as PublicProfile;
+}
+
 export async function inviteMember(tournamentId: string, userId: string): Promise<void> {
 	const { error } = await supabase.from("tournament_members").insert({
 		tournament_id: tournamentId,
@@ -430,6 +461,136 @@ export async function inviteMember(tournamentId: string, userId: string): Promis
 		role: "player",
 	});
 	throwOnError(error, "Unable to invite member");
+}
+
+export async function sendFriendRequest(senderUserId: string, receiverUsername: string): Promise<void> {
+	const normalizedUsername = receiverUsername.trim().toLowerCase();
+	if (!normalizedUsername) {
+		throw new Error("Enter a username.");
+	}
+
+	const { data: receiver, error: receiverError } = await supabase
+		.from("profiles")
+		.select("id, username")
+		.eq("username_norm", normalizedUsername)
+		.maybeSingle();
+	throwOnError(receiverError, "Unable to find user profile");
+
+	if (!receiver?.id) {
+		throw new Error("User not found.");
+	}
+	if (receiver.id === senderUserId) {
+		throw new Error("You cannot add yourself as a friend.");
+	}
+
+	const { data: existing, error: existingError } = await supabase
+		.from("friend_requests")
+		.select("id, status")
+		.or(
+			`and(sender_id.eq.${senderUserId},receiver_id.eq.${receiver.id}),and(sender_id.eq.${receiver.id},receiver_id.eq.${senderUserId})`,
+		)
+		.order("created_at", { ascending: false })
+		.limit(1)
+		.maybeSingle();
+	throwOnError(existingError, "Unable to validate friend request status");
+
+	if (existing?.status === "accepted") {
+		throw new Error("You are already friends with this user.");
+	}
+	if (existing?.status === "pending") {
+		throw new Error("A pending friend request already exists.");
+	}
+
+	const { error } = await supabase.from("friend_requests").insert({
+		sender_id: senderUserId,
+		receiver_id: receiver.id,
+		status: "pending",
+	});
+	throwOnError(error, "Unable to send friend request");
+}
+
+export async function listPendingFriendRequests(userId: string): Promise<FriendRequest[]> {
+	const { data, error } = await supabase
+		.from("friend_requests")
+		.select("id, sender_id, receiver_id, status, created_at")
+		.eq("receiver_id", userId)
+		.eq("status", "pending")
+		.order("created_at", { ascending: false });
+	throwOnError(error, "Unable to load friend requests");
+
+	const rows = (data ?? []) as Array<Omit<FriendRequest, "sender_username">>;
+	if (rows.length === 0) return [];
+
+	const senderIds = [...new Set(rows.map((row) => row.sender_id))];
+	const { data: profileData, error: profileError } = await supabase
+		.from("profiles")
+		.select("id, username")
+		.in("id", senderIds);
+	throwOnError(profileError, "Unable to load sender profiles");
+
+	const usernameById = new Map(
+		(profileData ?? []).map((profile) => [profile.id as string, profile.username as string]),
+	);
+
+	return rows.map((row) => ({
+		...row,
+		sender_username: usernameById.get(row.sender_id) ?? "unknown",
+	}));
+}
+
+export async function acceptFriendRequest(requestId: string, receiverUserId: string): Promise<void> {
+	const { data: request, error: requestError } = await supabase
+		.from("friend_requests")
+		.select("id, sender_id, receiver_id, status")
+		.eq("id", requestId)
+		.eq("receiver_id", receiverUserId)
+		.maybeSingle();
+	throwOnError(requestError, "Unable to load friend request");
+
+	if (!request) {
+		throw new Error("Friend request not found.");
+	}
+
+	if (request.status === "rejected") {
+		throw new Error("Friend request was already rejected.");
+	}
+
+	const { error: friendshipError } = await supabase.from("friendships").upsert(
+		[
+			{ user_id: request.sender_id, friend_id: request.receiver_id },
+			{ user_id: request.receiver_id, friend_id: request.sender_id },
+		],
+		{ onConflict: "user_id,friend_id" },
+	);
+	throwOnError(friendshipError, "Unable to save friendship");
+
+	if (request.status === "accepted") {
+		return;
+	}
+
+	const { error: updateError } = await supabase
+		.from("friend_requests")
+		.update({ status: "accepted", responded_at: new Date().toISOString() })
+		.eq("id", requestId)
+		.eq("receiver_id", receiverUserId);
+	throwOnError(updateError, "Unable to accept friend request");
+}
+
+export async function listFriends(userId: string): Promise<FriendProfile[]> {
+	const { data, error } = await supabase.from("friendships").select("friend_id").eq("user_id", userId);
+	throwOnError(error, "Unable to load friends");
+
+	const friendIds = [...new Set((data ?? []).map((item) => item.friend_id as string).filter(Boolean))];
+	if (friendIds.length === 0) return [];
+
+	const { data: profileData, error: profileError } = await supabase
+		.from("profiles")
+		.select("id, username")
+		.in("id", friendIds)
+		.order("username", { ascending: true });
+	throwOnError(profileError, "Unable to load friend profiles");
+
+	return (profileData ?? []) as FriendProfile[];
 }
 
 export async function listParticipants(tournamentId: string): Promise<TournamentParticipant[]> {

@@ -1,6 +1,8 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
+import { useAuth } from "@/auth/AuthProvider";
 import { Icon } from "@/components/icon";
-import { useSocialStore } from "@/store/socialStore";
+import { acceptFriendRequest, listPendingFriendRequests, type FriendRequest } from "@/lib/db";
 import { Avatar, AvatarFallback } from "@/ui/avatar";
 import { Badge } from "@/ui/badge";
 import { Button } from "@/ui/button";
@@ -62,7 +64,27 @@ function NoticeList({ items }: { items: NoticeItem[] }) {
 export default function NoticeButton() {
 	const [drawerOpen, setDrawerOpen] = useState(false);
 	const [notificationItems, setNotificationItems] = useState(SITE_NOTIFICATIONS);
-	const { friendRequestItems, clearFriendRequests } = useSocialStore();
+	const [friendRequestItems, setFriendRequestItems] = useState<FriendRequest[]>([]);
+	const [loadingRequests, setLoadingRequests] = useState(false);
+	const { user } = useAuth();
+
+	const refreshFriendRequests = useCallback(async () => {
+		if (!user?.id) return;
+		setLoadingRequests(true);
+		try {
+			const data = await listPendingFriendRequests(user.id);
+			setFriendRequestItems(data);
+		} catch (error) {
+			toast.error((error as Error).message);
+		} finally {
+			setLoadingRequests(false);
+		}
+	}, [user?.id]);
+
+	useEffect(() => {
+		if (!drawerOpen) return;
+		void refreshFriendRequests();
+	}, [drawerOpen, refreshFriendRequests]);
 	const totalCount = useMemo(
 		() => notificationItems.length + friendRequestItems.length,
 		[friendRequestItems.length, notificationItems.length],
@@ -87,7 +109,7 @@ export default function NoticeButton() {
 							size="sm"
 							onClick={() => {
 								setNotificationItems([]);
-								clearFriendRequests();
+								setFriendRequestItems([]);
 							}}
 						>
 							Mark all as read
@@ -104,7 +126,33 @@ export default function NoticeButton() {
 								<NoticeList items={notificationItems} />
 							</TabsContent>
 							<TabsContent value="friend-requests">
-								<NoticeList items={friendRequestItems} />
+								<ScrollArea className="h-[420px] pr-2">
+									<div className="space-y-3 pb-4">
+										{loadingRequests && <p className="text-xs text-muted-foreground">Loading friend requests…</p>}
+										{friendRequestItems.map((item) => (
+											<div key={item.id} className="rounded-xl border bg-card/80 p-3">
+												<p className="text-sm font-medium">{item.sender_username} sent a friend request</p>
+												<p className="mt-1 text-xs text-muted-foreground">Wants to connect and invite you faster.</p>
+												<Button
+													className="mt-2"
+													size="sm"
+													onClick={() => {
+														if (!user?.id) return;
+														void acceptFriendRequest(item.id, user.id)
+															.then(refreshFriendRequests)
+															.then(() => toast.success("Friend request accepted."))
+															.catch((error) => toast.error((error as Error).message));
+													}}
+												>
+													Accept
+												</Button>
+											</div>
+										))}
+										{!loadingRequests && friendRequestItems.length === 0 && (
+											<p className="text-xs text-muted-foreground">No pending friend requests.</p>
+										)}
+									</div>
+								</ScrollArea>
 							</TabsContent>
 						</Tabs>
 					</div>

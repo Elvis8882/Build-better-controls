@@ -23,6 +23,11 @@ declare
   v_pair_slot int;
   v_pair_home uuid;
   v_pair_away uuid;
+  v_round_locked_count int;
+  v_candidate_count int;
+  v_bye uuid;
+  v_p1 uuid;
+  v_p2 uuid;
 begin
   if new.locked is distinct from true then
     return new;
@@ -206,6 +211,170 @@ begin
             where id = v_parent_id;
           end if;
           perform public.sync_match_identities_from_participants(v_parent_id);
+        end if;
+      end if;
+
+      -- When odd counts create exactly 3 contenders at the semifinal-placement level,
+      -- keep the bracket playable by giving the best goals-for:goals-against contender
+      -- a bye to the next round and pairing the remaining two in a single match.
+      if m.round = v_semifinal_round then
+        select count(*) into v_round_locked_count
+        from public.matches lm
+        join public.match_results lr on lr.match_id = lm.id
+        where lm.tournament_id = m.tournament_id
+          and lm.stage = 'PLAYOFF'
+          and lm.bracket_type = 'LOSERS'
+          and lm.round = m.round
+          and lr.locked = true;
+
+        if v_round_locked_count = 0 then
+          select count(*) into v_candidate_count
+          from (
+            select distinct pid
+            from (
+              select lm.home_participant_id as pid
+              from public.matches lm
+              where lm.tournament_id = m.tournament_id
+                and lm.stage = 'PLAYOFF'
+                and lm.bracket_type = 'LOSERS'
+                and lm.round = m.round
+              union all
+              select lm.away_participant_id as pid
+              from public.matches lm
+              where lm.tournament_id = m.tournament_id
+                and lm.stage = 'PLAYOFF'
+                and lm.bracket_type = 'LOSERS'
+                and lm.round = m.round
+              union all
+              select e.participant_id as pid
+              from public.playoff_placement_entrants e
+              where e.tournament_id = m.tournament_id
+                and e.source_round = m.round
+            ) src
+            where pid is not null
+          ) ranked;
+
+          if v_candidate_count = 3 then
+            with ranked as (
+              select
+                p.pid,
+                coalesce(sum(case
+                  when pm.home_participant_id = p.pid then coalesce(pr.home_score, 0) - coalesce(pr.away_score, 0)
+                  when pm.away_participant_id = p.pid then coalesce(pr.away_score, 0) - coalesce(pr.home_score, 0)
+                  else 0
+                end), 0)::int as goal_diff,
+                coalesce(sum(case
+                  when pm.home_participant_id = p.pid then coalesce(pr.home_shots, 0) - coalesce(pr.away_shots, 0)
+                  when pm.away_participant_id = p.pid then coalesce(pr.away_shots, 0) - coalesce(pr.home_shots, 0)
+                  else 0
+                end), 0)::int as shots_diff,
+                row_number() over (
+                  order by
+                    coalesce(sum(case
+                      when pm.home_participant_id = p.pid then coalesce(pr.home_score, 0) - coalesce(pr.away_score, 0)
+                      when pm.away_participant_id = p.pid then coalesce(pr.away_score, 0) - coalesce(pr.home_score, 0)
+                      else 0
+                    end), 0) desc,
+                    coalesce(sum(case
+                      when pm.home_participant_id = p.pid then coalesce(pr.home_shots, 0) - coalesce(pr.away_shots, 0)
+                      when pm.away_participant_id = p.pid then coalesce(pr.away_shots, 0) - coalesce(pr.home_shots, 0)
+                      else 0
+                    end), 0) desc,
+                    p.pid asc
+                ) as rn
+              from (
+                select distinct pid
+                from (
+                  select lm.home_participant_id as pid
+                  from public.matches lm
+                  where lm.tournament_id = m.tournament_id
+                    and lm.stage = 'PLAYOFF'
+                    and lm.bracket_type = 'LOSERS'
+                    and lm.round = m.round
+                  union all
+                  select lm.away_participant_id as pid
+                  from public.matches lm
+                  where lm.tournament_id = m.tournament_id
+                    and lm.stage = 'PLAYOFF'
+                    and lm.bracket_type = 'LOSERS'
+                    and lm.round = m.round
+                  union all
+                  select e.participant_id as pid
+                  from public.playoff_placement_entrants e
+                  where e.tournament_id = m.tournament_id
+                    and e.source_round = m.round
+                ) src
+                where pid is not null
+              ) p
+              left join public.matches pm
+                on pm.tournament_id = m.tournament_id
+               and pm.stage = 'PLAYOFF'
+               and (pm.home_participant_id = p.pid or pm.away_participant_id = p.pid)
+              left join public.match_results pr
+                on pr.match_id = pm.id
+               and pr.locked = true
+              group by p.pid
+            )
+            select
+              max(case when rn = 1 then pid end),
+              max(case when rn = 2 then pid end),
+              max(case when rn = 3 then pid end)
+            into v_bye, v_p1, v_p2
+            from ranked;
+
+            select id into target
+            from public.matches
+            where tournament_id = m.tournament_id
+              and stage = 'PLAYOFF'
+              and bracket_type = 'LOSERS'
+              and round = m.round
+              and bracket_slot = 1;
+
+            if target is null then
+              insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot)
+              values (m.tournament_id, 'PLAYOFF', 'LOSERS', m.round, 1)
+              returning id into target;
+            end if;
+
+            select id into v_parent_id
+            from public.matches
+            where tournament_id = m.tournament_id
+              and stage = 'PLAYOFF'
+              and bracket_type = 'LOSERS'
+              and round = (m.round + 1)
+              and bracket_slot = 1;
+
+            if v_parent_id is null then
+              insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot)
+              values (m.tournament_id, 'PLAYOFF', 'LOSERS', m.round + 1, 1)
+              returning id into v_parent_id;
+            end if;
+
+            update public.matches
+            set home_participant_id = v_p1,
+                away_participant_id = v_p2,
+                next_match_id = v_parent_id,
+                next_match_side = 'AWAY'
+            where id = target;
+
+            update public.matches
+            set home_participant_id = null,
+                away_participant_id = null,
+                next_match_id = null,
+                next_match_side = null
+            where tournament_id = m.tournament_id
+              and stage = 'PLAYOFF'
+              and bracket_type = 'LOSERS'
+              and round = m.round
+              and bracket_slot > 1;
+
+            update public.matches
+            set home_participant_id = coalesce(home_participant_id, v_bye)
+            where id = v_parent_id;
+
+            perform public.sync_match_identities_from_participants(target);
+            perform public.sync_match_identities_from_participants(v_parent_id);
+          end if;
         end if;
       end if;
     end if;

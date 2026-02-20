@@ -1,3 +1,9 @@
+create or replace function public.trg_place_losers_into_losers_bracket()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
 declare
   m record;
   loser uuid;
@@ -400,3 +406,4 @@ begin
 
   return new;
 end;
+$$;

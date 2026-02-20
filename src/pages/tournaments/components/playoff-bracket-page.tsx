@@ -167,6 +167,15 @@ export function BracketDiagram({
 		);
 	}
 
+	if (roundSlots.length === 0) {
+		return (
+			<section className="space-y-3 rounded-lg border p-3 md:p-4">
+				<h2 className="text-lg font-semibold">{title}</h2>
+				<p className="text-sm text-muted-foreground">No playable matches in this bracket yet.</p>
+			</section>
+		);
+	}
+
 	return (
 		<section className="space-y-3 rounded-lg border p-3 md:p-4">
 			<h2 className="text-lg font-semibold">{title}</h2>
@@ -550,22 +559,17 @@ export function PlayoffBracketPage({
 	table,
 	placementDiagram,
 	placementTable,
-	finalStandingsTable,
 }: {
 	banner?: string;
 	diagram: ReactNode;
 	table: ReactNode;
 	placementDiagram?: ReactNode;
 	placementTable?: ReactNode;
-	finalStandingsTable?: ReactNode;
 }) {
 	return (
 		<div className="space-y-4">
 			{banner && <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">{banner}</div>}
-			<div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-				{diagram}
-				{finalStandingsTable}
-			</div>
+			{diagram}
 			{table}
 			{placementDiagram}
 			{placementTable}

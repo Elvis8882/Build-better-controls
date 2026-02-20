@@ -1140,46 +1140,6 @@ export default function TournamentDetailPage() {
 								</Tabs>
 							) : undefined
 						}
-						finalStandingsTable={
-							<section className="space-y-3 rounded-lg border p-3 md:p-4">
-								<h2 className="text-lg font-semibold">Final standings</h2>
-								{finalStandings.length === 0 ? (
-									<p className="text-sm text-muted-foreground">
-										Final standings will appear after playoff games finish.
-									</p>
-								) : (
-									<table className="w-full text-sm">
-										<thead>
-											<tr className="border-b">
-												<th className="py-1 text-left">Team name</th>
-												<th className="py-1 text-right">Placement</th>
-											</tr>
-										</thead>
-										<tbody>
-											{finalStandings.map((row) => (
-												<tr
-													key={row.participantId}
-													className={row.placement <= 3 ? "font-semibold" : ""}
-													style={{
-														backgroundColor:
-															row.placement === 1
-																? "#D4AF3733"
-																: row.placement === 2
-																	? "#BCC6CC33"
-																	: row.placement === 3
-																		? "#A9714233"
-																		: undefined,
-													}}
-												>
-													<td className="py-1 pr-2">{row.name}</td>
-													<td className="py-1 text-right">#{row.placement}</td>
-												</tr>
-											))}
-										</tbody>
-									</table>
-								)}
-							</section>
-						}
 					/>
 				</TabsContent>
 			</Tabs>

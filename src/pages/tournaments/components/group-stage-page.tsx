@@ -83,26 +83,32 @@ export function ParticipantsTable({
 	return (
 		<section className="space-y-3 rounded-lg border p-3 md:p-4">
 			<div className="flex flex-wrap items-end gap-3">
-				{hasOpenSlots && !participantFieldsLocked && friendOptions.length > 0 && (
+				{!participantFieldsLocked && (
 					<div className="rounded-md border bg-muted/20 p-2">
 						<p className="mb-1 text-xs text-muted-foreground">Quick invite friend</p>
 						<div className="flex items-center gap-2">
 							<select
 								className="h-8 min-w-[180px] rounded-md border px-2 text-xs"
+								disabled={friendOptions.length === 0 || !hasOpenSlots}
 								value={selectedFriendId}
 								onChange={(event) => onFriendSelectionChange(event.target.value)}
 							>
-								<option value="">Select friend</option>
+								<option value="">{friendOptions.length === 0 ? "No friends available" : "Select friend"}</option>
 								{friendOptions.map((friend) => (
 									<option key={friend.id} value={friend.id}>
 										{friend.username}
 									</option>
 								))}
 							</select>
-							<Button size="sm" disabled={saving || !selectedFriendId} onClick={() => void onInviteFriend()}>
+							<Button
+								size="sm"
+								disabled={saving || !selectedFriendId || friendOptions.length === 0 || !hasOpenSlots}
+								onClick={() => void onInviteFriend()}
+							>
 								Invite
 							</Button>
 						</div>
+						{!hasOpenSlots && <p className="mt-1 text-xs text-muted-foreground">No open participant slots.</p>}
 					</div>
 				)}
 				<div>

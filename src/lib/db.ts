@@ -160,6 +160,14 @@ export type PublicProfile = {
 	role: string | null;
 };
 
+export type ProfileOverview = {
+	id: string;
+	username: string | null;
+	bio: string | null;
+	favorite_team: string | null;
+	club_preference: string | null;
+};
+
 export type FriendRequest = {
 	id: string;
 	sender_id: string;
@@ -452,6 +460,19 @@ export async function getPublicProfile(profileId: string): Promise<PublicProfile
 	throwOnError(error, "Unable to load profile");
 	if (!data) return null;
 	return data as PublicProfile;
+}
+
+export async function getProfileOverview(profileId: string): Promise<ProfileOverview | null> {
+	const { data, error } = await supabase.from("profiles").select("id, username").eq("id", profileId).maybeSingle();
+	throwOnError(error, "Unable to load profile");
+	if (!data) return null;
+	return {
+		id: data.id as string,
+		username: (data.username as string | null) ?? null,
+		bio: null,
+		favorite_team: null,
+		club_preference: null,
+	};
 }
 
 export async function inviteMember(tournamentId: string, userId: string): Promise<void> {

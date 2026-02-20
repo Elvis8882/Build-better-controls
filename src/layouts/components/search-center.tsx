@@ -1,12 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { useAuth } from "@/auth/AuthProvider";
 import { Icon } from "@/components/icon";
 import {
-	getPublicProfile,
+	listFriends,
 	searchRegisteredProfiles,
 	sendFriendRequest,
-	type PublicProfile,
+	type FriendProfile,
 	type RegisteredProfile,
 } from "@/lib/db";
 import { Badge } from "@/ui/badge";
@@ -21,9 +22,16 @@ export default function SearchCenter() {
 	const [users, setUsers] = useState<RegisteredProfile[]>([]);
 	const [loadingUsers, setLoadingUsers] = useState(false);
 	const [pendingUsernames, setPendingUsernames] = useState<Set<string>>(new Set());
-	const [selectedProfile, setSelectedProfile] = useState<PublicProfile | null>(null);
-	const [loadingProfile, setLoadingProfile] = useState(false);
+	const [friends, setFriends] = useState<FriendProfile[]>([]);
 	const { user } = useAuth();
+	const navigate = useNavigate();
+
+	useEffect(() => {
+		if (!user?.id) return;
+		void listFriends(user.id)
+			.then(setFriends)
+			.catch((error) => toast.error((error as Error).message));
+	}, [user?.id]);
 
 	useEffect(() => {
 		const term = query.trim();
@@ -40,6 +48,8 @@ export default function SearchCenter() {
 		}, 250);
 		return () => window.clearTimeout(timer);
 	}, [query]);
+
+	const friendIdSet = useMemo(() => new Set(friends.map((friend) => friend.id)), [friends]);
 
 	return (
 		<>
@@ -64,41 +74,43 @@ export default function SearchCenter() {
 							{users.map((item) => {
 								const isCurrentUser = item.id === user?.id;
 								const isPending = pendingUsernames.has(item.username);
+								const isFriend = friendIdSet.has(item.id);
 								return (
 									<div key={item.id} className="rounded-xl border bg-card/80 p-3 space-y-2">
 										<div className="flex items-center justify-between gap-3">
 											<p className="text-sm font-medium truncate">{item.username}</p>
-											<Badge className="bg-emerald-500 text-white hover:bg-emerald-500">User</Badge>
+											<Badge className="bg-emerald-500 text-white hover:bg-emerald-500">
+												{isFriend ? "Friend" : "User"}
+											</Badge>
 										</div>
 										<div className="flex gap-2">
 											<Button
 												size="sm"
 												variant="outline"
 												onClick={() => {
-													setLoadingProfile(true);
-													void getPublicProfile(item.id)
-														.then((profile) => setSelectedProfile(profile))
-														.catch((error) => toast.error((error as Error).message))
-														.finally(() => setLoadingProfile(false));
+													setOpen(false);
+													navigate(`/dashboard/management/user/profile?userId=${item.id}`);
 												}}
 											>
 												View profile
 											</Button>
-											<Button
-												size="sm"
-												disabled={isCurrentUser || isPending || !user?.id}
-												onClick={() => {
-													if (!user?.id || isCurrentUser) return;
-													void sendFriendRequest(user.id, item.username)
-														.then(() => {
-															setPendingUsernames((previous) => new Set(previous).add(item.username));
-															toast.success(`Friend request sent to ${item.username}.`);
-														})
-														.catch((error) => toast.error((error as Error).message));
-												}}
-											>
-												{isCurrentUser ? "You" : isPending ? "Request sent" : "Add friend"}
-											</Button>
+											{!isFriend && (
+												<Button
+													size="sm"
+													disabled={isCurrentUser || isPending || !user?.id}
+													onClick={() => {
+														if (!user?.id || isCurrentUser) return;
+														void sendFriendRequest(user.id, item.username)
+															.then(() => {
+																setPendingUsernames((previous) => new Set(previous).add(item.username));
+																toast.success(`Friend request sent to ${item.username}.`);
+															})
+															.catch((error) => toast.error((error as Error).message));
+													}}
+												>
+													{isCurrentUser ? "You" : isPending ? "Request sent" : "Add friend"}
+												</Button>
+											)}
 										</div>
 									</div>
 								);
@@ -108,19 +120,6 @@ export default function SearchCenter() {
 							)}
 						</div>
 					</ScrollArea>
-					<div className="border-t p-4 bg-muted/30">
-						{loadingProfile && <p className="text-xs text-muted-foreground">Loading profile…</p>}
-						{!loadingProfile && selectedProfile && (
-							<div className="space-y-1">
-								<p className="text-sm font-semibold">{selectedProfile.username ?? "Unknown user"}</p>
-								<p className="text-xs text-muted-foreground">Role: {selectedProfile.role ?? "user"}</p>
-								<p className="text-xs text-muted-foreground">Profile ID: {selectedProfile.id}</p>
-							</div>
-						)}
-						{!loadingProfile && !selectedProfile && (
-							<p className="text-xs text-muted-foreground">Select a user and click “View profile”.</p>
-						)}
-					</div>
 				</SheetContent>
 			</Sheet>
 		</>

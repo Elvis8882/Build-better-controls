@@ -141,6 +141,7 @@ export function BracketDiagram({
 	medalByParticipantId,
 	placementRevealKeys,
 	finalStandings,
+	hideUnplayableMatches = false,
 }: {
 	title: string;
 	matches: MatchWithResult[];
@@ -149,6 +150,7 @@ export function BracketDiagram({
 	medalByParticipantId?: Map<string, "gold" | "silver" | "bronze">;
 	placementRevealKeys?: Set<string>;
 	finalStandings?: Array<{ participantId: string; name: string; placement: number }>;
+	hideUnplayableMatches?: boolean;
 }) {
 	const roundSlots = useMemo(
 		() => buildBracketSlots(matches, hideUnplayableMatches, hideUnplayableMatches),
@@ -333,17 +335,6 @@ export function PlayoffMatchesTable({
 	medalByParticipantId?: Map<string, "gold" | "silver" | "bronze">;
 	placementRevealKeys?: Set<string>;
 }) {
-	const roundDisplayByRound = useMemo(() => {
-		const map = new Map<number, number>();
-		let nextRound = 1;
-		for (const match of matches) {
-			if (map.has(match.round)) continue;
-			map.set(match.round, nextRound);
-			nextRound += 1;
-		}
-		return map;
-	}, [matches]);
-
 	const displaySlotByMatchId = useMemo(() => {
 		const byRound = new Map<number, MatchWithResult[]>();
 		for (const match of matches) {
@@ -411,7 +402,7 @@ export function PlayoffMatchesTable({
 						>
 							<div className="mb-4 flex items-center justify-between gap-3">
 								<h3 className="text-xl font-bold">
-									Game {roundDisplayByRound.get(match.round) ?? match.round}.{displaySlotByMatchId.get(match.id) ?? 1}
+									Game {match.round}.{displaySlotByMatchId.get(match.id) ?? 1}
 								</h3>
 								{match.result?.locked && <Badge className="text-xs">Locked</Badge>}
 							</div>

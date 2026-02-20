@@ -38,6 +38,13 @@ function isSkippedMatch(match: MatchWithResult): boolean {
 	return hasHome !== hasAway;
 }
 
+function isUnplayableMatch(match: MatchWithResult): boolean {
+	if (match.result?.locked) return false;
+	const hasHome = Boolean(match.home_participant_id);
+	const hasAway = Boolean(match.away_participant_id);
+	return hasHome !== hasAway;
+}
+
 function getPlacementRevealKey(matchId: string, side: "HOME" | "AWAY"): string {
 	return `${matchId}:${side}`;
 }
@@ -91,7 +98,11 @@ function PlacementPrefix({ standing, medal }: { standing?: number; medal?: "gold
 	);
 }
 
-function buildBracketSlots(matches: MatchWithResult[], omitTbdOnlySlots = false): BracketSlot[][] {
+function buildBracketSlots(
+	matches: MatchWithResult[],
+	omitTbdOnlySlots = false,
+	hideUnplayableMatches = false,
+): BracketSlot[][] {
 	const grouped = new Map<number, MatchWithResult[]>();
 	for (const match of matches) {
 		const items = grouped.get(match.round) ?? [];
@@ -112,6 +123,7 @@ function buildBracketSlots(matches: MatchWithResult[], omitTbdOnlySlots = false)
 		const slots: BracketSlot[] = [];
 		for (let slot = 1; slot <= slotCount; slot += 1) {
 			const slotEntry = { round, slot, match: bySlot.get(slot) ?? null };
+			if (hideUnplayableMatches && slotEntry.match && isUnplayableMatch(slotEntry.match)) continue;
 			if (omitTbdOnlySlots && isEmptySlotMatch(slotEntry.match)) continue;
 			slots.push(slotEntry);
 		}
@@ -128,6 +140,7 @@ export function BracketDiagram({
 	standingByParticipantId,
 	medalByParticipantId,
 	placementRevealKeys,
+	hideUnplayableMatches,
 }: {
 	title: string;
 	matches: MatchWithResult[];
@@ -135,8 +148,12 @@ export function BracketDiagram({
 	standingByParticipantId?: Map<string, number>;
 	medalByParticipantId?: Map<string, "gold" | "silver" | "bronze">;
 	placementRevealKeys?: Set<string>;
+	hideUnplayableMatches?: boolean;
 }) {
-	const roundSlots = useMemo(() => buildBracketSlots(matches), [matches]);
+	const roundSlots = useMemo(
+		() => buildBracketSlots(matches, hideUnplayableMatches, hideUnplayableMatches),
+		[matches, hideUnplayableMatches],
+	);
 	const totalRoundCount = useMemo(() => roundSlots.length || 1, [roundSlots]);
 
 	if (matches.length === 0) {
@@ -515,17 +532,22 @@ export function PlayoffBracketPage({
 	table,
 	placementDiagram,
 	placementTable,
+	finalStandingsTable,
 }: {
 	banner?: string;
 	diagram: ReactNode;
 	table: ReactNode;
 	placementDiagram?: ReactNode;
 	placementTable?: ReactNode;
+	finalStandingsTable?: ReactNode;
 }) {
 	return (
 		<div className="space-y-4">
 			{banner && <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">{banner}</div>}
-			{diagram}
+			<div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+				{diagram}
+				{finalStandingsTable}
+			</div>
 			{table}
 			{placementDiagram}
 			{placementTable}

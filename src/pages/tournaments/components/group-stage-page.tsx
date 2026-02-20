@@ -12,6 +12,7 @@ import { getTeamLogoUrl } from "@/lib/teamLogos";
 import { Badge } from "@/ui/badge";
 import { Button } from "@/ui/button";
 import { Input } from "@/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/ui/tabs";
 
 type EditableResult = {
 	home_score: string;
@@ -416,11 +417,17 @@ export function GroupMatchesTable({
 	onLockResult: (matchId: string) => Promise<void>;
 	onEditResult?: (matchId: string) => void;
 }) {
-	return (
-		<section className="space-y-3 rounded-lg border p-4">
-			<h2 className="text-lg font-semibold">Group matches</h2>
+	const finishedMatches = useMemo(() => matches.filter((match) => Boolean(match.result?.locked)), [matches]);
+	const upcomingMatches = useMemo(() => matches.filter((match) => !match.result?.locked), [matches]);
+
+	const renderMatchList = (list: MatchWithResult[], emptyMessage: string) => {
+		if (list.length === 0) {
+			return <p className="text-sm text-muted-foreground">{emptyMessage}</p>;
+		}
+
+		return (
 			<div className="space-y-3">
-				{matches.map((match) => {
+				{list.map((match) => {
 					const draft = resultDrafts[match.id] ?? {
 						home_score: "",
 						away_score: "",
@@ -578,6 +585,22 @@ export function GroupMatchesTable({
 					);
 				})}
 			</div>
+		);
+	};
+
+	return (
+		<section className="space-y-3 rounded-lg border p-4">
+			<h2 className="text-lg font-semibold">Group matches</h2>
+			<Tabs defaultValue="upcoming" className="space-y-3">
+				<TabsList>
+					<TabsTrigger value="upcoming">Upcoming games</TabsTrigger>
+					<TabsTrigger value="finished">Finished games</TabsTrigger>
+				</TabsList>
+				<TabsContent value="upcoming">
+					{renderMatchList(upcomingMatches, "No upcoming games in this stage.")}
+				</TabsContent>
+				<TabsContent value="finished">{renderMatchList(finishedMatches, "No finished games yet.")}</TabsContent>
+			</Tabs>
 		</section>
 	);
 }

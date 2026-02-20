@@ -36,10 +36,14 @@ export function ParticipantsTable({
 	editingParticipantIds,
 	inviteQuery,
 	inviteOptions,
+	friendOptions,
+	selectedFriendId,
 	newGuestName,
 	onInviteQueryChange,
 	onNewGuestNameChange,
 	onInvite,
+	onFriendSelectionChange,
+	onInviteFriend,
 	onAddGuest,
 	onTeamChange,
 	onRandomizeTeam,
@@ -58,10 +62,14 @@ export function ParticipantsTable({
 	editingParticipantIds: Set<string>;
 	inviteQuery: string;
 	inviteOptions: Array<{ id: string; username: string }>;
+	friendOptions: Array<{ id: string; username: string }>;
+	selectedFriendId: string;
 	newGuestName: string;
 	onInviteQueryChange: (value: string) => void;
 	onNewGuestNameChange: (value: string) => void;
 	onInvite: () => Promise<void>;
+	onFriendSelectionChange: (value: string) => void;
+	onInviteFriend: () => Promise<void>;
 	onAddGuest: () => Promise<void>;
 	onTeamChange: (participant: TournamentParticipant, teamId: string | null) => Promise<void>;
 	onRandomizeTeam: (participant: TournamentParticipant, teamFilter: TeamFilter) => Promise<void>;
@@ -74,7 +82,33 @@ export function ParticipantsTable({
 
 	return (
 		<section className="space-y-3 rounded-lg border p-3 md:p-4">
-			<h2 className="text-lg font-semibold">Participants & Teams</h2>
+			<div className="flex flex-wrap items-end gap-3">
+				{hasOpenSlots && !participantFieldsLocked && friendOptions.length > 0 && (
+					<div className="rounded-md border bg-muted/20 p-2">
+						<p className="mb-1 text-xs text-muted-foreground">Quick invite friend</p>
+						<div className="flex items-center gap-2">
+							<select
+								className="h-8 min-w-[180px] rounded-md border px-2 text-xs"
+								value={selectedFriendId}
+								onChange={(event) => onFriendSelectionChange(event.target.value)}
+							>
+								<option value="">Select friend</option>
+								{friendOptions.map((friend) => (
+									<option key={friend.id} value={friend.id}>
+										{friend.username}
+									</option>
+								))}
+							</select>
+							<Button size="sm" disabled={saving || !selectedFriendId} onClick={() => void onInviteFriend()}>
+								Invite
+							</Button>
+						</div>
+					</div>
+				)}
+				<div>
+					<h2 className="text-lg font-semibold">Participants & Teams</h2>
+				</div>
+			</div>
 			{hasOpenSlots && !participantFieldsLocked && (
 				<div className="grid gap-3 md:grid-cols-2">
 					<div className="space-y-2">

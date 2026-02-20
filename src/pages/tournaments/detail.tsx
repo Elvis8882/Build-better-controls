@@ -789,34 +789,9 @@ export default function TournamentDetailPage() {
 
 	const placementRevealKeys = new Set<string>();
 	if (allPlayoffMatchesLocked) {
-		type LastAppearance = { matchId: string; side: "HOME" | "AWAY"; round: number; createdAt: string };
-		const lastAppearanceByParticipantId = new Map<string, LastAppearance>();
 		for (const match of [...winnersBracketMatchesRaw, ...placementBracketMatchesRaw]) {
-			if (match.home_participant_id) {
-				const prev = lastAppearanceByParticipantId.get(match.home_participant_id);
-				if (!prev || match.round > prev.round || (match.round === prev.round && match.created_at >= prev.createdAt)) {
-					lastAppearanceByParticipantId.set(match.home_participant_id, {
-						matchId: match.id,
-						side: "HOME",
-						round: match.round,
-						createdAt: match.created_at,
-					});
-				}
-			}
-			if (match.away_participant_id) {
-				const prev = lastAppearanceByParticipantId.get(match.away_participant_id);
-				if (!prev || match.round > prev.round || (match.round === prev.round && match.created_at >= prev.createdAt)) {
-					lastAppearanceByParticipantId.set(match.away_participant_id, {
-						matchId: match.id,
-						side: "AWAY",
-						round: match.round,
-						createdAt: match.created_at,
-					});
-				}
-			}
-		}
-		for (const value of lastAppearanceByParticipantId.values()) {
-			placementRevealKeys.add(`${value.matchId}:${value.side}`);
+			if (match.home_participant_id) placementRevealKeys.add(`${match.id}:HOME`);
+			if (match.away_participant_id) placementRevealKeys.add(`${match.id}:AWAY`);
 		}
 	}
 
@@ -826,6 +801,13 @@ export default function TournamentDetailPage() {
 		if (standing === 2) medalByParticipantId.set(participantId, "silver");
 		if (standing === 3) medalByParticipantId.set(participantId, "bronze");
 	}
+	const finalStandings = [...standingByParticipantId.entries()]
+		.map(([participantId, placement]) => {
+			const participant = displayParticipants.find((row) => row.id === participantId);
+			const team = participant?.team_id ? teamById.get(participant.team_id) : null;
+			return { participantId, placement, name: team?.name ?? participant?.display_name ?? "Unknown" };
+		})
+		.sort((left, right) => left.placement - right.placement);
 
 	return (
 		<div className="space-y-6 p-4 md:p-6">
@@ -961,37 +943,115 @@ export default function TournamentDetailPage() {
 									: undefined
 						}
 						diagram={
-							<BracketDiagram
-								title="Winners bracket"
-								matches={winnersBracketMatchesRaw}
-								teamById={teamById}
-								standingByParticipantId={standingByParticipantId}
-								medalByParticipantId={medalByParticipantId}
-								placementRevealKeys={placementRevealKeys}
-							/>
+							<div className="relative">
+								<BracketDiagram
+									title="Winners bracket"
+									matches={winnersBracketMatchesRaw}
+									teamById={teamById}
+									standingByParticipantId={standingByParticipantId}
+									medalByParticipantId={medalByParticipantId}
+									placementRevealKeys={placementRevealKeys}
+								/>
+								{allPlayoffMatchesLocked && finalStandings.length > 0 && (
+									<div className="pointer-events-none absolute right-3 top-12 hidden md:block">
+										<div className="pointer-events-auto w-[180px] rounded-md border bg-background/95 p-2 shadow-sm backdrop-blur-sm">
+											<p className="mb-1 text-xs font-semibold">Final standings</p>
+											<table className="w-full border-separate border-spacing-y-1 text-xs">
+												<tbody>
+													{finalStandings.map((row) => (
+														<tr key={row.participantId}>
+															<td
+																className="rounded-l-md px-2 py-1"
+																style={{
+																	backgroundColor:
+																		row.placement === 1
+																			? "#D4AF3733"
+																			: row.placement === 2
+																				? "#BCC6CC33"
+																				: row.placement === 3
+																					? "#A9714233"
+																					: "hsl(var(--muted) / 0.35)",
+																}}
+															>
+																{row.name}
+															</td>
+															<td
+																className="rounded-r-md px-2 py-1 text-right font-semibold"
+																style={{
+																	backgroundColor:
+																		row.placement === 1
+																			? "#D4AF3733"
+																			: row.placement === 2
+																				? "#BCC6CC33"
+																				: row.placement === 3
+																					? "#A9714233"
+																					: "hsl(var(--muted) / 0.35)",
+																}}
+															>
+																#{row.placement}
+															</td>
+														</tr>
+													))}
+												</tbody>
+											</table>
+										</div>
+									</div>
+								)}
+							</div>
 						}
 						table={
-							<PlayoffMatchesTable
-								title="Winners bracket matches"
-								matches={winnersBracketMatches}
-								teamById={teamById}
-								resultDrafts={resultDrafts}
-								saving={saving}
-								canEditMatch={canEditPlayoffMatch}
-								onResultDraftChange={(matchId, next) =>
-									setResultDrafts((previous) => ({ ...previous, [matchId]: next }))
-								}
-								onLockResult={onLockResult}
-								onEditResult={
-									isHostOrAdmin && !tournamentClosed
-										? (matchId) => setEditingMatchIds((previous) => new Set(previous).add(matchId))
-										: undefined
-								}
-								canEnableEditResult={canEnableEditPlayoffResult}
-								standingByParticipantId={standingByParticipantId}
-								medalByParticipantId={medalByParticipantId}
-								placementRevealKeys={placementRevealKeys}
-							/>
+							<Tabs defaultValue="upcoming" className="space-y-3">
+								<TabsList>
+									<TabsTrigger value="upcoming">Upcoming games</TabsTrigger>
+									<TabsTrigger value="finished">Finished games</TabsTrigger>
+								</TabsList>
+								<TabsContent value="upcoming">
+									<PlayoffMatchesTable
+										title="Winners bracket matches"
+										matches={winnersBracketMatches.filter((match) => !match.result?.locked)}
+										teamById={teamById}
+										resultDrafts={resultDrafts}
+										saving={saving}
+										canEditMatch={canEditPlayoffMatch}
+										onResultDraftChange={(matchId, next) =>
+											setResultDrafts((previous) => ({ ...previous, [matchId]: next }))
+										}
+										onLockResult={onLockResult}
+										onEditResult={
+											isHostOrAdmin && !tournamentClosed
+												? (matchId) => setEditingMatchIds((previous) => new Set(previous).add(matchId))
+												: undefined
+										}
+										canEnableEditResult={canEnableEditPlayoffResult}
+										standingByParticipantId={standingByParticipantId}
+										medalByParticipantId={medalByParticipantId}
+										placementRevealKeys={placementRevealKeys}
+									/>
+								</TabsContent>
+								<TabsContent value="finished">
+									<PlayoffMatchesTable
+										title="Winners bracket matches"
+										matches={winnersBracketMatches.filter((match) => Boolean(match.result?.locked))}
+										teamById={teamById}
+										resultDrafts={resultDrafts}
+										saving={saving}
+										canEditMatch={canEditPlayoffMatch}
+										onResultDraftChange={(matchId, next) =>
+											setResultDrafts((previous) => ({ ...previous, [matchId]: next }))
+										}
+										onLockResult={onLockResult}
+										onEditResult={
+											isHostOrAdmin && !tournamentClosed
+												? (matchId) => setEditingMatchIds((previous) => new Set(previous).add(matchId))
+												: undefined
+										}
+										canEnableEditResult={canEnableEditPlayoffResult}
+										standingByParticipantId={standingByParticipantId}
+										medalByParticipantId={medalByParticipantId}
+										placementRevealKeys={placementRevealKeys}
+									/>
+								</TabsContent>
+							</Tabs>
 						}
 						placementDiagram={
 							shouldShowPlacementBracket ? (
@@ -1007,27 +1067,58 @@ export default function TournamentDetailPage() {
 						}
 						placementTable={
 							shouldShowPlacementBracket ? (
-								<PlayoffMatchesTable
-									title="Placement bracket matches"
-									matches={placementBracketMatches}
-									teamById={teamById}
-									resultDrafts={resultDrafts}
-									saving={saving}
-									canEditMatch={canEditPlayoffMatch}
-									onResultDraftChange={(matchId, next) =>
-										setResultDrafts((previous) => ({ ...previous, [matchId]: next }))
-									}
-									onLockResult={onLockResult}
-									onEditResult={
-										isHostOrAdmin && !tournamentClosed
-											? (matchId) => setEditingMatchIds((previous) => new Set(previous).add(matchId))
-											: undefined
-									}
-									canEnableEditResult={canEnableEditPlayoffResult}
-									standingByParticipantId={standingByParticipantId}
-									medalByParticipantId={medalByParticipantId}
-									placementRevealKeys={placementRevealKeys}
-								/>
+								<Tabs defaultValue="upcoming" className="space-y-3">
+									<TabsList>
+										<TabsTrigger value="upcoming">Upcoming games</TabsTrigger>
+										<TabsTrigger value="finished">Finished games</TabsTrigger>
+									</TabsList>
+									<TabsContent value="upcoming">
+										<PlayoffMatchesTable
+											title="Placement bracket matches"
+											matches={placementBracketMatches.filter((match) => !match.result?.locked)}
+											teamById={teamById}
+											resultDrafts={resultDrafts}
+											saving={saving}
+											canEditMatch={canEditPlayoffMatch}
+											onResultDraftChange={(matchId, next) =>
+												setResultDrafts((previous) => ({ ...previous, [matchId]: next }))
+											}
+											onLockResult={onLockResult}
+											onEditResult={
+												isHostOrAdmin && !tournamentClosed
+													? (matchId) => setEditingMatchIds((previous) => new Set(previous).add(matchId))
+													: undefined
+											}
+											canEnableEditResult={canEnableEditPlayoffResult}
+											standingByParticipantId={standingByParticipantId}
+											medalByParticipantId={medalByParticipantId}
+											placementRevealKeys={placementRevealKeys}
+										/>
+									</TabsContent>
+									<TabsContent value="finished">
+										<PlayoffMatchesTable
+											title="Placement bracket matches"
+											matches={placementBracketMatches.filter((match) => Boolean(match.result?.locked))}
+											teamById={teamById}
+											resultDrafts={resultDrafts}
+											saving={saving}
+											canEditMatch={canEditPlayoffMatch}
+											onResultDraftChange={(matchId, next) =>
+												setResultDrafts((previous) => ({ ...previous, [matchId]: next }))
+											}
+											onLockResult={onLockResult}
+											onEditResult={
+												isHostOrAdmin && !tournamentClosed
+													? (matchId) => setEditingMatchIds((previous) => new Set(previous).add(matchId))
+													: undefined
+											}
+											canEnableEditResult={canEnableEditPlayoffResult}
+											standingByParticipantId={standingByParticipantId}
+											medalByParticipantId={medalByParticipantId}
+											placementRevealKeys={placementRevealKeys}
+										/>
+									</TabsContent>
+								</Tabs>
 							) : undefined
 						}
 					/>

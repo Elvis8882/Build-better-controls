@@ -83,13 +83,18 @@ export function ParticipantsTable({
 	return (
 		<section className="space-y-3 rounded-lg border p-3 md:p-4">
 			<div className="flex flex-wrap items-end gap-3">
-				{!participantFieldsLocked && (
-					<div className="rounded-md border bg-muted/20 p-2">
-						<p className="mb-1 text-xs text-muted-foreground">Quick invite friend</p>
-						<div className="flex items-center gap-2">
+				<div>
+					<h2 className="text-lg font-semibold">Participants & Teams</h2>
+				</div>
+			</div>
+			{hasOpenSlots && !participantFieldsLocked && (
+				<div className="grid gap-3 md:grid-cols-3">
+					<div className="space-y-2">
+						<p className="text-sm">Quick invite friend</p>
+						<div className="flex gap-2">
 							<select
-								className="h-8 min-w-[180px] rounded-md border px-2 text-xs"
-								disabled={friendOptions.length === 0 || !hasOpenSlots}
+								className="h-9 w-full rounded-md border px-2 text-sm"
+								disabled={friendOptions.length === 0}
 								value={selectedFriendId}
 								onChange={(event) => onFriendSelectionChange(event.target.value)}
 							>
@@ -102,21 +107,13 @@ export function ParticipantsTable({
 							</select>
 							<Button
 								size="sm"
-								disabled={saving || !selectedFriendId || friendOptions.length === 0 || !hasOpenSlots}
+								disabled={saving || !selectedFriendId || friendOptions.length === 0}
 								onClick={() => void onInviteFriend()}
 							>
 								Invite
 							</Button>
 						</div>
-						{!hasOpenSlots && <p className="mt-1 text-xs text-muted-foreground">No open participant slots.</p>}
 					</div>
-				)}
-				<div>
-					<h2 className="text-lg font-semibold">Participants & Teams</h2>
-				</div>
-			</div>
-			{hasOpenSlots && !participantFieldsLocked && (
-				<div className="grid gap-3 md:grid-cols-2">
 					<div className="space-y-2">
 						<p className="text-sm">Invite registered user</p>
 						<div className="flex gap-2">

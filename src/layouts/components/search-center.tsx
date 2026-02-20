@@ -23,14 +23,17 @@ export default function SearchCenter() {
 	const [loadingUsers, setLoadingUsers] = useState(false);
 	const [pendingUsernames, setPendingUsernames] = useState<Set<string>>(new Set());
 	const [friends, setFriends] = useState<FriendProfile[]>([]);
+	const [loadingFriends, setLoadingFriends] = useState(false);
 	const { user } = useAuth();
 	const navigate = useNavigate();
 
 	useEffect(() => {
 		if (!user?.id) return;
+		setLoadingFriends(true);
 		void listFriends(user.id)
 			.then(setFriends)
-			.catch((error) => toast.error((error as Error).message));
+			.catch((error) => toast.error((error as Error).message))
+			.finally(() => setLoadingFriends(false));
 	}, [user?.id]);
 
 	useEffect(() => {
@@ -94,21 +97,31 @@ export default function SearchCenter() {
 											>
 												View profile
 											</Button>
-											{!isFriend && (
+											{!isFriend && !isCurrentUser && (
 												<Button
 													size="sm"
-													disabled={isCurrentUser || isPending || !user?.id}
+													disabled={isPending || !user?.id || loadingFriends}
 													onClick={() => {
-														if (!user?.id || isCurrentUser) return;
+														if (!user?.id || loadingFriends) return;
 														void sendFriendRequest(user.id, item.username)
 															.then(() => {
 																setPendingUsernames((previous) => new Set(previous).add(item.username));
 																toast.success(`Friend request sent to ${item.username}.`);
 															})
-															.catch((error) => toast.error((error as Error).message));
+															.catch((error) => {
+																const message = (error as Error).message;
+																if (message.toLowerCase().includes("already friends")) {
+																	setFriends((previous) =>
+																		previous.some((friend) => friend.id === item.id)
+																			? previous
+																			: [...previous, { id: item.id, username: item.username }],
+																	);
+																}
+																toast.error(message);
+															});
 													}}
 												>
-													{isCurrentUser ? "You" : isPending ? "Request sent" : "Add friend"}
+													{isPending ? "Request sent" : "Add friend"}
 												</Button>
 											)}
 										</div>

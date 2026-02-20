@@ -141,6 +141,7 @@ export function BracketDiagram({
 	medalByParticipantId,
 	placementRevealKeys,
 	finalStandings,
+	hideUnplayableMatches = false,
 }: {
 	title: string;
 	matches: MatchWithResult[];
@@ -149,9 +150,10 @@ export function BracketDiagram({
 	medalByParticipantId?: Map<string, "gold" | "silver" | "bronze">;
 	placementRevealKeys?: Set<string>;
 	finalStandings?: Array<{ participantId: string; name: string; placement: number }>;
+	hideUnplayableMatches?: boolean;
 }) {
 	const roundSlots = useMemo(
-		() => buildBracketSlots(matches, hideUnplayableMatches, hideUnplayableMatches),
+		() => buildBracketSlots(matches, false, hideUnplayableMatches),
 		[matches, hideUnplayableMatches],
 	);
 	const totalRoundCount = useMemo(() => roundSlots.length || 1, [roundSlots]);

@@ -7,9 +7,11 @@ import {
 	createParticipant,
 	ensurePlayoffBracket,
 	fetchTeamsByPool,
+	type FriendProfile,
 	type GroupStanding,
 	generateGroupsAndMatches,
 	getTournament,
+	listFriends,
 	inviteMember,
 	listGroupStandings,
 	listGroups,
@@ -130,6 +132,8 @@ export default function TournamentDetailPage() {
 	const [inviteOptions, setInviteOptions] = useState<ProfileOption[]>([]);
 	const [selectedInviteUserId, setSelectedInviteUserId] = useState("");
 	const [newGuestName, setNewGuestName] = useState("");
+	const [friends, setFriends] = useState<FriendProfile[]>([]);
+	const [selectedFriendId, setSelectedFriendId] = useState("");
 	const [saving, setSaving] = useState(false);
 	const [resultDrafts, setResultDrafts] = useState<Record<string, EditableResult>>({});
 	const [editingParticipantIds, setEditingParticipantIds] = useState<Set<string>>(new Set());
@@ -142,6 +146,13 @@ export default function TournamentDetailPage() {
 		[members, user?.id],
 	);
 	const isHostOrAdmin = isAdmin || Boolean(hostMembership);
+
+	useEffect(() => {
+		if (!user?.id || !isHostOrAdmin) return;
+		void listFriends(user.id)
+			.then(setFriends)
+			.catch((error) => toast.error((error as Error).message));
+	}, [user?.id, isHostOrAdmin]);
 
 	const displayParticipants = useMemo(() => {
 		if (!tournament) return participants;
@@ -489,6 +500,34 @@ export default function TournamentDetailPage() {
 		}
 	};
 
+	const onInviteFriend = async () => {
+		if (!id || !isHostOrAdmin) return;
+		if (!selectedFriendId) {
+			toast.warning("Select a friend to invite.");
+			return;
+		}
+		const pickedFriend = friends.find((friend) => friend.id === selectedFriendId);
+		if (!pickedFriend) {
+			toast.warning("Selected friend is no longer available.");
+			return;
+		}
+		setSaving(true);
+		try {
+			await inviteMember(id, pickedFriend.id);
+			await createParticipant(id, {
+				userId: pickedFriend.id,
+				displayName: pickedFriend.username + (pickedFriend.id === tournament?.created_by ? " (Host)" : ""),
+			});
+			setSelectedFriendId("");
+			await refreshParticipantsSection();
+			toast.success("Friend invited to tournament.");
+		} catch (error) {
+			toast.error((error as Error).message);
+		} finally {
+			setSaving(false);
+		}
+	};
+
 	const parseResultDraft = (matchId: string): ParsedResult | null => {
 		const draft = resultDrafts[matchId] ?? defaultResult;
 		if ([draft.home_score, draft.away_score, draft.home_shots, draft.away_shots].some((value) => value.trim() === "")) {
@@ -693,12 +732,17 @@ export default function TournamentDetailPage() {
 	const placementBracketMatchesRaw = playoffMatches
 		.filter((match) => match.bracket_type === "LOSERS")
 		.sort((left, right) => left.round - right.round || (left.bracket_slot ?? 0) - (right.bracket_slot ?? 0));
-	const placementBracketMatches = placementBracketMatchesRaw;
+	const placementBracketMatches = placementBracketMatchesRaw.filter(isMatchDisplayable);
 	const shouldShowPlacementBracket =
 		tournament.preset_id === "full_with_losers" || placementBracketMatchesRaw.length > 0;
 	const allPlayoffMatchesLocked =
 		(winnersBracketMatches.length > 0 || placementBracketMatches.length > 0) &&
 		[...winnersBracketMatches, ...placementBracketMatches].every((match) => Boolean(match.result?.locked));
+	const inviteableFriends = friends.filter(
+		(friend) =>
+			!members.some((member) => member.user_id === friend.id) &&
+			!participants.some((participant) => participant.user_id === friend.id),
+	);
 
 	const standingByParticipantId = new Map<string, number>();
 	const playoffStatsByParticipantId = new Map<string, { goalsFor: number; goalsAgainst: number; goalDiff: number }>();
@@ -852,6 +896,8 @@ export default function TournamentDetailPage() {
 						editingParticipantIds={editingParticipantIds}
 						inviteQuery={inviteQuery}
 						inviteOptions={inviteOptions}
+						friendOptions={inviteableFriends}
+						selectedFriendId={selectedFriendId}
 						newGuestName={newGuestName}
 						onInviteQueryChange={(value) => {
 							setInviteQuery(value);
@@ -859,6 +905,8 @@ export default function TournamentDetailPage() {
 						}}
 						onNewGuestNameChange={setNewGuestName}
 						onInvite={onInvite}
+						onFriendSelectionChange={setSelectedFriendId}
+						onInviteFriend={onInviteFriend}
 						onAddGuest={onAddGuest}
 						onTeamChange={onParticipantTeamChange}
 						onRandomizeTeam={onRandomizeTeam}
@@ -1016,6 +1064,7 @@ export default function TournamentDetailPage() {
 									standingByParticipantId={standingByParticipantId}
 									medalByParticipantId={medalByParticipantId}
 									placementRevealKeys={placementRevealKeys}
+									hideUnplayableMatches
 								/>
 							) : undefined
 						}
@@ -1074,6 +1123,46 @@ export default function TournamentDetailPage() {
 									</TabsContent>
 								</Tabs>
 							) : undefined
+						}
+						finalStandingsTable={
+							<section className="space-y-3 rounded-lg border p-3 md:p-4">
+								<h2 className="text-lg font-semibold">Final standings</h2>
+								{finalStandings.length === 0 ? (
+									<p className="text-sm text-muted-foreground">
+										Final standings will appear after playoff games finish.
+									</p>
+								) : (
+									<table className="w-full text-sm">
+										<thead>
+											<tr className="border-b">
+												<th className="py-1 text-left">Team name</th>
+												<th className="py-1 text-right">Placement</th>
+											</tr>
+										</thead>
+										<tbody>
+											{finalStandings.map((row) => (
+												<tr
+													key={row.participantId}
+													className={row.placement <= 3 ? "font-semibold" : ""}
+													style={{
+														backgroundColor:
+															row.placement === 1
+																? "#D4AF3733"
+																: row.placement === 2
+																	? "#BCC6CC33"
+																	: row.placement === 3
+																		? "#A9714233"
+																		: undefined,
+													}}
+												>
+													<td className="py-1 pr-2">{row.name}</td>
+													<td className="py-1 text-right">#{row.placement}</td>
+												</tr>
+											))}
+										</tbody>
+									</table>
+								)}
+							</section>
 						}
 					/>
 				</TabsContent>

@@ -175,7 +175,7 @@ export function ParticipantsTable({
 						</tr>
 					</thead>
 					<tbody>
-						{participantPairs.map((pair) => {
+						{participantPairs.map((pair, pairIndex) => {
 							const [participant, teammate] = pair;
 							if (!participant) return null;
 							const teamFilter = teamFilterByParticipantId[participant.id] ?? "ALL";
@@ -188,13 +188,16 @@ export function ParticipantsTable({
 							const canEditTeam = !participantFieldsLocked && (!pairLocked || pairEditing);
 							return (
 								<tr key={participant.id} className="border-b">
-									<td className="px-2 py-2 text-center align-middle">
+									<td
+										className={`px-2 text-center align-middle ${twoVTwoPreset && pairIndex > 0 ? "pt-4 pb-2" : "py-2"}`}
+									>
 										<div className="space-y-1">
 											<p>{participant.display_name}</p>
-											{twoVTwoPreset && <p>{teammate?.display_name ?? "TBD"}</p>}
+											{twoVTwoPreset && teammate && <p>{teammate.display_name}</p>}
+											{twoVTwoPreset && !teammate && !hasOpenSlots && <p>TBD</p>}
 										</div>
 									</td>
-									<td className="px-2 py-2 align-middle">
+									<td className={`px-2 align-middle ${twoVTwoPreset && pairIndex > 0 ? "pt-4 pb-2" : "py-2"}`}>
 										<div className="flex flex-col items-center justify-center gap-2 md:flex-row">
 											<span className="text-xs text-muted-foreground">Filter</span>
 											<select
@@ -252,7 +255,7 @@ export function ParticipantsTable({
 											)}
 										</div>
 									</td>
-									<td className="px-2 py-2 align-middle">
+									<td className={`px-2 align-middle ${twoVTwoPreset && pairIndex > 0 ? "pt-4 pb-2" : "py-2"}`}>
 										<div className="flex flex-wrap justify-center gap-2">
 											<Button
 												size="sm"

@@ -17,8 +17,12 @@ declare
   v_diff_away int;
   v_score_a int;
   v_score_b int;
+  v_team_based boolean := false;
 begin
-  select coalesce(group_count,1) into v_group_count from public.tournaments where id = p_tournament_id;
+  select coalesce(group_count,1), (preset_id in ('2v2_tournament','2v2_playoffs'))
+  into v_group_count, v_team_based
+  from public.tournaments
+  where id = p_tournament_id;
 
   delete from public.tournament_group_members where group_id in (select id from public.tournament_groups where tournament_id = p_tournament_id);
   delete from public.tournament_groups where tournament_id = p_tournament_id;
@@ -31,9 +35,23 @@ begin
 
   v_group_index := 1;
   for v_participant in
+    with seeded_participants as (
+      select tp.id, tp.created_at
+      from public.tournament_participants tp
+      where tp.tournament_id = p_tournament_id
+        and (
+          not v_team_based
+          or tp.id in (
+            select distinct on (p.team_id) p.id
+            from public.tournament_participants p
+            where p.tournament_id = p_tournament_id
+              and p.team_id is not null
+            order by p.team_id, p.created_at asc, p.id asc
+          )
+        )
+    )
     select id
-    from public.tournament_participants
-    where tournament_id = p_tournament_id
+    from seeded_participants
     order by created_at asc, id asc
   loop
     insert into public.tournament_group_members(group_id, participant_id)

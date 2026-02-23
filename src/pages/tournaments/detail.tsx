@@ -24,6 +24,7 @@ import {
 	type MatchWithResult,
 	type ProfileOption,
 	removeParticipant,
+	removeTournamentGuest,
 	searchProfilesByUsername,
 	type Team,
 	type Tournament,
@@ -144,6 +145,7 @@ export default function TournamentDetailPage() {
 	const [editingParticipantIds, setEditingParticipantIds] = useState<Set<string>>(new Set());
 	const [editingMatchIds, setEditingMatchIds] = useState<Set<string>>(new Set());
 	const [activeTab, setActiveTab] = useState<"participants" | "group" | "playoff">("participants");
+	const [twoVTwoPairOrderById, setTwoVTwoPairOrderById] = useState<Map<string, number>>(new Map());
 
 	const isAdmin = profile?.role === "admin";
 	const hostMembership = useMemo(
@@ -166,14 +168,25 @@ export default function TournamentDetailPage() {
 			if (participant.display_name.includes("(Host)")) return participant;
 			return { ...participant, display_name: `${participant.display_name} (Host)` };
 		});
-		return [...withHostLabel].sort((left, right) => {
+		const sortedByDefaultOrder = [...withHostLabel].sort((left, right) => {
 			const leftIsHost = left.user_id === tournament.created_by;
 			const rightIsHost = right.user_id === tournament.created_by;
 			if (leftIsHost && !rightIsHost) return -1;
 			if (!leftIsHost && rightIsHost) return 1;
 			return new Date(left.created_at).getTime() - new Date(right.created_at).getTime();
 		});
-	}, [participants, tournament]);
+		if (!isTwoVTwoPreset(tournament.preset_id) || twoVTwoPairOrderById.size === 0) {
+			return sortedByDefaultOrder;
+		}
+		return sortedByDefaultOrder.sort((left, right) => {
+			const leftOrder = twoVTwoPairOrderById.get(left.id);
+			const rightOrder = twoVTwoPairOrderById.get(right.id);
+			if (leftOrder === undefined && rightOrder === undefined) return 0;
+			if (leftOrder === undefined) return 1;
+			if (rightOrder === undefined) return -1;
+			return leftOrder - rightOrder;
+		});
+	}, [participants, tournament, twoVTwoPairOrderById]);
 	const teamById = useMemo(() => new Map(teams.map((team) => [team.id, team])), [teams]);
 	const twoVTwoPreset = isTwoVTwoPreset(tournament?.preset_id ?? null);
 	const assignedTeamCounts = useMemo(() => {
@@ -725,6 +738,9 @@ export default function TournamentDetailPage() {
 		setSaving(true);
 		try {
 			await removeParticipant(participant.id);
+			if (id && participant.guest_id) {
+				await removeTournamentGuest(id, participant.guest_id);
+			}
 			setEditingParticipantIds((previous) => {
 				const next = new Set(previous);
 				next.delete(participant.id);
@@ -985,28 +1001,10 @@ export default function TournamentDetailPage() {
 								return;
 							}
 							const shuffledParticipants = [...displayParticipants].sort(() => Math.random() - 0.5);
-							const shuffledTeams = [...teams].sort(() => Math.random() - 0.5);
-							const pairCount = shuffledParticipants.length / 2;
-							if (shuffledTeams.length < pairCount) {
-								toast.error("Not enough teams to assign all 2v2 pairs.");
-								return;
-							}
-							try {
-								setSaving(true);
-								for (let index = 0; index < pairCount; index += 1) {
-									const team = shuffledTeams[index];
-									const first = shuffledParticipants[index * 2];
-									const second = shuffledParticipants[index * 2 + 1];
-									await updateParticipant(first.id, team.id);
-									await updateParticipant(second.id, team.id);
-								}
-								toast.success("Participants were randomized into 2-player team slots.");
-								await loadAll();
-							} catch (error) {
-								toast.error((error as Error).message);
-							} finally {
-								setSaving(false);
-							}
+							setTwoVTwoPairOrderById(
+								new Map(shuffledParticipants.map((participant, index) => [participant.id, index])),
+							);
+							toast.success("Participants were randomized into new 2v2 pairs.");
 						}}
 						onLockParticipant={async (participantId) => {
 							setSaving(true);

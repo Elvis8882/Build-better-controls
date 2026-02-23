@@ -41,6 +41,7 @@ begin
   end if;
 
   perform public.sync_match_identities_from_participants(m.next_match_id);
+  perform public.balance_match_home_away(m.next_match_id);
 
   return new;
 end;

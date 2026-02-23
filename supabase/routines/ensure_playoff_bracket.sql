@@ -193,6 +193,7 @@ begin
       and round=1 and bracket_slot=v_slot;
 
     perform public.sync_match_identities_from_participants(v_mid);
+    perform public.balance_match_home_away(v_mid);
   end loop;
 
   -- clear later round participant slots to allow fresh propagation (only if no playoff locks)

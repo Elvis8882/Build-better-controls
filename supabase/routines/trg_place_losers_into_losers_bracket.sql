@@ -144,6 +144,7 @@ begin
       where id = target;
 
       perform public.sync_match_identities_from_participants(target);
+      perform public.balance_match_home_away(target);
     end if;
 
     if m.round < v_max_round then
@@ -205,6 +206,7 @@ begin
             where id = v_parent_id;
           end if;
           perform public.sync_match_identities_from_participants(v_parent_id);
+          perform public.balance_match_home_away(v_parent_id);
         end if;
       end if;
 
@@ -367,7 +369,9 @@ begin
             where id = v_parent_id;
 
             perform public.sync_match_identities_from_participants(target);
+            perform public.balance_match_home_away(target);
             perform public.sync_match_identities_from_participants(v_parent_id);
+            perform public.balance_match_home_away(v_parent_id);
           end if;
         end if;
       end if;
@@ -395,6 +399,7 @@ begin
       where id = target;
 
       perform public.sync_match_identities_from_participants(target);
+      perform public.balance_match_home_away(target);
     end if;
   end if;
 

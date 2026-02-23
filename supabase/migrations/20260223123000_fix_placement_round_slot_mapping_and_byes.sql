@@ -372,11 +372,11 @@ begin
   v_next_side := case when mod(coalesce(m.bracket_slot, 1), 2) = 1 then 'HOME' else 'AWAY' end;
 
   if v_next_side = 'HOME' then
-    update public.matches set home_participant_id = coalesce(home_participant_id, winner) where id = v_final_id;
-    update public.matches set home_participant_id = coalesce(home_participant_id, loser) where id = v_class_id;
+    update public.matches set home_participant_id = coalesce(home_participant_id, loser) where id = v_final_id;
+    update public.matches set home_participant_id = coalesce(home_participant_id, winner) where id = v_class_id;
   else
-    update public.matches set away_participant_id = coalesce(away_participant_id, winner) where id = v_final_id;
-    update public.matches set away_participant_id = coalesce(away_participant_id, loser) where id = v_class_id;
+    update public.matches set away_participant_id = coalesce(away_participant_id, loser) where id = v_final_id;
+    update public.matches set away_participant_id = coalesce(away_participant_id, winner) where id = v_class_id;
   end if;
 
   perform public.sync_match_identities_from_participants(v_final_id);

@@ -11,6 +11,12 @@ declare
   v_pair int;
   v_home_id uuid;
   v_away_id uuid;
+  v_candidate_home uuid;
+  v_candidate_away uuid;
+  v_diff_home int;
+  v_diff_away int;
+  v_score_a int;
+  v_score_b int;
 begin
   select coalesce(group_count,1) into v_group_count from public.tournaments where id = p_tournament_id;
 
@@ -63,17 +69,47 @@ begin
     v_working := v_slots;
     v_slot_count := array_length(v_working, 1);
 
+    create temporary table if not exists tmp_group_home_away_balance(
+      participant_id uuid primary key,
+      home_count int not null default 0,
+      away_count int not null default 0
+    ) on commit drop;
+
+    truncate table tmp_group_home_away_balance;
+    insert into tmp_group_home_away_balance(participant_id)
+    select pid
+    from unnest(v_slots) as u(pid)
+    where pid is not null;
+
     for v_round in 1..(v_slot_count - 1) loop
       for v_pair in 1..(v_slot_count / 2) loop
         if mod(v_round + v_pair, 2) = 0 then
-          v_home_id := v_working[v_pair];
-          v_away_id := v_working[v_slot_count - v_pair + 1];
+          v_candidate_home := v_working[v_pair];
+          v_candidate_away := v_working[v_slot_count - v_pair + 1];
         else
-          v_home_id := v_working[v_slot_count - v_pair + 1];
-          v_away_id := v_working[v_pair];
+          v_candidate_home := v_working[v_slot_count - v_pair + 1];
+          v_candidate_away := v_working[v_pair];
         end if;
 
+        v_home_id := v_candidate_home;
+        v_away_id := v_candidate_away;
+
         if v_home_id is not null and v_away_id is not null then
+          select coalesce(home_count - away_count, 0) into v_diff_home
+          from tmp_group_home_away_balance
+          where participant_id = v_home_id;
+
+          select coalesce(home_count - away_count, 0) into v_diff_away
+          from tmp_group_home_away_balance
+          where participant_id = v_away_id;
+
+          v_score_a := abs(v_diff_home + 1) + abs(v_diff_away - 1);
+          v_score_b := abs(v_diff_home - 1) + abs(v_diff_away + 1);
+
+          if v_score_b < v_score_a then
+            v_home_id := v_candidate_away;
+            v_away_id := v_candidate_home;
+          end if;
           insert into public.matches(
             tournament_id,
             home_participant_id,
@@ -98,6 +134,14 @@ begin
           from public.tournament_participants hp
           join public.tournament_participants ap on ap.id = v_away_id
           where hp.id = v_home_id;
+
+          update tmp_group_home_away_balance
+          set home_count = home_count + 1
+          where participant_id = v_home_id;
+
+          update tmp_group_home_away_balance
+          set away_count = away_count + 1
+          where participant_id = v_away_id;
         end if;
       end loop;
 

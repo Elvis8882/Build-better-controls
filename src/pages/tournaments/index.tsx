@@ -91,7 +91,13 @@ export default function TournamentsPage() {
 								<tr key={tournament.id} className="border-t">
 									<td className="px-4 py-3 font-medium">{tournament.name}</td>
 									<td className="px-4 py-3">
-										{tournament.preset_id === "playoffs_only" ? "Playoff only" : "Full tournament"}
+										{tournament.preset_id === "playoffs_only"
+											? "Playoff only"
+											: tournament.preset_id === "2v2_playoffs"
+												? "2v2 Playoffs"
+												: tournament.preset_id === "2v2_tournament"
+													? "2v2 Tournament"
+													: "Full tournament"}
 									</td>
 									<td className="px-4 py-3">{tournament.hosted_by}</td>
 									<td className="px-4 py-3">{tournament.status ?? "active"}</td>

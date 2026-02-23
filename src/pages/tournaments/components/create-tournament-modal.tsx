@@ -7,11 +7,13 @@ import { Input } from "@/ui/input";
 
 const PRESET_OPTIONS: Array<{ label: string; value: TournamentPresetUi }> = [
 	{ label: "Playoffs only", value: "playoffs_only" },
+	{ label: "2v2 Playoffs", value: "2v2_playoffs" },
 	{ label: "Full tournament (with losers bracket)", value: "full_with_losers" },
 	{ label: "Full tournament (no losers bracket)", value: "full_no_losers" },
+	{ label: "2v2 Tournament", value: "2v2_tournament" },
 ];
 
-const isFullPreset = (presetId: TournamentPresetUi) => presetId.startsWith("full_");
+const isFullPreset = (presetId: TournamentPresetUi) => presetId.startsWith("full_") || presetId === "2v2_tournament";
 
 type Props = {
 	open: boolean;
@@ -39,8 +41,8 @@ export function CreateTournamentModal({ open, onOpenChange, onCreated }: Props) 
 			toast.warning("Tournament name is required.");
 			return;
 		}
-		if (defaultParticipants < 3 || defaultParticipants > 24) {
-			toast.warning("Participants must be between 3 and 24.");
+		if (defaultParticipants < 3 || defaultParticipants > 16) {
+			toast.warning("Participants must be between 3 and 16.");
 			return;
 		}
 		if (isFullPreset(presetId) && groupResolution.error) {
@@ -97,7 +99,7 @@ export function CreateTournamentModal({ open, onOpenChange, onCreated }: Props) 
 						<Input
 							type="number"
 							min={3}
-							max={24}
+							max={16}
 							value={defaultParticipants}
 							onChange={(event) => setDefaultParticipants(Number(event.target.value))}
 						/>

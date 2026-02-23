@@ -195,7 +195,17 @@ $$;
 
 -- 3) team OVR tiers
 alter table public.teams
-	add column if not exists ovr_tier text;
+	add column if not exists ovr_tier text,
+	add column if not exists off_def_sum integer not null default 0,
+	add column if not exists last_updated timestamptz not null default now();
+
+update public.teams
+set off_def_sum = offense + defense
+where off_def_sum is distinct from offense + defense;
+
+alter table public.teams
+	drop constraint if exists teams_off_def_sum_check,
+	add constraint teams_off_def_sum_check check (off_def_sum between 0 and 200);
 
 drop function if exists public.recalculate_team_ovr_tiers();
 
@@ -209,7 +219,7 @@ as $$
 		select
 			id,
 			team_pool,
-			row_number() over (partition by team_pool order by overall desc, name asc) as rank_by_ovr,
+			row_number() over (partition by team_pool order by overall desc, off_def_sum desc, name asc) as rank_by_ovr,
 			count(*) over (partition by team_pool) as pool_size
 		from public.teams
 	), updated as (
@@ -250,6 +260,32 @@ $$;
 
 drop trigger if exists teams_recalculate_ovr_tiers on public.teams;
 
+create or replace function public.trg_teams_touch_last_updated_on_rating_change()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+	if (
+		new.offense is distinct from old.offense
+		or new.defense is distinct from old.defense
+		or new.goalie is distinct from old.goalie
+		or new.overall is distinct from old.overall
+		or new.off_def_sum is distinct from old.off_def_sum
+	) then
+		new.last_updated := now();
+	end if;
+	return new;
+end;
+$$;
+
+drop trigger if exists teams_touch_last_updated_on_rating_change on public.teams;
+
+create trigger teams_touch_last_updated_on_rating_change
+before update on public.teams
+for each row execute function public.trg_teams_touch_last_updated_on_rating_change();
+
 create trigger teams_recalculate_ovr_tiers
-after insert or update of overall on public.teams
+after insert or update of overall, off_def_sum on public.teams
 for each statement execute function public.trg_teams_recalculate_ovr_tiers();

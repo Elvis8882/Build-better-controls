@@ -634,6 +634,7 @@ export async function listTeams(): Promise<Team[]> {
 		)
 		.order("overall", { ascending: false })
 		.order("off_def_sum", { ascending: false })
+		.order("goalie", { ascending: false })
 		.order("name", { ascending: true });
 	throwOnError(error, "Unable to load teams");
 	return (data ?? []) as Team[];

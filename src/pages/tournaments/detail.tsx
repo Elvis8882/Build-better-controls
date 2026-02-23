@@ -672,7 +672,10 @@ export default function TournamentDetailPage() {
 		return !hasLockedDescendant;
 	};
 
-	const onRandomizeTeam = async (participant: TournamentParticipant, teamFilter: TeamFilter) => {
+	const onRandomizeTeam = async (
+		participant: TournamentParticipant,
+		teamFilter: TeamFilter,
+	): Promise<string | null> => {
 		const maxPerTeam = twoVTwoPreset ? 2 : 1;
 		const available = teams.filter(
 			(team) =>
@@ -684,15 +687,16 @@ export default function TournamentDetailPage() {
 					? "No available team slots left for the selected filter."
 					: "No unassigned teams left for the selected filter.",
 			);
-			return;
+			return null;
 		}
 		const pick = available[Math.floor(Math.random() * available.length)];
 		const pickId = pick?.id;
-		if (!pickId) return;
+		if (!pickId) return null;
 		setSaving(true);
 		try {
 			await updateParticipant(participant.id, pickId);
 			await refreshParticipantsSection();
+			return pickId;
 		} finally {
 			setSaving(false);
 		}

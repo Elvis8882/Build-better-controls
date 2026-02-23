@@ -23,13 +23,7 @@ function toOverall(offense: string, defense: string, goalie: string): number {
 function formatLastUpdated(value: string): string {
 	const date = new Date(value);
 	if (Number.isNaN(date.getTime())) return "-";
-	return new Intl.DateTimeFormat(undefined, {
-		year: "numeric",
-		month: "short",
-		day: "2-digit",
-		hour: "2-digit",
-		minute: "2-digit",
-	}).format(date);
+	return date.toISOString().slice(0, 10);
 }
 
 export default function AdminPanelPage() {

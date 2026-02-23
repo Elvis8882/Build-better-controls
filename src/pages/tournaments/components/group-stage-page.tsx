@@ -75,7 +75,7 @@ export function ParticipantsTable({
 	onInviteFriend: () => Promise<void>;
 	onAddGuest: () => Promise<void>;
 	onTeamChange: (participant: TournamentParticipant, teamId: string | null) => Promise<void>;
-	onRandomizeTeam: (participant: TournamentParticipant, teamFilter: TeamFilter) => Promise<void>;
+	onRandomizeTeam: (participant: TournamentParticipant, teamFilter: TeamFilter) => Promise<string | null>;
 	onRandomizeTwoVTwoTeams: () => Promise<void>;
 	onLockParticipant: (participantId: string) => Promise<void>;
 	onEditParticipant: (participantId: string) => void;
@@ -83,6 +83,14 @@ export function ParticipantsTable({
 }) {
 	const [teamFilterByParticipantId, setTeamFilterByParticipantId] = useState<Record<string, TeamFilter>>({});
 	const hasOpenSlots = participants.length < tournament.default_participants;
+	const participantPairs = useMemo(() => {
+		if (!twoVTwoPreset) return participants.map((participant) => [participant]);
+		const pairs: TournamentParticipant[][] = [];
+		for (let index = 0; index < participants.length; index += 2) {
+			pairs.push(participants.slice(index, index + 2));
+		}
+		return pairs;
+	}, [participants, twoVTwoPreset]);
 
 	return (
 		<section className="space-y-3 rounded-lg border p-3 md:p-4">
@@ -90,16 +98,6 @@ export function ParticipantsTable({
 				<div>
 					<h2 className="text-lg font-semibold">Participants & Teams</h2>
 				</div>
-				{twoVTwoPreset && (
-					<Button
-						size="sm"
-						variant="outline"
-						disabled={saving || participantFieldsLocked}
-						onClick={() => void onRandomizeTwoVTwoTeams()}
-					>
-						Randomize 2v2 pairs
-					</Button>
-				)}
 			</div>
 			{hasOpenSlots && !participantFieldsLocked && (
 				<div className="grid gap-3 md:grid-cols-3">
@@ -177,19 +175,31 @@ export function ParticipantsTable({
 						</tr>
 					</thead>
 					<tbody>
-						{participants.map((participant) => {
+						{participantPairs.map((pair) => {
+							const [participant, teammate] = pair;
+							if (!participant) return null;
 							const teamFilter = teamFilterByParticipantId[participant.id] ?? "ALL";
 							const filteredTeams = teams.filter((team) => teamFilter === "ALL" || team.ovr_tier === teamFilter);
 							const maxPerTeam = twoVTwoPreset ? 2 : 1;
+							const pairLocked = pair.every((row) => row.locked);
+							const pairEditing = pair.some((row) => editingParticipantIds.has(row.id));
+							const pairTeamId = participant.team_id ?? teammate?.team_id ?? null;
+							const pairTeam = participant.team ?? teammate?.team ?? null;
+							const canEditTeam = !participantFieldsLocked && (!pairLocked || pairEditing);
 							return (
 								<tr key={participant.id} className="border-b">
-									<td className="px-2 py-2 text-center align-middle">{participant.display_name}</td>
+									<td className="px-2 py-2 text-center align-middle">
+										<div className="space-y-1">
+											<p>{participant.display_name}</p>
+											{twoVTwoPreset && <p>{teammate?.display_name ?? "TBD"}</p>}
+										</div>
+									</td>
 									<td className="px-2 py-2 align-middle">
 										<div className="flex flex-col items-center justify-center gap-2 md:flex-row">
 											<span className="text-xs text-muted-foreground">Filter</span>
 											<select
 												className="h-8 rounded-md border px-2 text-xs"
-												disabled={participant.locked && !editingParticipantIds.has(participant.id)}
+												disabled={!canEditTeam}
 												value={teamFilter}
 												onChange={(event) =>
 													setTeamFilterByParticipantId((previous) => ({
@@ -206,35 +216,37 @@ export function ParticipantsTable({
 											</select>
 											<select
 												className="h-9 min-w-[120px] max-w-full rounded-md border px-2"
-												disabled={
-													participantFieldsLocked || (participant.locked && !editingParticipantIds.has(participant.id))
-												}
-												value={participant.team_id ?? ""}
-												onChange={(event) => void onTeamChange(participant, event.target.value || null)}
+												disabled={!canEditTeam}
+												value={pairTeamId ?? ""}
+												onChange={async (event) => {
+													const teamId = event.target.value || null;
+													await onTeamChange(participant, teamId);
+													if (twoVTwoPreset && teammate) {
+														await onTeamChange(teammate, teamId);
+													}
+												}}
 											>
 												<option value="">Select team</option>
 												{filteredTeams.map((team) => (
 													<option
 														key={team.id}
 														value={team.id}
-														disabled={
-															(assignedTeamCounts.get(team.id) ?? 0) >= maxPerTeam && participant.team_id !== team.id
-														}
+														disabled={(assignedTeamCounts.get(team.id) ?? 0) >= maxPerTeam && pairTeamId !== team.id}
 													>
 														{team.name}
 													</option>
 												))}
 											</select>
-											{participant.team && (
+											{pairTeam && (
 												<>
 													<img
-														src={getTeamLogoUrl(participant.team.code, participant.team.team_pool)}
-														alt={`${participant.team.name} logo`}
+														src={getTeamLogoUrl(pairTeam.code, pairTeam.team_pool)}
+														alt={`${pairTeam.name} logo`}
 														className="h-7 w-7 rounded-sm object-contain"
 													/>
 													<p className="text-center text-xs text-muted-foreground md:text-left">
-														OVR {participant.team.overall} • OFF {participant.team.offense} • DEF{" "}
-														{participant.team.defense} • GOA {participant.team.goalie}
+														OVR {pairTeam.overall} • OFF {pairTeam.offense} • DEF {pairTeam.defense} • GOA{" "}
+														{pairTeam.goalie}
 													</p>
 												</>
 											)}
@@ -245,30 +257,39 @@ export function ParticipantsTable({
 											<Button
 												size="sm"
 												variant="outline"
-												disabled={
-													participantFieldsLocked || (participant.locked && !editingParticipantIds.has(participant.id))
-												}
-												onClick={() => void onRandomizeTeam(participant, teamFilter)}
+												disabled={!canEditTeam}
+												onClick={async () => {
+													const randomizedTeamId = await onRandomizeTeam(participant, teamFilter);
+													if (twoVTwoPreset && teammate && randomizedTeamId) {
+														await onTeamChange(teammate, randomizedTeamId);
+													}
+												}}
 											>
 												🎲
 											</Button>
 											<Button
 												size="sm"
-												disabled={
-													participantFieldsLocked ||
-													(!editingParticipantIds.has(participant.id) && participant.locked) ||
-													!participant.team_id
-												}
-												onClick={() => void onLockParticipant(participant.id)}
+												disabled={participantFieldsLocked || (!pairEditing && pairLocked) || !pairTeamId}
+												onClick={async () => {
+													await onLockParticipant(participant.id);
+													if (twoVTwoPreset && teammate) {
+														await onLockParticipant(teammate.id);
+													}
+												}}
 											>
-												{editingParticipantIds.has(participant.id)
-													? "Save & lock"
-													: participant.locked
-														? "Locked"
-														: "Lock in"}
+												{pairEditing ? "Save & lock" : pairLocked ? "Locked" : "Lock in"}
 											</Button>
-											{participant.locked && isHostOrAdmin && !participantFieldsLocked && (
-												<Button size="sm" variant="outline" onClick={() => onEditParticipant(participant.id)}>
+											{pairLocked && isHostOrAdmin && !participantFieldsLocked && (
+												<Button
+													size="sm"
+													variant="outline"
+													onClick={() => {
+														onEditParticipant(participant.id);
+														if (twoVTwoPreset && teammate) {
+															onEditParticipant(teammate.id);
+														}
+													}}
+												>
 													Edit
 												</Button>
 											)}
@@ -277,7 +298,12 @@ export function ParticipantsTable({
 													size="sm"
 													variant="ghost"
 													disabled={saving}
-													onClick={() => void onClearParticipant(participant)}
+													onClick={async () => {
+														await onClearParticipant(participant);
+														if (twoVTwoPreset && teammate) {
+															await onClearParticipant(teammate);
+														}
+													}}
 												>
 													×
 												</Button>
@@ -297,6 +323,18 @@ export function ParticipantsTable({
 					</tbody>
 				</table>
 			</div>
+			{twoVTwoPreset && (
+				<div className="flex justify-center pt-2">
+					<Button
+						size="sm"
+						variant="outline"
+						disabled={saving || participantFieldsLocked}
+						onClick={() => void onRandomizeTwoVTwoTeams()}
+					>
+						Randomize 2v2 pairs
+					</Button>
+				</div>
+			)}
 		</section>
 	);
 }

@@ -74,12 +74,17 @@ const defaultResult: EditableResult = {
 };
 
 const isFullPreset = (presetId: Tournament["preset_id"]) =>
-	presetId === "full_with_losers" || presetId === "full_no_losers";
+	presetId === "full_with_losers" || presetId === "full_no_losers" || presetId === "2v2_tournament";
+
+const isTwoVTwoPreset = (presetId: Tournament["preset_id"]) =>
+	presetId === "2v2_tournament" || presetId === "2v2_playoffs";
 
 const getPresetTypeLabel = (presetId: Tournament["preset_id"]): string => {
 	if (presetId === "playoffs_only") return "Playoff only (without loser bracket)";
+	if (presetId === "2v2_playoffs") return "2v2 Playoffs";
 	if (presetId === "full_with_losers") return "Full tournament (with loser bracket)";
 	if (presetId === "full_no_losers") return "Full tournament (without loser bracket)";
+	if (presetId === "2v2_tournament") return "2v2 Tournament";
 	return "Tournament";
 };
 
@@ -170,9 +175,15 @@ export default function TournamentDetailPage() {
 		});
 	}, [participants, tournament]);
 	const teamById = useMemo(() => new Map(teams.map((team) => [team.id, team])), [teams]);
-	const assignedTeams = new Set(
-		displayParticipants.map((participant) => participant.team_id).filter((teamId): teamId is string => Boolean(teamId)),
-	);
+	const twoVTwoPreset = isTwoVTwoPreset(tournament?.preset_id ?? null);
+	const assignedTeamCounts = useMemo(() => {
+		const counts = new Map<string, number>();
+		for (const participant of displayParticipants) {
+			if (!participant.team_id) continue;
+			counts.set(participant.team_id, (counts.get(participant.team_id) ?? 0) + 1);
+		}
+		return counts;
+	}, [displayParticipants]);
 	const slots = tournament?.default_participants ?? 0;
 	const placeholderRows = useMemo(
 		() =>
@@ -185,11 +196,19 @@ export default function TournamentDetailPage() {
 	const allLockedWithTeams =
 		displayParticipants.length === slots &&
 		displayParticipants.every((participant) => participant.locked && participant.team_id);
+	const teamsValidForPreset = useMemo(() => {
+		if (!twoVTwoPreset) return true;
+		if (!allLockedWithTeams) return false;
+		for (const count of assignedTeamCounts.values()) {
+			if (count !== 2) return false;
+		}
+		return assignedTeamCounts.size * 2 === displayParticipants.length;
+	}, [twoVTwoPreset, allLockedWithTeams, assignedTeamCounts, displayParticipants.length]);
 	const allGroupMatchesLocked = groupMatches.length > 0 && groupMatches.every((match) => Boolean(match.result?.locked));
 	const fullPreset = isFullPreset(tournament?.preset_id ?? null);
-	const canGenerateGroups = fullPreset && allLockedWithTeams && groups.length === 0;
+	const canGenerateGroups = fullPreset && allLockedWithTeams && teamsValidForPreset && groups.length === 0;
 	const groupStageAvailable = fullPreset && (groups.length > 0 || groupMatches.length > 0);
-	const playoffStageAvailable = fullPreset ? allGroupMatchesLocked : allLockedWithTeams;
+	const playoffStageAvailable = fullPreset ? allGroupMatchesLocked : allLockedWithTeams && teamsValidForPreset;
 	const anyPlayoffLocked = playoffMatches.some((match) => Boolean(match.result?.locked));
 	const lockedPlayoffMatchIds = useMemo(
 		() => new Set(playoffMatches.filter((match) => Boolean(match.result?.locked)).map((match) => match.id)),
@@ -654,11 +673,17 @@ export default function TournamentDetailPage() {
 	};
 
 	const onRandomizeTeam = async (participant: TournamentParticipant, teamFilter: TeamFilter) => {
+		const maxPerTeam = twoVTwoPreset ? 2 : 1;
 		const available = teams.filter(
-			(team) => !assignedTeams.has(team.id) && (teamFilter === "ALL" || team.ovr_tier === teamFilter),
+			(team) =>
+				(assignedTeamCounts.get(team.id) ?? 0) < maxPerTeam && (teamFilter === "ALL" || team.ovr_tier === teamFilter),
 		);
 		if (available.length === 0) {
-			toast.error("No unassigned teams left for the selected filter.");
+			toast.error(
+				twoVTwoPreset
+					? "No available team slots left for the selected filter."
+					: "No unassigned teams left for the selected filter.",
+			);
 			return;
 		}
 		const pick = available[Math.floor(Math.random() * available.length)];
@@ -913,12 +938,18 @@ export default function TournamentDetailPage() {
 				</TabsList>
 
 				<TabsContent value="participants" className="space-y-4">
+					{twoVTwoPreset && (
+						<p className="text-sm text-muted-foreground">
+							2v2 preset enabled: each team must have exactly 2 participants before the tournament can start.
+						</p>
+					)}
 					<ParticipantsTable
 						tournament={tournament}
 						participants={displayParticipants}
 						placeholderRows={placeholderRows}
 						teams={teams}
-						assignedTeams={assignedTeams}
+						assignedTeamCounts={assignedTeamCounts}
+						twoVTwoPreset={twoVTwoPreset}
 						saving={saving}
 						isHostOrAdmin={isHostOrAdmin}
 						participantFieldsLocked={participantFieldsLocked}
@@ -939,6 +970,40 @@ export default function TournamentDetailPage() {
 						onAddGuest={onAddGuest}
 						onTeamChange={onParticipantTeamChange}
 						onRandomizeTeam={onRandomizeTeam}
+						onRandomizeTwoVTwoTeams={async () => {
+							if (!twoVTwoPreset) return;
+							if (displayParticipants.length !== slots) {
+								toast.warning("Fill all participant slots before randomizing 2v2 teams.");
+								return;
+							}
+							if (displayParticipants.length % 2 !== 0) {
+								toast.warning("2v2 mode requires an even number of participants.");
+								return;
+							}
+							const shuffledParticipants = [...displayParticipants].sort(() => Math.random() - 0.5);
+							const shuffledTeams = [...teams].sort(() => Math.random() - 0.5);
+							const pairCount = shuffledParticipants.length / 2;
+							if (shuffledTeams.length < pairCount) {
+								toast.error("Not enough teams to assign all 2v2 pairs.");
+								return;
+							}
+							try {
+								setSaving(true);
+								for (let index = 0; index < pairCount; index += 1) {
+									const team = shuffledTeams[index];
+									const first = shuffledParticipants[index * 2];
+									const second = shuffledParticipants[index * 2 + 1];
+									await updateParticipant(first.id, team.id);
+									await updateParticipant(second.id, team.id);
+								}
+								toast.success("Participants were randomized into 2-player team slots.");
+								await loadAll();
+							} catch (error) {
+								toast.error((error as Error).message);
+							} finally {
+								setSaving(false);
+							}
+						}}
 						onLockParticipant={async (participantId) => {
 							setSaving(true);
 							try {

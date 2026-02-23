@@ -29,7 +29,8 @@ export function ParticipantsTable({
 	participants,
 	placeholderRows,
 	teams,
-	assignedTeams,
+	assignedTeamCounts,
+	twoVTwoPreset,
 	saving,
 	isHostOrAdmin,
 	participantFieldsLocked,
@@ -47,6 +48,7 @@ export function ParticipantsTable({
 	onAddGuest,
 	onTeamChange,
 	onRandomizeTeam,
+	onRandomizeTwoVTwoTeams,
 	onLockParticipant,
 	onEditParticipant,
 	onClearParticipant,
@@ -55,7 +57,8 @@ export function ParticipantsTable({
 	participants: TournamentParticipant[];
 	placeholderRows: Array<{ id: string; label: string }>;
 	teams: Team[];
-	assignedTeams: Set<string>;
+	assignedTeamCounts: Map<string, number>;
+	twoVTwoPreset: boolean;
 	saving: boolean;
 	isHostOrAdmin: boolean;
 	participantFieldsLocked: boolean;
@@ -73,6 +76,7 @@ export function ParticipantsTable({
 	onAddGuest: () => Promise<void>;
 	onTeamChange: (participant: TournamentParticipant, teamId: string | null) => Promise<void>;
 	onRandomizeTeam: (participant: TournamentParticipant, teamFilter: TeamFilter) => Promise<void>;
+	onRandomizeTwoVTwoTeams: () => Promise<void>;
 	onLockParticipant: (participantId: string) => Promise<void>;
 	onEditParticipant: (participantId: string) => void;
 	onClearParticipant: (participant: TournamentParticipant) => Promise<void>;
@@ -86,6 +90,16 @@ export function ParticipantsTable({
 				<div>
 					<h2 className="text-lg font-semibold">Participants & Teams</h2>
 				</div>
+				{twoVTwoPreset && (
+					<Button
+						size="sm"
+						variant="outline"
+						disabled={saving || participantFieldsLocked}
+						onClick={() => void onRandomizeTwoVTwoTeams()}
+					>
+						Randomize 2v2 pairs
+					</Button>
+				)}
 			</div>
 			{hasOpenSlots && !participantFieldsLocked && (
 				<div className="grid gap-3 md:grid-cols-3">
@@ -166,6 +180,7 @@ export function ParticipantsTable({
 						{participants.map((participant) => {
 							const teamFilter = teamFilterByParticipantId[participant.id] ?? "ALL";
 							const filteredTeams = teams.filter((team) => teamFilter === "ALL" || team.ovr_tier === teamFilter);
+							const maxPerTeam = twoVTwoPreset ? 2 : 1;
 							return (
 								<tr key={participant.id} className="border-b">
 									<td className="px-2 py-2 text-center align-middle">{participant.display_name}</td>
@@ -202,7 +217,9 @@ export function ParticipantsTable({
 													<option
 														key={team.id}
 														value={team.id}
-														disabled={assignedTeams.has(team.id) && participant.team_id !== team.id}
+														disabled={
+															(assignedTeamCounts.get(team.id) ?? 0) >= maxPerTeam && participant.team_id !== team.id
+														}
 													>
 														{team.name}
 													</option>

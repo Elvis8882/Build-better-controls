@@ -1,3 +1,25 @@
+-- Add 2v2 presets and align participant lock routing with group/playoff mode.
+
+alter table public.tournaments
+	drop constraint if exists tournaments_preset_check;
+
+alter table public.tournaments
+	add constraint tournaments_preset_check
+	check (
+		preset_id is not null
+		and preset_id in (
+			'playoffs_only',
+			'full_with_losers',
+			'full_no_losers',
+			'2v2_tournament',
+			'2v2_playoffs'
+		)
+	);
+
+create or replace function public.trg_on_participants_lock_check()
+returns trigger
+language plpgsql
+as $$
 declare
   v_total int;
   v_locked int;
@@ -21,3 +43,4 @@ begin
 
   return new;
 end;
+$$;

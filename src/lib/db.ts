@@ -1,6 +1,11 @@
 import { supabase } from "@/lib/supabaseClient";
 
-export type TournamentPreset = "playoffs_only" | "full_with_losers" | "full_no_losers";
+export type TournamentPreset =
+	| "playoffs_only"
+	| "full_with_losers"
+	| "full_no_losers"
+	| "2v2_tournament"
+	| "2v2_playoffs";
 export type TournamentPresetUi = TournamentPreset;
 export type TeamPool = "NHL" | "INTL";
 export type TournamentStage = "GROUP" | "PLAYOFF";
@@ -233,7 +238,14 @@ export function sanitizeGroupCount(
 function normalizeTournamentPreset(preset: string | null): TournamentPreset | null {
 	if (!preset) return null;
 	if (preset === "full_tournament") return "full_no_losers";
-	if (preset === "playoffs_only" || preset === "full_with_losers" || preset === "full_no_losers") return preset;
+	if (
+		preset === "playoffs_only" ||
+		preset === "full_with_losers" ||
+		preset === "full_no_losers" ||
+		preset === "2v2_tournament" ||
+		preset === "2v2_playoffs"
+	)
+		return preset;
 	return null;
 }
 
@@ -288,7 +300,7 @@ export async function createTournament(payload: {
 		team_pool: payload.teamPool,
 		default_participants: payload.defaultParticipants,
 		group_count: payload.groupCount,
-		stage: payload.presetId === "playoffs_only" ? "PLAYOFF" : "GROUP",
+		stage: payload.presetId === "playoffs_only" || payload.presetId === "2v2_playoffs" ? "PLAYOFF" : "GROUP",
 	};
 
 	let { data, error } = await supabase
@@ -861,13 +873,14 @@ export async function lockMatchResult(matchId: string): Promise<void> {
 export async function listUserTeamStats(userId: string): Promise<PlayerTeamStat[]> {
 	const { data: participantsData, error: participantsError } = await supabase
 		.from("tournament_participants")
-		.select("id, team_id, team:teams(id, code, name, team_pool)")
+		.select("id, tournament_id, team_id, team:teams(id, code, name, team_pool)")
 		.eq("user_id", userId)
 		.not("team_id", "is", null);
 	throwOnError(participantsError, "Unable to load player participants");
 
 	const participants = (participantsData ?? []) as Array<{
 		id: string;
+		tournament_id: string;
 		team_id: string;
 		team:
 			| { id: string; code: string; name: string; team_pool: TeamPool }
@@ -881,25 +894,58 @@ export async function listUserTeamStats(userId: string): Promise<PlayerTeamStat[
 
 	const participantToTeam = new Map<
 		string,
-		{ team_id: string; team_code: string; team_pool: TeamPool; team_name: string }
+		{ team_id: string; team_code: string; team_pool: TeamPool; team_name: string; tournament_id: string }
 	>();
+	const tournamentTeamKeys = new Set<string>();
 	for (const participant of participants) {
 		const team = Array.isArray(participant.team) ? participant.team[0] : participant.team;
 		if (!participant.team_id || !team) continue;
+		tournamentTeamKeys.add(`${participant.tournament_id}:${participant.team_id}`);
 		participantToTeam.set(participant.id, {
 			team_id: participant.team_id,
 			team_code: team.code,
 			team_pool: team.team_pool,
 			team_name: team.name,
+			tournament_id: participant.tournament_id,
 		});
 	}
 
-	const participantIds = [...participantToTeam.keys()];
-	if (participantIds.length === 0) {
+	const tournamentIds = [...new Set([...participantToTeam.values()].map((row) => row.tournament_id))];
+	if (participantToTeam.size === 0 || tournamentIds.length === 0) {
 		return [];
 	}
+	const { data: tournamentParticipantsData, error: tournamentParticipantsError } = await supabase
+		.from("tournament_participants")
+		.select("id, tournament_id, team_id")
+		.in("tournament_id", tournamentIds)
+		.not("team_id", "is", null);
+	throwOnError(tournamentParticipantsError, "Unable to load teammate participants");
 
-	const participantsFilter = participantIds.join(",");
+	const allowedParticipantIds = new Set<string>();
+	const participantMetaById = new Map<string, { tournament_id: string; team_id: string }>();
+	for (const row of tournamentParticipantsData ?? []) {
+		const participantId = row.id as string;
+		const tournamentId = row.tournament_id as string;
+		const teamId = row.team_id as string | null;
+		if (!participantId || !tournamentId || !teamId) continue;
+		participantMetaById.set(participantId, { tournament_id: tournamentId, team_id: teamId });
+		if (tournamentTeamKeys.has(`${tournamentId}:${teamId}`)) {
+			allowedParticipantIds.add(participantId);
+		}
+	}
+
+	const teamMetaByTournamentTeam = new Map<
+		string,
+		{ team_id: string; team_code: string; team_pool: TeamPool; team_name: string; tournament_id: string }
+	>();
+	for (const value of participantToTeam.values()) {
+		teamMetaByTournamentTeam.set(`${value.tournament_id}:${value.team_id}`, value);
+	}
+
+	const scopedParticipantIds = [...allowedParticipantIds];
+	if (scopedParticipantIds.length === 0) return [];
+	const participantsFilter = scopedParticipantIds.join(",");
+
 	const { data: matchesData, error: matchesError } = await supabase
 		.from("matches")
 		.select("id, tournament_id, stage, bracket_type, round, next_match_id, home_participant_id, away_participant_id")
@@ -962,8 +1008,17 @@ export async function listUserTeamStats(userId: string): Promise<PlayerTeamStat[
 		const result = resultsByMatch.get(match.id);
 		if (!result) continue;
 
-		const isHome = match.home_participant_id ? participantToTeam.get(match.home_participant_id) : null;
-		const isAway = match.away_participant_id ? participantToTeam.get(match.away_participant_id) : null;
+		const resolveTeamMeta = (participantId: string | null) => {
+			if (!participantId || !allowedParticipantIds.has(participantId)) return null;
+			const direct = participantToTeam.get(participantId);
+			if (direct) return direct;
+			const participantMeta = participantMetaById.get(participantId);
+			if (!participantMeta) return null;
+			return teamMetaByTournamentTeam.get(`${participantMeta.tournament_id}:${participantMeta.team_id}`) ?? null;
+		};
+
+		const isHome = resolveTeamMeta(match.home_participant_id);
+		const isAway = resolveTeamMeta(match.away_participant_id);
 
 		if (!isHome && !isAway) continue;
 
@@ -1036,12 +1091,20 @@ export async function listUserTeamStats(userId: string): Promise<PlayerTeamStat[
 export async function countUserTournamentWins(userId: string): Promise<number> {
 	const { data: participantsData, error: participantsError } = await supabase
 		.from("tournament_participants")
-		.select("id")
+		.select("id, tournament_id, team_id")
 		.eq("user_id", userId);
 	throwOnError(participantsError, "Unable to load player participants");
 
-	const participantIds = (participantsData ?? []).map((item) => item.id as string).filter(Boolean);
-	if (participantIds.length === 0) {
+	const participantRows = (participantsData ?? []) as Array<{
+		id: string;
+		tournament_id: string;
+		team_id: string | null;
+	}>;
+	const participantIds = participantRows.map((item) => item.id).filter(Boolean);
+	const userTournamentTeamKeys = new Set(
+		participantRows.filter((item) => item.team_id).map((item) => `${item.tournament_id}:${item.team_id}`),
+	);
+	if (participantIds.length === 0 && userTournamentTeamKeys.size === 0) {
 		return 0;
 	}
 
@@ -1089,6 +1152,25 @@ export async function countUserTournamentWins(userId: string): Promise<number> {
 	const wonTournaments = new Set<string>();
 	const finalsByTournament = new Map<string, typeof finals>();
 
+	const finalParticipantIds = new Set<string>();
+	for (const final of finals) {
+		if (final.home_participant_id) finalParticipantIds.add(final.home_participant_id);
+		if (final.away_participant_id) finalParticipantIds.add(final.away_participant_id);
+	}
+
+	const { data: finalParticipantsData, error: finalParticipantsError } = await supabase
+		.from("tournament_participants")
+		.select("id, tournament_id, team_id")
+		.in("id", [...finalParticipantIds]);
+	throwOnError(finalParticipantsError, "Unable to load final participants");
+	const finalParticipantMetaById = new Map<string, { tournament_id: string; team_id: string | null }>();
+	for (const row of finalParticipantsData ?? []) {
+		finalParticipantMetaById.set(row.id as string, {
+			tournament_id: row.tournament_id as string,
+			team_id: (row.team_id as string | null) ?? null,
+		});
+	}
+
 	for (const final of finals) {
 		const current = finalsByTournament.get(final.tournament_id) ?? [];
 		current.push(final);
@@ -1105,7 +1187,12 @@ export async function countUserTournamentWins(userId: string): Promise<number> {
 
 			const winnerId =
 				result.home_score > result.away_score ? candidate.home_participant_id : candidate.away_participant_id;
-			if (!winnerId || !participantIdSet.has(winnerId)) continue;
+			if (!winnerId) continue;
+			if (!participantIdSet.has(winnerId)) {
+				const winnerMeta = finalParticipantMetaById.get(winnerId);
+				const winnerTeamKey = winnerMeta?.team_id ? `${winnerMeta.tournament_id}:${winnerMeta.team_id}` : null;
+				if (!winnerTeamKey || !userTournamentTeamKeys.has(winnerTeamKey)) continue;
+			}
 
 			wonTournaments.add(tournamentId);
 		}

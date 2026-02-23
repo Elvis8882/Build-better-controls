@@ -101,10 +101,12 @@ export type Team = {
 	secondary_color: string | null;
 	text_color: string;
 	overall: number;
+	off_def_sum: number;
 	offense: number;
 	defense: number;
 	goalie: number;
 	ovr_tier: "Top 5" | "Top 10" | "Middle Tier" | "Bottom Tier";
+	last_updated: string;
 };
 
 export type TeamRatingUpdate = {
@@ -600,7 +602,7 @@ export async function listParticipants(tournamentId: string): Promise<Tournament
 	const { data, error } = await supabase
 		.from("tournament_participants")
 		.select(
-			"id, tournament_id, user_id, guest_id, display_name, team_id, locked, created_at, team:teams(id, code, name, short_name, team_pool, primary_color, secondary_color, text_color, overall, offense, defense, goalie, ovr_tier)",
+			"id, tournament_id, user_id, guest_id, display_name, team_id, locked, created_at, team:teams(id, code, name, short_name, team_pool, primary_color, secondary_color, text_color, overall, off_def_sum, offense, defense, goalie, ovr_tier, last_updated)",
 		)
 		.eq("tournament_id", tournamentId)
 		.order("created_at", { ascending: true });
@@ -616,7 +618,7 @@ export async function fetchTeamsByPool(teamPool: TeamPool): Promise<Team[]> {
 	const { data, error } = await supabase
 		.from("teams")
 		.select(
-			"id, code, name, short_name, team_pool, primary_color, secondary_color, text_color, overall, offense, defense, goalie, ovr_tier",
+			"id, code, name, short_name, team_pool, primary_color, secondary_color, text_color, overall, off_def_sum, offense, defense, goalie, ovr_tier, last_updated",
 		)
 		.eq("team_pool", teamPool)
 		.order("name", { ascending: true });
@@ -628,9 +630,10 @@ export async function listTeams(): Promise<Team[]> {
 	const { data, error } = await supabase
 		.from("teams")
 		.select(
-			"id, code, name, short_name, team_pool, primary_color, secondary_color, text_color, overall, offense, defense, goalie, ovr_tier",
+			"id, code, name, short_name, team_pool, primary_color, secondary_color, text_color, overall, off_def_sum, offense, defense, goalie, ovr_tier, last_updated",
 		)
 		.order("overall", { ascending: false })
+		.order("off_def_sum", { ascending: false })
 		.order("name", { ascending: true });
 	throwOnError(error, "Unable to load teams");
 	return (data ?? []) as Team[];
@@ -642,6 +645,7 @@ export async function updateTeamRatings(teamId: string, payload: TeamRatingUpdat
 		.from("teams")
 		.update({
 			overall: computedOverall,
+			off_def_sum: payload.offense + payload.defense,
 			offense: payload.offense,
 			defense: payload.defense,
 			goalie: payload.goalie,

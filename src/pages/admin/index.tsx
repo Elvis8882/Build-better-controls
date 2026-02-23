@@ -20,6 +20,18 @@ function toOverall(offense: string, defense: string, goalie: string): number {
 	return Math.round((off + def + goa) / 3);
 }
 
+function formatLastUpdated(value: string): string {
+	const date = new Date(value);
+	if (Number.isNaN(date.getTime())) return "-";
+	return new Intl.DateTimeFormat(undefined, {
+		year: "numeric",
+		month: "short",
+		day: "2-digit",
+		hour: "2-digit",
+		minute: "2-digit",
+	}).format(date);
+}
+
 export default function AdminPanelPage() {
 	const { isAdmin } = useAuth();
 	const [teams, setTeams] = useState<Team[]>([]);
@@ -108,6 +120,7 @@ export default function AdminPanelPage() {
 									<th className="px-2 py-2 text-left">OFF</th>
 									<th className="px-2 py-2 text-left">DEF</th>
 									<th className="px-2 py-2 text-left">GOA</th>
+									<th className="px-2 py-2 text-left">Last updated</th>
 									<th className="px-2 py-2 text-left">Actions</th>
 								</tr>
 							</thead>
@@ -166,6 +179,7 @@ export default function AdminPanelPage() {
 													}
 												/>
 											</td>
+											<td className="px-2 py-2 whitespace-nowrap">{formatLastUpdated(team.last_updated)}</td>
 											<td className="px-2 py-2">
 												{isEditing ? (
 													<div className="flex gap-2">

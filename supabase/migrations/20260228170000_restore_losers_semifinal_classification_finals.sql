@@ -1,3 +1,9 @@
+create or replace function public.trg_place_losers_into_losers_bracket()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
 declare
   m record;
   loser uuid;
@@ -413,9 +419,9 @@ begin
               group by p.pid
             )
             select
-              (array_agg(pid order by rn) filter (where rn = 1))[1],
-              (array_agg(pid order by rn) filter (where rn = 2))[1],
-              (array_agg(pid order by rn) filter (where rn = 3))[1]
+              max(case when rn = 1 then pid end),
+              max(case when rn = 2 then pid end),
+              max(case when rn = 3 then pid end)
             into v_bye, v_p1, v_p2
             from ranked;
 
@@ -521,3 +527,4 @@ begin
 
   return new;
 end;
+$$;

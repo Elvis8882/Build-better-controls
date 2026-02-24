@@ -860,6 +860,19 @@ export default function TournamentDetailPage() {
 		if (bronzeLoser && !standingByParticipantId.has(bronzeLoser)) standingByParticipantId.set(bronzeLoser, 4);
 	}
 
+	const fifthPlaceMatch = [...placementBracketMatches]
+		.filter(
+			(match) =>
+				Boolean(match.result?.locked) && (match.round ?? 0) === placementFinalRound && (match.bracket_slot ?? 0) === 2,
+		)
+		.sort((a, b) => (a.id > b.id ? 1 : -1))[0];
+	if (fifthPlaceMatch) {
+		const fifthWinner = resolveWinner(fifthPlaceMatch);
+		const fifthLoser = resolveLoser(fifthPlaceMatch);
+		if (fifthWinner && !standingByParticipantId.has(fifthWinner)) standingByParticipantId.set(fifthWinner, 5);
+		if (fifthLoser && !standingByParticipantId.has(fifthLoser)) standingByParticipantId.set(fifthLoser, 6);
+	}
+
 	if (allPlayoffMatchesLocked) {
 		const unresolvedIds = new Set<string>();
 		const eliminationByParticipantId = new Map<string, { bracketType: "WINNERS" | "LOSERS"; round: number }>();

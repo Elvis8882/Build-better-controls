@@ -7,18 +7,13 @@ as $$
 declare
   m record;
   winner uuid;
-  v_parent_id uuid;
-  v_parent_side text;
 begin
   -- only on lock
   if new.locked is distinct from true then
     return new;
   end if;
 
-  select *
-  into m
-  from public.matches
-  where id = new.match_id;
+  select * into m from public.matches where id = new.match_id;
 
   if m.stage <> 'PLAYOFF' then
     return new;
@@ -30,52 +25,11 @@ begin
   elsif new.away_score > new.home_score then
     winner := m.away_participant_id;
   else
-    --return new implies no advance on tie
     return new;
   end if;
 
   if m.next_match_id is null or m.next_match_side is null then
-    -- Placement safety net: rebuild missing losers-bracket parent pointers
-    -- so quarterfinal placement winners can continue advancing.
-    if m.bracket_type = 'LOSERS' then
-      insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot)
-      select m.tournament_id, 'PLAYOFF', 'LOSERS', m.round + 1, ceil(greatest(coalesce(m.bracket_slot, 1), 1) / 2.0)::int
-      where not exists (
-        select 1
-        from public.matches mx
-        where mx.tournament_id = m.tournament_id
-          and mx.stage = 'PLAYOFF'
-          and mx.bracket_type = 'LOSERS'
-          and mx.round = m.round + 1
-          and mx.bracket_slot = ceil(greatest(coalesce(m.bracket_slot, 1), 1) / 2.0)::int
-      );
-
-      select id
-      into v_parent_id
-      from public.matches
-      where tournament_id = m.tournament_id
-        and stage = 'PLAYOFF'
-        and bracket_type = 'LOSERS'
-        and round = m.round + 1
-        and bracket_slot = ceil(greatest(coalesce(m.bracket_slot, 1), 1) / 2.0)::int
-      limit 1;
-
-      v_parent_side := case when mod(greatest(coalesce(m.bracket_slot, 1), 1), 2) = 1 then 'HOME' else 'AWAY' end;
-
-      if v_parent_id is not null then
-        update public.matches
-        set next_match_id = v_parent_id,
-            next_match_side = v_parent_side
-        where id = m.id;
-
-        m.next_match_id := v_parent_id;
-        m.next_match_side := v_parent_side;
-      else
-        return new;
-      end if;
-    else
-      return new;
-    end if;
+    return new;
   end if;
 
   if m.next_match_side = 'HOME' then

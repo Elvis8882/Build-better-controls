@@ -7,10 +7,7 @@ begin
     return new;
   end if;
 
-  select *
-  into m
-  from public.matches
-  where id = new.match_id;
+  select * into m from public.matches where id = new.match_id;
 
   if m.stage <> 'PLAYOFF' then
     return new;
@@ -22,7 +19,6 @@ begin
   elsif new.away_score > new.home_score then
     winner := m.away_participant_id;
   else
-    --return new implies no advance on tie
     return new;
   end if;
 
@@ -32,14 +28,20 @@ begin
 
   if m.next_match_side = 'HOME' then
     update public.matches
-    set home_participant_id = winner
-    where id = m.next_match_id
-      and (away_participant_id is distinct from winner or home_participant_id is not null);
+    set home_participant_id = winner,
+        away_participant_id = case
+          when away_participant_id = winner then null
+          else away_participant_id
+        end
+    where id = m.next_match_id;
   else
     update public.matches
-    set away_participant_id = winner
-    where id = m.next_match_id
-      and (home_participant_id is distinct from winner or away_participant_id is not null);
+    set away_participant_id = winner,
+        home_participant_id = case
+          when home_participant_id = winner then null
+          else home_participant_id
+        end
+    where id = m.next_match_id;
   end if;
 
   perform public.sync_match_identities_from_participants(m.next_match_id);

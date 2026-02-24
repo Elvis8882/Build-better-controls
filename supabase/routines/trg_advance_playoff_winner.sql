@@ -33,11 +33,13 @@ begin
   if m.next_match_side = 'HOME' then
     update public.matches
     set home_participant_id = winner
-    where id = m.next_match_id;
+    where id = m.next_match_id
+      and (away_participant_id is distinct from winner or home_participant_id is not null);
   else
     update public.matches
     set away_participant_id = winner
-    where id = m.next_match_id;
+    where id = m.next_match_id
+      and (home_participant_id is distinct from winner or away_participant_id is not null);
   end if;
 
   perform public.sync_match_identities_from_participants(m.next_match_id);

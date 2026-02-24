@@ -270,9 +270,9 @@ begin
       perform public.balance_match_home_away(target);
     end if;
 
-    if m.round < v_max_round then
+    if m.round < v_semifinal_round then
       v_parent_round := m.round + 1;
-      v_parent_slot := ceil(v_group_slot / 2.0)::int;
+      v_parent_slot := v_group_slot;
 
       insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot)
       select m.tournament_id, 'PLAYOFF', 'LOSERS', v_parent_round, v_parent_slot

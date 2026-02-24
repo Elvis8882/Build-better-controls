@@ -344,22 +344,6 @@ export function PlayoffMatchesTable({
 	medalByParticipantId?: Map<string, "gold" | "silver" | "bronze">;
 	placementRevealKeys?: Set<string>;
 }) {
-	const displaySlotByMatchId = useMemo(() => {
-		const byRound = new Map<number, MatchWithResult[]>();
-		for (const match of matches) {
-			const items = byRound.get(match.round) ?? [];
-			items.push(match);
-			byRound.set(match.round, items);
-		}
-		const map = new Map<string, number>();
-		for (const roundMatches of byRound.values()) {
-			const ordered = [...roundMatches].sort((left, right) => (left.bracket_slot ?? 0) - (right.bracket_slot ?? 0));
-			for (const [index, match] of ordered.entries()) {
-				map.set(match.id, index + 1);
-			}
-		}
-		return map;
-	}, [matches]);
 	if (matches.length === 0) {
 		return (
 			<section className="space-y-3 rounded-lg border p-3 md:p-4">
@@ -411,7 +395,7 @@ export function PlayoffMatchesTable({
 						>
 							<div className="mb-4 flex items-center justify-between gap-3">
 								<h3 className="text-xl font-bold">
-									Game {match.round}.{displaySlotByMatchId.get(match.id) ?? 1}
+									Game {match.round}.{match.bracket_slot ?? 1}
 								</h3>
 								{match.result?.locked && <Badge className="text-xs">Locked</Badge>}
 							</div>

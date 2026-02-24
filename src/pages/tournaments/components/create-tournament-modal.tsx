@@ -36,6 +36,7 @@ export function CreateTournamentModal({ open, onOpenChange, onCreated }: Props) 
 		const isTeamBasedPreset = presetId === "2v2_tournament";
 		return sanitizeGroupCount(defaultParticipants, groupCountInput, {
 			autoExpand: !isTeamBasedPreset,
+			maxParticipantsPerGroup: isTeamBasedPreset ? 8 : 6,
 		});
 	}, [presetId, defaultParticipants, groupCountInput]);
 

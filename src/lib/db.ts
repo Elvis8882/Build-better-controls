@@ -207,11 +207,12 @@ function throwOnError(error: { message: string } | null, fallbackMessage: string
 export function sanitizeGroupCount(
 	participants: number,
 	selectedGroups: number,
-	options?: { autoExpand?: boolean },
+	options?: { autoExpand?: boolean; maxParticipantsPerGroup?: number },
 ): { groupCount: number; note: string | null; error: string | null } {
 	let groupCount = Math.max(1, Math.min(4, selectedGroups));
 	let note: string | null = null;
 	const autoExpand = options?.autoExpand ?? true;
+	const maxParticipantsPerGroup = options?.maxParticipantsPerGroup ?? 6;
 
 	if (participants < 3) {
 		return { groupCount, note, error: "Participants must be at least 3." };
@@ -224,14 +225,18 @@ export function sanitizeGroupCount(
 	}
 
 	if (autoExpand) {
-		while (participants > groupCount * 6 && groupCount < 4) {
+		while (participants > groupCount * maxParticipantsPerGroup && groupCount < 4) {
 			groupCount += 1;
-			note = `Adjusted to ${groupCount} groups to keep groups at max 6 participants.`;
+			note = `Adjusted to ${groupCount} groups to keep groups at max ${maxParticipantsPerGroup} participants.`;
 		}
 	}
 
-	if (participants > groupCount * 6) {
-		return { groupCount, note, error: "Too many participants for max 4 groups (max 6 per group)." };
+	if (participants > groupCount * maxParticipantsPerGroup) {
+		return {
+			groupCount,
+			note,
+			error: `Too many participants for max 4 groups (max ${maxParticipantsPerGroup} per group).`,
+		};
 	}
 
 	if (Math.floor(participants / groupCount) < 3) {

@@ -161,6 +161,10 @@ export type RegisteredProfile = {
 	username: string;
 };
 
+export type TournamentTeamStat = PlayerTeamStat & {
+	placement: number | null;
+};
+
 export type PublicProfile = {
 	id: string;
 	username: string | null;
@@ -314,7 +318,7 @@ export async function createTournament(payload: {
 		stage: payload.presetId === "playoffs_only" || payload.presetId === "2v2_playoffs" ? "PLAYOFF" : "GROUP",
 	};
 
-	let { data, error } = await supabase
+	const { data, error } = await supabase
 		.from("tournaments")
 		.insert(insertPayload)
 		.select("id, name, status, created_at, preset_id, created_by, team_pool, default_participants, group_count, stage")
@@ -1213,4 +1217,211 @@ export async function countUserTournamentWins(userId: string): Promise<number> {
 	}
 
 	return wonTournaments.size;
+}
+
+export async function listClosedTournaments(): Promise<Array<{ id: string; name: string }>> {
+	const { data, error } = await supabase
+		.from("tournaments")
+		.select("id, name, status")
+		.ilike("status", "closed")
+		.order("created_at", { ascending: false });
+	throwOnError(error, "Unable to load closed tournaments");
+
+	return (data ?? []).map((item) => ({
+		id: item.id as string,
+		name: item.name as string,
+	}));
+}
+
+export async function listTournamentTeamStats(tournamentId: string): Promise<TournamentTeamStat[]> {
+	const { data: participantsData, error: participantsError } = await supabase
+		.from("tournament_participants")
+		.select("id, team_id, team:teams(id, code, name, team_pool)")
+		.eq("tournament_id", tournamentId)
+		.not("team_id", "is", null);
+	throwOnError(participantsError, "Unable to load tournament participants");
+
+	const participantTeamMeta = new Map<
+		string,
+		{ team_id: string; team_code: string; team_name: string; team_pool: TeamPool }
+	>();
+	for (const row of participantsData ?? []) {
+		const participantId = row.id as string;
+		const teamId = row.team_id as string | null;
+		const teamRaw = row.team as
+			| { id: string; code: string; name: string; team_pool: TeamPool }
+			| Array<{ id: string; code: string; name: string; team_pool: TeamPool }>
+			| null;
+		const team = Array.isArray(teamRaw) ? teamRaw[0] : teamRaw;
+		if (!participantId || !teamId || !team) continue;
+		participantTeamMeta.set(participantId, {
+			team_id: teamId,
+			team_code: team.code,
+			team_name: team.name,
+			team_pool: team.team_pool,
+		});
+	}
+
+	if (participantTeamMeta.size === 0) return [];
+
+	const { data: matchesData, error: matchesError } = await supabase
+		.from("matches")
+		.select("id, round, stage, bracket_type, next_match_id, bracket_slot, home_participant_id, away_participant_id")
+		.eq("tournament_id", tournamentId);
+	throwOnError(matchesError, "Unable to load tournament matches");
+
+	const matches = (matchesData ?? []) as Array<{
+		id: string;
+		round: number;
+		stage: MatchStage;
+		bracket_type: BracketType | null;
+		next_match_id: string | null;
+		bracket_slot: number | null;
+		home_participant_id: string | null;
+		away_participant_id: string | null;
+	}>;
+	if (matches.length === 0) return [];
+
+	const { data: resultsData, error: resultsError } = await supabase
+		.from("match_results")
+		.select("match_id, home_score, away_score, home_shots, away_shots")
+		.in(
+			"match_id",
+			matches.map((item) => item.id),
+		);
+	throwOnError(resultsError, "Unable to load tournament match results");
+
+	const resultsByMatchId = new Map<
+		string,
+		{ home_score: number; away_score: number; home_shots: number; away_shots: number }
+	>();
+	for (const result of resultsData ?? []) {
+		if (
+			typeof result.home_score !== "number" ||
+			typeof result.away_score !== "number" ||
+			typeof result.home_shots !== "number" ||
+			typeof result.away_shots !== "number"
+		) {
+			continue;
+		}
+		resultsByMatchId.set(result.match_id as string, {
+			home_score: result.home_score,
+			away_score: result.away_score,
+			home_shots: result.home_shots,
+			away_shots: result.away_shots,
+		});
+	}
+
+	const aggregates = new Map<string, TournamentTeamStat>();
+	for (const match of matches) {
+		const result = resultsByMatchId.get(match.id);
+		if (!result || result.home_score === result.away_score) continue;
+
+		const homeMeta = match.home_participant_id ? participantTeamMeta.get(match.home_participant_id) : null;
+		const awayMeta = match.away_participant_id ? participantTeamMeta.get(match.away_participant_id) : null;
+		if (!homeMeta || !awayMeta) continue;
+
+		for (const [meta, goalsMade, goalsReceived, shotsMade, shotsReceived] of [
+			[homeMeta, result.home_score, result.away_score, result.home_shots, result.away_shots],
+			[awayMeta, result.away_score, result.home_score, result.away_shots, result.home_shots],
+		] as const) {
+			const current = aggregates.get(meta.team_id) ?? {
+				team_id: meta.team_id,
+				team_code: meta.team_code,
+				team_pool: meta.team_pool,
+				team_name: meta.team_name,
+				games_played: 0,
+				wins: 0,
+				losses: 0,
+				shots_made: 0,
+				goals_made: 0,
+				shots_received: 0,
+				goals_received: 0,
+				goalie_save_rate: 0,
+				placement: null,
+			};
+
+			current.games_played += 1;
+			if (goalsMade > goalsReceived) current.wins += 1;
+			if (goalsMade < goalsReceived) current.losses += 1;
+			current.shots_made += shotsMade;
+			current.goals_made += goalsMade;
+			current.shots_received += shotsReceived;
+			current.goals_received += goalsReceived;
+			aggregates.set(meta.team_id, current);
+		}
+	}
+
+	const playoffMatches = matches.filter((match) => match.stage === "PLAYOFF");
+	const placementByParticipantId = new Map<string, number>();
+	const resolveWinnerLoser = (matchId: string, homeId: string | null, awayId: string | null) => {
+		const result = resultsByMatchId.get(matchId);
+		if (!result || !homeId || !awayId || result.home_score === result.away_score) return null;
+		return result.home_score > result.away_score
+			? { winner: homeId, loser: awayId }
+			: { winner: awayId, loser: homeId };
+	};
+
+	const finals = playoffMatches.filter((match) => !match.next_match_id && match.bracket_type !== "LOSERS");
+	const finalRound = finals.length > 0 ? Math.max(...finals.map((item) => item.round)) : null;
+	if (finalRound !== null) {
+		const finalMatch = finals.find(
+			(item) =>
+				item.round === finalRound && resolveWinnerLoser(item.id, item.home_participant_id, item.away_participant_id),
+		);
+		if (finalMatch) {
+			const outcome = resolveWinnerLoser(finalMatch.id, finalMatch.home_participant_id, finalMatch.away_participant_id);
+			if (outcome) {
+				placementByParticipantId.set(outcome.winner, 1);
+				placementByParticipantId.set(outcome.loser, 2);
+			}
+		}
+	}
+
+	const placementMatches = playoffMatches.filter((match) => match.bracket_type === "LOSERS");
+	if (placementMatches.length > 0) {
+		const placementFinalRound = Math.max(...placementMatches.map((item) => item.round));
+		const bronze = placementMatches.find(
+			(item) => item.round === placementFinalRound && (item.bracket_slot ?? 0) === 1,
+		);
+		const fifth = placementMatches.find((item) => item.round === placementFinalRound && (item.bracket_slot ?? 0) === 2);
+		const bronzeOutcome = bronze
+			? resolveWinnerLoser(bronze.id, bronze.home_participant_id, bronze.away_participant_id)
+			: null;
+		if (bronzeOutcome) {
+			if (!placementByParticipantId.has(bronzeOutcome.winner)) placementByParticipantId.set(bronzeOutcome.winner, 3);
+			if (!placementByParticipantId.has(bronzeOutcome.loser)) placementByParticipantId.set(bronzeOutcome.loser, 4);
+		}
+
+		const fifthOutcome = fifth
+			? resolveWinnerLoser(fifth.id, fifth.home_participant_id, fifth.away_participant_id)
+			: null;
+		if (fifthOutcome) {
+			if (!placementByParticipantId.has(fifthOutcome.winner)) placementByParticipantId.set(fifthOutcome.winner, 5);
+			if (!placementByParticipantId.has(fifthOutcome.loser)) placementByParticipantId.set(fifthOutcome.loser, 6);
+		}
+	}
+
+	for (const [participantId, placement] of placementByParticipantId.entries()) {
+		const teamId = participantTeamMeta.get(participantId)?.team_id;
+		if (!teamId) continue;
+		const row = aggregates.get(teamId);
+		if (!row || row.placement === 1) continue;
+		if (row.placement === null || placement < row.placement) row.placement = placement;
+	}
+
+	return [...aggregates.values()]
+		.map((stat) => ({
+			...stat,
+			goalie_save_rate:
+				stat.shots_received > 0
+					? Number(((stat.shots_received - stat.goals_received) / stat.shots_received).toFixed(3))
+					: 0,
+		}))
+		.sort((a, b) => {
+			if (a.placement !== null && b.placement !== null) return a.placement - b.placement;
+			if (a.placement !== null) return -1;
+			if (b.placement !== null) return 1;
+			return b.wins - a.wins || b.games_played - a.games_played || a.team_name.localeCompare(b.team_name);
+		});
 }

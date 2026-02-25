@@ -309,6 +309,11 @@ export async function createTournament(payload: {
 		throw new Error("User is not authenticated.");
 	}
 
+	const isTwoVTwoPreset = payload.presetId === "2v2_tournament" || payload.presetId === "2v2_playoffs";
+	if (isTwoVTwoPreset && payload.defaultParticipants % 2 !== 0) {
+		throw new Error("2v2 tournaments require an even default participant count.");
+	}
+
 	const insertPayload = {
 		name: payload.name,
 		preset_id: payload.presetId,

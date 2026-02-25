@@ -16,8 +16,10 @@ begin
   v_s := 1;
   while v_s < v_n loop v_s := v_s * 2; end loop;
 
-  -- For full_no_losers (or playoffs_only), keep a dedicated 3rd-place shell only.
-  if v_preset <> 'full_with_losers' then
+  -- For playoff-only flows (playoffs_only / 2v2_playoffs) and no-losers full flows
+  -- (full_no_losers / 2v2_tournament), keep only a dedicated 3rd-place shell.
+  if public.preset_is_playoff_only(v_preset)
+     or not public.preset_is_full_with_losers(v_preset) then
     insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot)
     select p_tournament_id, 'PLAYOFF', 'LOSERS', 1, 1
     where not exists (

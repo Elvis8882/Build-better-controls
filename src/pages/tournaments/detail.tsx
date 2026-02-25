@@ -45,6 +45,7 @@ import {
 	PlayoffBracketPage,
 	PlayoffMatchesTable,
 } from "@/pages/tournaments/components/playoff-bracket-page";
+import { hasLosersProgressionFlow, isGroupThenPlayoffFlow, isTwoVTwoFlow } from "@/pages/tournaments/preset-flow";
 import { Button } from "@/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/ui/tabs";
 
@@ -73,12 +74,6 @@ const defaultResult: EditableResult = {
 	away_shots: "",
 	decision: "R",
 };
-
-const isFullPreset = (presetId: Tournament["preset_id"]) =>
-	presetId === "full_with_losers" || presetId === "full_no_losers" || presetId === "2v2_tournament";
-
-const isTwoVTwoPreset = (presetId: Tournament["preset_id"]) =>
-	presetId === "2v2_tournament" || presetId === "2v2_playoffs";
 
 const getPresetTypeLabel = (presetId: Tournament["preset_id"]): string => {
 	if (presetId === "playoffs_only") return "Playoff only (without loser bracket)";
@@ -176,7 +171,7 @@ export default function TournamentDetailPage() {
 			if (!leftIsHost && rightIsHost) return 1;
 			return new Date(left.created_at).getTime() - new Date(right.created_at).getTime();
 		});
-		if (!isTwoVTwoPreset(tournament.preset_id) || twoVTwoPairOrderById.size === 0) {
+		if (!isTwoVTwoFlow(tournament.preset_id) || twoVTwoPairOrderById.size === 0) {
 			return sortedByDefaultOrder;
 		}
 		return sortedByDefaultOrder.sort((left, right) => {
@@ -189,7 +184,7 @@ export default function TournamentDetailPage() {
 		});
 	}, [participants, tournament, twoVTwoPairOrderById]);
 	const teamById = useMemo(() => new Map(teams.map((team) => [team.id, team])), [teams]);
-	const twoVTwoPreset = isTwoVTwoPreset(tournament?.preset_id ?? null);
+	const twoVTwoPreset = isTwoVTwoFlow(tournament?.preset_id ?? null);
 	const assignedTeamCounts = useMemo(() => {
 		const counts = new Map<string, number>();
 		for (const participant of displayParticipants) {
@@ -219,7 +214,7 @@ export default function TournamentDetailPage() {
 		return assignedTeamCounts.size * 2 === displayParticipants.length;
 	}, [twoVTwoPreset, allLockedWithTeams, assignedTeamCounts, displayParticipants.length]);
 	const allGroupMatchesLocked = groupMatches.length > 0 && groupMatches.every((match) => Boolean(match.result?.locked));
-	const fullPreset = isFullPreset(tournament?.preset_id ?? null);
+	const fullPreset = isGroupThenPlayoffFlow(tournament?.preset_id ?? null);
 	const canGenerateGroups = fullPreset && allLockedWithTeams && teamsValidForPreset && groups.length === 0;
 	const groupStageAvailable = fullPreset && (groups.length > 0 || groupMatches.length > 0);
 	const playoffStageAvailable = fullPreset ? allGroupMatchesLocked : allLockedWithTeams && teamsValidForPreset;
@@ -805,7 +800,7 @@ export default function TournamentDetailPage() {
 		.sort((left, right) => left.round - right.round || (left.bracket_slot ?? 0) - (right.bracket_slot ?? 0));
 	const placementBracketMatches = placementBracketMatchesRaw.filter(isMatchDisplayable);
 	const shouldShowPlacementBracket =
-		tournament.preset_id === "full_with_losers" || placementBracketMatchesRaw.length > 0;
+		hasLosersProgressionFlow(tournament.preset_id) || placementBracketMatchesRaw.length > 0;
 	const allPlayoffMatchesLocked =
 		(winnersBracketMatches.length > 0 || placementBracketMatches.length > 0) &&
 		[...winnersBracketMatches, ...placementBracketMatches].every((match) => Boolean(match.result?.locked));

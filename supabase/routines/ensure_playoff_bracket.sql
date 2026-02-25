@@ -20,7 +20,7 @@ declare
   v_pos int;
   v_team_based boolean := false;
 begin
-  select preset_id, (preset_id in ('2v2_tournament','2v2_playoffs'))
+  select preset_id, public.preset_is_team_based(preset_id)
   into v_preset, v_team_based
   from public.tournaments
   where id = p_tournament_id;
@@ -35,7 +35,7 @@ begin
       and mr.locked = true
   ) into v_any_playoff_locked;
 
-  -- determine entrant count (team-based for 2v2)
+  -- determine entrant count (team-based for 2v2 flows: 2v2_tournament / 2v2_playoffs)
   if v_team_based then
     select count(*) into v_n
     from (

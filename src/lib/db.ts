@@ -1235,6 +1235,16 @@ export async function listClosedTournaments(): Promise<Array<{ id: string; name:
 }
 
 export async function listTournamentTeamStats(tournamentId: string): Promise<TournamentTeamStat[]> {
+	const { data: tournamentData, error: tournamentError } = await supabase
+		.from("tournaments")
+		.select("preset_id")
+		.eq("id", tournamentId)
+		.maybeSingle();
+	throwOnError(tournamentError, "Unable to load tournament preset");
+
+	const presetId = tournamentData?.preset_id as TournamentPreset | null | undefined;
+	const twoVTwoTournamentStats = presetId === "2v2_tournament" || presetId === "2v2_playoffs";
+
 	const { data: participantsData, error: participantsError } = await supabase
 		.from("tournament_participants")
 		.select("id, team_id, guest_id, display_name, team:teams(id, code, name, team_pool)")
@@ -1247,6 +1257,7 @@ export async function listTournamentTeamStats(tournamentId: string): Promise<Tou
 		{ team_id: string; team_code: string; team_name: string; team_pool: TeamPool }
 	>();
 	const teamPlayerNameByTeamId = new Map<string, string>();
+	const teamPlayerNamesByTeamId = new Map<string, string[]>();
 
 	for (const row of participantsData ?? []) {
 		const participantId = row.id as string;
@@ -1267,11 +1278,26 @@ export async function listTournamentTeamStats(tournamentId: string): Promise<Tou
 		});
 
 		if (!displayName) continue;
+		if (twoVTwoTournamentStats) {
+			const existingNames = teamPlayerNamesByTeamId.get(teamId) ?? [];
+			if (!existingNames.includes(displayName)) {
+				teamPlayerNamesByTeamId.set(teamId, [...existingNames, displayName]);
+			}
+			continue;
+		}
 		const existingName = teamPlayerNameByTeamId.get(teamId);
 		if (!existingName || isGuest) {
 			teamPlayerNameByTeamId.set(teamId, displayName);
 		}
 	}
+
+	const resolvePlayerLabel = (teamId: string): string | null => {
+		if (twoVTwoTournamentStats) {
+			const names = teamPlayerNamesByTeamId.get(teamId) ?? [];
+			return names.length > 0 ? names.join(" / ") : null;
+		}
+		return teamPlayerNameByTeamId.get(teamId) ?? null;
+	};
 
 	if (participantTeamMeta.size === 0) return [];
 
@@ -1350,7 +1376,7 @@ export async function listTournamentTeamStats(tournamentId: string): Promise<Tou
 				goals_received: 0,
 				goalie_save_rate: 0,
 				placement: null,
-				player_name: teamPlayerNameByTeamId.get(meta.team_id) ?? null,
+				player_name: resolvePlayerLabel(meta.team_id),
 			};
 
 			current.games_played += 1;

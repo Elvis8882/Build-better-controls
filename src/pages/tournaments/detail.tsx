@@ -1005,6 +1005,10 @@ export default function TournamentDetailPage() {
 						onRandomizeTeam={onRandomizeTeam}
 						onRandomizeTwoVTwoTeams={async () => {
 							if (!twoVTwoPreset) return;
+							if (displayParticipants.some((participant) => Boolean(participant.team_id))) {
+								toast.warning("Clear all selected teams before randomizing 2v2 pairs.");
+								return;
+							}
 							if (displayParticipants.length !== slots) {
 								toast.warning("Fill all participant slots before randomizing 2v2 teams.");
 								return;

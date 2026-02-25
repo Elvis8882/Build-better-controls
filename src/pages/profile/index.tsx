@@ -214,7 +214,7 @@ export default function ProfilePage() {
 									const friend = friends.find((item) => item.id === selectedId);
 									if (!friend) return;
 									setSelectedUser(friend);
-									setQuery(friend.username);
+									setQuery("");
 									setResults([]);
 								}}
 								className="w-full rounded-md border bg-background px-3 py-2 text-sm"
@@ -273,7 +273,6 @@ export default function ProfilePage() {
 						<table className="w-full min-w-[860px] text-sm">
 							<thead className="bg-muted/50 text-muted-foreground">
 								<tr>
-									<th className="px-4 py-3 text-center">Player</th>
 									<th className="px-4 py-3 text-center">Team</th>
 									<th className="px-4 py-3 text-center">Games played</th>
 									<th className="px-4 py-3 text-center">Wins</th>

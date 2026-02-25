@@ -223,18 +223,48 @@ export default function TournamentDetailPage() {
 		() => new Set(playoffMatches.filter((match) => Boolean(match.result?.locked)).map((match) => match.id)),
 		[playoffMatches],
 	);
-	const hasLockedDescendantByMatchId = useMemo(() => {
+	const playoffDependencyChildrenByMatchId = useMemo(() => {
 		const childrenByMatchId = new Map<string, string[]>();
+		const addChildEdge = (matchId: string, dependencyMatchId: string) => {
+			const items = childrenByMatchId.get(matchId) ?? [];
+			if (items.includes(dependencyMatchId)) return;
+			items.push(dependencyMatchId);
+			childrenByMatchId.set(matchId, items);
+		};
+
 		for (const match of playoffMatches) {
 			if (!match.next_match_id) continue;
-			const items = childrenByMatchId.get(match.id) ?? [];
-			items.push(match.next_match_id);
-			childrenByMatchId.set(match.id, items);
+			addChildEdge(match.id, match.next_match_id);
 		}
+
+		const singlePlacementPreset =
+			tournament?.preset_id &&
+			!hasLosersProgressionFlow(tournament.preset_id) &&
+			playoffMatches.some((match) => match.bracket_type === "LOSERS");
+		if (singlePlacementPreset) {
+			const winnersMatches = playoffMatches.filter((match) => match.bracket_type !== "LOSERS");
+			const maxWinnersRound =
+				winnersMatches.length > 0 ? Math.max(...winnersMatches.map((match) => match.round)) : null;
+			const semifinalRound = maxWinnersRound ? Math.max(maxWinnersRound - 1, 1) : null;
+			const semifinalMatches =
+				semifinalRound !== null ? winnersMatches.filter((match) => match.round === semifinalRound) : [];
+			const thirdPlaceMatch = playoffMatches.find(
+				(match) => match.bracket_type === "LOSERS" && match.round === 1 && (match.bracket_slot ?? 0) === 1,
+			);
+			if (thirdPlaceMatch) {
+				for (const semifinalMatch of semifinalMatches) {
+					addChildEdge(semifinalMatch.id, thirdPlaceMatch.id);
+				}
+			}
+		}
+
+		return childrenByMatchId;
+	}, [playoffMatches, tournament?.preset_id]);
+	const hasLockedDescendantByMatchId = useMemo(() => {
 		const memo = new Map<string, boolean>();
 		const visit = (matchId: string): boolean => {
 			if (memo.has(matchId)) return memo.get(matchId) ?? false;
-			const descendants = childrenByMatchId.get(matchId) ?? [];
+			const descendants = playoffDependencyChildrenByMatchId.get(matchId) ?? [];
 			for (const descendantId of descendants) {
 				if (lockedPlayoffMatchIds.has(descendantId) || visit(descendantId)) {
 					memo.set(matchId, true);
@@ -246,7 +276,7 @@ export default function TournamentDetailPage() {
 		};
 		for (const match of playoffMatches) visit(match.id);
 		return memo;
-	}, [playoffMatches, lockedPlayoffMatchIds]);
+	}, [playoffMatches, playoffDependencyChildrenByMatchId, lockedPlayoffMatchIds]);
 	const allPlayoffMatchesLockedByStage =
 		playoffMatches.length > 0 &&
 		playoffMatches.filter(isMatchDisplayable).every((match) => Boolean(match.result?.locked));

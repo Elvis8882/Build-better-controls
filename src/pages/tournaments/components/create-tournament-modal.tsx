@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { createTournament, sanitizeGroupCount, type TeamPool, type TournamentPresetUi } from "@/lib/db";
+import { isGroupThenPlayoffFlow, isTwoVTwoFlow } from "@/pages/tournaments/preset-flow";
 import { Button } from "@/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/ui/dialog";
 import { Input } from "@/ui/input";
@@ -12,8 +13,6 @@ const PRESET_OPTIONS: Array<{ label: string; value: TournamentPresetUi }> = [
 	{ label: "Full tournament (no losers bracket)", value: "full_no_losers" },
 	{ label: "2v2 Tournament", value: "2v2_tournament" },
 ];
-
-const isFullPreset = (presetId: TournamentPresetUi) => presetId.startsWith("full_") || presetId === "2v2_tournament";
 
 type Props = {
 	open: boolean;
@@ -30,10 +29,10 @@ export function CreateTournamentModal({ open, onOpenChange, onCreated }: Props) 
 	const [groupCountInput, setGroupCountInput] = useState(1);
 
 	const groupResolution = useMemo(() => {
-		if (!isFullPreset(presetId)) {
+		if (!isGroupThenPlayoffFlow(presetId)) {
 			return { groupCount: null, note: null, error: null };
 		}
-		const isTeamBasedPreset = presetId === "2v2_tournament";
+		const isTeamBasedPreset = isTwoVTwoFlow(presetId);
 		return sanitizeGroupCount(defaultParticipants, groupCountInput, {
 			autoExpand: !isTeamBasedPreset,
 			maxParticipantsPerGroup: isTeamBasedPreset ? 8 : 6,
@@ -49,7 +48,7 @@ export function CreateTournamentModal({ open, onOpenChange, onCreated }: Props) 
 			toast.warning("Participants must be between 3 and 16.");
 			return;
 		}
-		if (isFullPreset(presetId) && groupResolution.error) {
+		if (isGroupThenPlayoffFlow(presetId) && groupResolution.error) {
 			toast.error(groupResolution.error);
 			return;
 		}
@@ -60,7 +59,7 @@ export function CreateTournamentModal({ open, onOpenChange, onCreated }: Props) 
 				presetId,
 				teamPool,
 				defaultParticipants,
-				groupCount: isFullPreset(presetId) ? groupResolution.groupCount : null,
+				groupCount: isGroupThenPlayoffFlow(presetId) ? groupResolution.groupCount : null,
 			});
 			toast.success("Tournament created.");
 			onOpenChange(false);
@@ -119,7 +118,7 @@ export function CreateTournamentModal({ open, onOpenChange, onCreated }: Props) 
 							<option value="INTL">International</option>
 						</select>
 					</div>
-					{isFullPreset(presetId) && (
+					{isGroupThenPlayoffFlow(presetId) && (
 						<div className="space-y-1">
 							<p className="text-sm">Group count</p>
 							<select

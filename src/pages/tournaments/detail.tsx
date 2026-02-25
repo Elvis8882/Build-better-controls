@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 import { useAuth } from "@/auth/AuthProvider";
@@ -141,6 +141,7 @@ export default function TournamentDetailPage() {
 	const [editingMatchIds, setEditingMatchIds] = useState<Set<string>>(new Set());
 	const [activeTab, setActiveTab] = useState<"participants" | "group" | "playoff">("participants");
 	const [twoVTwoPairOrderById, setTwoVTwoPairOrderById] = useState<Map<string, number>>(new Map());
+	const ensuringPlayoffBracketRef = useRef(false);
 
 	const isAdmin = profile?.role === "admin";
 	const hostMembership = useMemo(
@@ -341,6 +342,18 @@ export default function TournamentDetailPage() {
 		mergeResultDrafts(playoffMatchData);
 	}, [id, mergeResultDrafts]);
 
+	const ensurePlayoffBracketSafe = useCallback(async () => {
+		if (!id || ensuringPlayoffBracketRef.current) return false;
+		ensuringPlayoffBracketRef.current = true;
+		try {
+			await ensurePlayoffBracket(id);
+			await refreshPlayoffSection();
+			return true;
+		} finally {
+			ensuringPlayoffBracketRef.current = false;
+		}
+	}, [id, refreshPlayoffSection]);
+
 	const loadAll = useCallback(async () => {
 		if (!id) return;
 		try {
@@ -414,11 +427,10 @@ export default function TournamentDetailPage() {
 	useEffect(() => {
 		if (!id || activeTab !== "playoff" || anyPlayoffLocked || !playoffStageAvailable) return;
 		setSaving(true);
-		void ensurePlayoffBracket(id)
-			.then(refreshPlayoffSection)
+		void ensurePlayoffBracketSafe()
 			.catch((error) => toast.error((error as Error).message))
 			.finally(() => setSaving(false));
-	}, [id, activeTab, anyPlayoffLocked, playoffStageAvailable, refreshPlayoffSection]);
+	}, [id, activeTab, anyPlayoffLocked, playoffStageAvailable, ensurePlayoffBracketSafe]);
 
 	useEffect(() => {
 		if (!id) return;
@@ -634,13 +646,11 @@ export default function TournamentDetailPage() {
 				if (activeTab === "group") {
 					await refreshGroupStageSections();
 				} else if (activeTab === "playoff" && !anyPlayoffLocked && id) {
-					await ensurePlayoffBracket(id);
-					await refreshPlayoffSection();
+					await ensurePlayoffBracketSafe();
 				}
 			}
 			if (isPlayoffMatch) {
-				if (id) await ensurePlayoffBracket(id);
-				await refreshPlayoffSection();
+				await ensurePlayoffBracketSafe();
 			}
 			toast.success("Result locked.");
 		} catch (error) {

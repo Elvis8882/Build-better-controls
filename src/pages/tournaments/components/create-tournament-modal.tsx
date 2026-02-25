@@ -24,6 +24,7 @@ export function CreateTournamentModal({ open, onOpenChange, onCreated }: Props) 
 	const [saving, setSaving] = useState(false);
 	const [name, setName] = useState("");
 	const [presetId, setPresetId] = useState<TournamentPresetUi>("full_with_losers");
+	const isTwoVTwoPreset = presetId === "2v2_playoffs" || presetId === "2v2_tournament";
 	const [teamPool, setTeamPool] = useState<TeamPool>("NHL");
 	const [defaultParticipants, setDefaultParticipants] = useState(4);
 	const [groupCountInput, setGroupCountInput] = useState(1);
@@ -44,7 +45,7 @@ export function CreateTournamentModal({ open, onOpenChange, onCreated }: Props) 
 			toast.warning("Tournament name is required.");
 			return;
 		}
-		if (defaultParticipants < 3 || defaultParticipants > 16) {
+		if (!isTwoVTwoPreset && (defaultParticipants < 3 || defaultParticipants > 16)) {
 			toast.warning("Participants must be between 3 and 16.");
 			return;
 		}
@@ -101,7 +102,7 @@ export function CreateTournamentModal({ open, onOpenChange, onCreated }: Props) 
 						<p className="text-sm">Default participants</p>
 						<Input
 							type="number"
-							min={3}
+							min={isTwoVTwoPreset ? 4 : 3}
 							max={16}
 							value={defaultParticipants}
 							onChange={(event) => setDefaultParticipants(Number(event.target.value))}

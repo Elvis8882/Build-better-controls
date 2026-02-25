@@ -1,3 +1,9 @@
+create or replace function public.trg_advance_playoff_winner()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
 declare
   m record;
   winner uuid;
@@ -45,3 +51,4 @@ begin
 
   return new;
 end;
+$$;

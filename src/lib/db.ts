@@ -310,6 +310,12 @@ export async function createTournament(payload: {
 	}
 
 	const isTwoVTwoPreset = payload.presetId === "2v2_tournament" || payload.presetId === "2v2_playoffs";
+	if (isTwoVTwoPreset && (payload.defaultParticipants < 4 || payload.defaultParticipants > 16)) {
+		throw new Error("2v2 tournaments require between 4 and 16 default participants.");
+	}
+	if (!isTwoVTwoPreset && (payload.defaultParticipants < 3 || payload.defaultParticipants > 16)) {
+		throw new Error("Participants must be between 3 and 16.");
+	}
 	if (isTwoVTwoPreset && payload.defaultParticipants % 2 !== 0) {
 		throw new Error("2v2 tournaments require an even default participant count.");
 	}

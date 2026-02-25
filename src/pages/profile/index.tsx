@@ -273,6 +273,7 @@ export default function ProfilePage() {
 						<table className="w-full min-w-[860px] text-sm">
 							<thead className="bg-muted/50 text-muted-foreground">
 								<tr>
+									<th className="px-4 py-3 text-center">Player</th>
 									<th className="px-4 py-3 text-center">Team</th>
 									<th className="px-4 py-3 text-center">Games played</th>
 									<th className="px-4 py-3 text-center">Wins</th>
@@ -402,6 +403,7 @@ export default function ProfilePage() {
 							<thead className="bg-muted/50 text-muted-foreground">
 								<tr>
 									<th className="px-4 py-3 text-center">Placement</th>
+									<th className="px-4 py-3 text-center">Player</th>
 									<th className="px-4 py-3 text-center">Team</th>
 									<th className="px-4 py-3 text-center">Games played</th>
 									<th className="px-4 py-3 text-center">Wins</th>
@@ -416,13 +418,13 @@ export default function ProfilePage() {
 							<tbody>
 								{tournamentStatsLoading ? (
 									<tr>
-										<td className="px-4 py-3" colSpan={10}>
+										<td className="px-4 py-3" colSpan={11}>
 											Loading tournament statistics...
 										</td>
 									</tr>
 								) : tournamentStats.length === 0 ? (
 									<tr>
-										<td className="px-4 py-3" colSpan={10}>
+										<td className="px-4 py-3" colSpan={11}>
 											No tournament statistics available yet.
 										</td>
 									</tr>
@@ -430,6 +432,7 @@ export default function ProfilePage() {
 									tournamentStats.map((row, index) => (
 										<tr key={row.team_id} className="border-t">
 											<td className="px-4 py-3 text-center">{row.placement ?? index + 1}</td>
+											<td className="px-4 py-3 text-center">{row.player_name ?? "-"}</td>
 											<td className="px-4 py-3 text-center font-medium">
 												<div className="flex items-center justify-center gap-2">
 													<img

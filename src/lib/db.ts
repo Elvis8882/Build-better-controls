@@ -163,6 +163,7 @@ export type RegisteredProfile = {
 
 export type TournamentTeamStat = PlayerTeamStat & {
 	placement: number | null;
+	player_name: string | null;
 };
 
 export type PublicProfile = {
@@ -1236,7 +1237,7 @@ export async function listClosedTournaments(): Promise<Array<{ id: string; name:
 export async function listTournamentTeamStats(tournamentId: string): Promise<TournamentTeamStat[]> {
 	const { data: participantsData, error: participantsError } = await supabase
 		.from("tournament_participants")
-		.select("id, team_id, team:teams(id, code, name, team_pool)")
+		.select("id, team_id, guest_id, display_name, team:teams(id, code, name, team_pool)")
 		.eq("tournament_id", tournamentId)
 		.not("team_id", "is", null);
 	throwOnError(participantsError, "Unable to load tournament participants");
@@ -1245,9 +1246,13 @@ export async function listTournamentTeamStats(tournamentId: string): Promise<Tou
 		string,
 		{ team_id: string; team_code: string; team_name: string; team_pool: TeamPool }
 	>();
+	const teamPlayerNameByTeamId = new Map<string, string>();
+
 	for (const row of participantsData ?? []) {
 		const participantId = row.id as string;
 		const teamId = row.team_id as string | null;
+		const isGuest = Boolean(row.guest_id as string | null);
+		const displayName = (row.display_name as string | null)?.trim() ?? null;
 		const teamRaw = row.team as
 			| { id: string; code: string; name: string; team_pool: TeamPool }
 			| Array<{ id: string; code: string; name: string; team_pool: TeamPool }>
@@ -1260,6 +1265,12 @@ export async function listTournamentTeamStats(tournamentId: string): Promise<Tou
 			team_name: team.name,
 			team_pool: team.team_pool,
 		});
+
+		if (!displayName) continue;
+		const existingName = teamPlayerNameByTeamId.get(teamId);
+		if (!existingName || isGuest) {
+			teamPlayerNameByTeamId.set(teamId, displayName);
+		}
 	}
 
 	if (participantTeamMeta.size === 0) return [];
@@ -1339,6 +1350,7 @@ export async function listTournamentTeamStats(tournamentId: string): Promise<Tou
 				goals_received: 0,
 				goalie_save_rate: 0,
 				placement: null,
+				player_name: teamPlayerNameByTeamId.get(meta.team_id) ?? null,
 			};
 
 			current.games_played += 1;

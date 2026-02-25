@@ -288,6 +288,7 @@ export default function TournamentDetailPage() {
 
 	useEffect(() => {
 		if (!id) return;
+		const participantsPath = `/dashboard/tournaments/${id}/participants`;
 		const segments = location.pathname.split("/").filter(Boolean);
 		const lastSegment = segments[segments.length - 1];
 		if (lastSegment === "participants") {
@@ -297,6 +298,7 @@ export default function TournamentDetailPage() {
 		if (lastSegment === "group-stage") {
 			if (!groupStageAvailable) {
 				setActiveTab("participants");
+				navigate(participantsPath, { replace: true });
 				return;
 			}
 			setActiveTab("group");
@@ -305,13 +307,14 @@ export default function TournamentDetailPage() {
 		if (lastSegment === "playoff-bracket") {
 			if (!playoffStageAvailable) {
 				setActiveTab("participants");
+				navigate(participantsPath, { replace: true });
 				return;
 			}
 			setActiveTab("playoff");
 			return;
 		}
 		setActiveTab("participants");
-	}, [id, location.pathname, groupStageAvailable, playoffStageAvailable]);
+	}, [id, location.pathname, groupStageAvailable, playoffStageAvailable, navigate]);
 
 	const onTabChange = (nextTab: "participants" | "group" | "playoff") => {
 		if (nextTab === "group" && !groupStageAvailable) return;

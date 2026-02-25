@@ -1,3 +1,7 @@
+create or replace function public.trg_tournaments_enforce_even_2v2_default_participants()
+returns trigger
+language plpgsql
+as $$
 begin
   if new.preset_id in ('2v2_tournament', '2v2_playoffs') then
     if new.default_participants < 4 or new.default_participants > 16 then
@@ -19,3 +23,9 @@ begin
 
   return new;
 end;
+$$;
+
+drop trigger if exists tournaments_enforce_even_2v2_default_participants on public.tournaments;
+create trigger tournaments_enforce_even_2v2_default_participants
+before insert or update on public.tournaments
+for each row execute function public.trg_tournaments_enforce_even_2v2_default_participants();

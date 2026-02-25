@@ -226,7 +226,9 @@ as $$
 		update public.teams t
 		set ovr_tier = case
 			when r.rank_by_ovr <= 5 then 'Top 5'
-			when r.rank_by_ovr > r.pool_size - 5 then 'Bottom Tier'
+			when r.team_pool = 'INTL' and r.rank_by_ovr > r.pool_size - 5 then 'Bottom Tier'
+			when r.team_pool = 'INTL' then 'Middle Tier'
+			when r.rank_by_ovr > r.pool_size - 10 then 'Bottom Tier'
 			when r.rank_by_ovr <= 10 then 'Top 10'
 			else 'Middle Tier'
 		end

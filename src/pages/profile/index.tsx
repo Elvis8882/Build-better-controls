@@ -402,7 +402,7 @@ export default function ProfilePage() {
 							<thead className="bg-muted/50 text-muted-foreground">
 								<tr>
 									<th className="px-4 py-3 text-center">Placement</th>
-									<th className="px-4 py-3 text-center">Player</th>
+									<th className="px-4 py-3 text-center">Players</th>
 									<th className="px-4 py-3 text-center">Team</th>
 									<th className="px-4 py-3 text-center">Games played</th>
 									<th className="px-4 py-3 text-center">Wins</th>

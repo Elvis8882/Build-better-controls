@@ -158,70 +158,8 @@ export default function ProfilePage() {
 			<div className="space-y-2">
 				<h1 className="text-2xl font-semibold">Statistics</h1>
 				<p className="text-sm text-muted-foreground">
-					Performance by team across all tournaments with saved match results.
+					Performance by team across all tournaments and within selected closed tournaments with saved match results.
 				</p>
-				<div className="grid max-w-3xl gap-4 md:grid-cols-2">
-					<div className="space-y-2">
-						<label className="text-sm font-medium" htmlFor="profile-search">
-							Search member
-						</label>
-						<input
-							id="profile-search"
-							className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-							placeholder="Type username..."
-							value={query}
-							onChange={(event) => setQuery(event.target.value)}
-						/>
-						{results.length > 0 && (
-							<div className="rounded-md border bg-background">
-								{results.map((item) => (
-									<button
-										key={item.id}
-										type="button"
-										className="block w-full px-3 py-2 text-left text-sm hover:bg-muted"
-										onClick={() => {
-											setSelectedUser(item);
-											setFriendSelection("");
-											setQuery(item.username);
-											setResults([]);
-										}}
-									>
-										{item.username}
-									</button>
-								))}
-							</div>
-						)}
-					</div>
-					<div className="space-y-2">
-						<label className="text-sm font-medium" htmlFor="friend-select">
-							Quick select friend
-						</label>
-						<select
-							id="friend-select"
-							value={friendSelection}
-							onChange={(event) => {
-								const selectedId = event.target.value;
-								setFriendSelection(selectedId);
-								const friend = friends.find((item) => item.id === selectedId);
-								if (!friend) return;
-								setSelectedUser(friend);
-								setQuery(friend.username);
-								setResults([]);
-							}}
-							className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-						>
-							<option value="">Select friend...</option>
-							{friends.map((friend) => (
-								<option key={friend.id} value={friend.id}>
-									{friend.username}
-								</option>
-							))}
-						</select>
-					</div>
-				</div>
-				{selectedUser && (
-					<p className="text-sm text-muted-foreground">Showing statistics for: {selectedUser.username}</p>
-				)}
 			</div>
 
 			<Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "players" | "tournaments")}>
@@ -231,6 +169,69 @@ export default function ProfilePage() {
 				</TabsList>
 
 				<TabsContent value="players" className="space-y-4">
+					<div className="grid max-w-3xl gap-4 md:grid-cols-2">
+						<div className="space-y-2">
+							<label className="text-sm font-medium" htmlFor="profile-search">
+								Search member
+							</label>
+							<input
+								id="profile-search"
+								className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+								placeholder="Type username..."
+								value={query}
+								onChange={(event) => setQuery(event.target.value)}
+							/>
+							{results.length > 0 && (
+								<div className="rounded-md border bg-background">
+									{results.map((item) => (
+										<button
+											key={item.id}
+											type="button"
+											className="block w-full px-3 py-2 text-left text-sm hover:bg-muted"
+											onClick={() => {
+												setSelectedUser(item);
+												setFriendSelection("");
+												setQuery(item.username);
+												setResults([]);
+											}}
+										>
+											{item.username}
+										</button>
+									))}
+								</div>
+							)}
+						</div>
+						<div className="space-y-2">
+							<label className="text-sm font-medium" htmlFor="friend-select">
+								Quick select friend
+							</label>
+							<select
+								id="friend-select"
+								value={friendSelection}
+								onChange={(event) => {
+									const selectedId = event.target.value;
+									setFriendSelection(selectedId);
+									const friend = friends.find((item) => item.id === selectedId);
+									if (!friend) return;
+									setSelectedUser(friend);
+									setQuery(friend.username);
+									setResults([]);
+								}}
+								className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+							>
+								<option value="">Select friend...</option>
+								{friends.map((friend) => (
+									<option key={friend.id} value={friend.id}>
+										{friend.username}
+									</option>
+								))}
+							</select>
+						</div>
+					</div>
+					{selectedUser && (
+						<p className="text-sm text-muted-foreground">Showing statistics for: {selectedUser.username}</p>
+					)}
+
 					<div className="grid gap-4 rounded-lg border p-4 text-center md:grid-cols-3">
 						<div className="flex flex-col items-center justify-start gap-2">
 							<div className="flex h-16 items-center justify-center">

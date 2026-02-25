@@ -49,6 +49,10 @@ export function CreateTournamentModal({ open, onOpenChange, onCreated }: Props) 
 			toast.warning("Participants must be between 3 and 16.");
 			return;
 		}
+		if (isTwoVTwoPreset && defaultParticipants % 2 !== 0) {
+			toast.warning("2v2 tournaments require an even default participant count.");
+			return;
+		}
 		if (isGroupThenPlayoffFlow(presetId) && groupResolution.error) {
 			toast.error(groupResolution.error);
 			return;

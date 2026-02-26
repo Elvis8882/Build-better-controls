@@ -119,6 +119,8 @@ begin
   ) into v_has_group;
 
   if v_has_group then
+    -- v_playoff_seeds must expose: tournament_id uuid, participant_id uuid, seed int.
+    -- For team-based presets, it must emit one representative participant per team.
     select array_agg(participant_id order by seed asc) into v_seeded
     from public.v_playoff_seeds
     where tournament_id = p_tournament_id;

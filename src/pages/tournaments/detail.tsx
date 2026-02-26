@@ -54,7 +54,6 @@ import {
 } from "@/pages/tournaments/preset-flow";
 import {
 	computeRoundRobinStandings,
-	getActiveUpcomingMatches,
 	pickRerolledTeam,
 	resolveTierFromTeam,
 	TIER_ORDER,
@@ -930,11 +929,6 @@ export default function TournamentDetailPage() {
 		() => computeRoundRobinStandings(groupMatches, displayParticipants),
 		[groupMatches, displayParticipants],
 	);
-	const roundRobinUpcomingMatches = useMemo(() => getActiveUpcomingMatches(groupMatches), [groupMatches]);
-	const roundRobinFinishedMatches = useMemo(
-		() => groupMatches.filter((match) => Boolean(match.result?.locked)),
-		[groupMatches],
-	);
 
 	if (loading) return <div className="p-6 text-sm text-muted-foreground">Loading tournament...</div>;
 	if (!tournament) return <div className="p-6 text-sm text-muted-foreground">Tournament not found.</div>;
@@ -1333,38 +1327,23 @@ export default function TournamentDetailPage() {
 							}
 							matchesTable={
 								roundRobinTiersPreset ? (
-									<section className="space-y-3 rounded-lg border p-4">
-										<h2 className="text-lg font-semibold">Matches</h2>
-										<GroupMatchesTable
-											matches={roundRobinUpcomingMatches}
-											teamById={teamById}
-											resultDrafts={resultDrafts}
-											saving={saving}
-											canEditMatch={canEditGroupMatch}
-											onResultDraftChange={(matchId, next) =>
-												setResultDrafts((previous) => ({ ...previous, [matchId]: next }))
-											}
-											onLockResult={onLockResult}
-											onEditResult={
-												isHostOrAdmin
-													? (matchId) => setEditingMatchIds((previous) => new Set(previous).add(matchId))
-													: undefined
-											}
-										/>
-										<div className="pt-3">
-											<GroupMatchesTable
-												matches={roundRobinFinishedMatches}
-												teamById={teamById}
-												resultDrafts={resultDrafts}
-												saving={saving}
-												canEditMatch={canEditGroupMatch}
-												onResultDraftChange={(matchId, next) =>
-													setResultDrafts((previous) => ({ ...previous, [matchId]: next }))
-												}
-												onLockResult={onLockResult}
-											/>
-										</div>
-									</section>
+									<GroupMatchesTable
+										matches={groupMatches}
+										teamById={teamById}
+										resultDrafts={resultDrafts}
+										saving={saving}
+										canEditMatch={canEditGroupMatch}
+										onResultDraftChange={(matchId, next) =>
+											setResultDrafts((previous) => ({ ...previous, [matchId]: next }))
+										}
+										onLockResult={onLockResult}
+										onEditResult={
+											isHostOrAdmin
+												? (matchId) => setEditingMatchIds((previous) => new Set(previous).add(matchId))
+												: undefined
+										}
+										useParticipantNames
+									/>
 								) : (
 									<GroupMatchesTable
 										matches={groupMatches}

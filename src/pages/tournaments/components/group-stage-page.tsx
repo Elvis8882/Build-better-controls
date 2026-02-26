@@ -473,6 +473,7 @@ export function GroupMatchesTable({
 	onResultDraftChange,
 	onLockResult,
 	onEditResult,
+	useParticipantNames = false,
 }: {
 	matches: MatchWithResult[];
 	teamById: Map<string, Team>;
@@ -482,6 +483,7 @@ export function GroupMatchesTable({
 	onResultDraftChange: (matchId: string, next: EditableResult) => void;
 	onLockResult: (matchId: string) => Promise<void>;
 	onEditResult?: (matchId: string) => void;
+	useParticipantNames?: boolean;
 }) {
 	const finishedMatches = useMemo(() => matches.filter((match) => Boolean(match.result?.locked)), [matches]);
 	const upcomingMatches = useMemo(() => matches.filter((match) => !match.result?.locked), [matches]);
@@ -527,7 +529,9 @@ export function GroupMatchesTable({
 								<div
 									className={`rounded-lg border border-primary/20 p-3 text-left ${winningSide === "HOME" ? "bg-green-100/80" : ""}`}
 								>
-									<p className="text-xs font-semibold uppercase tracking-wide text-primary">Home Team</p>
+									<p className="text-xs font-semibold uppercase tracking-wide text-primary">
+										{useParticipantNames ? "Home Player" : "Home Team"}
+									</p>
 									<div className="mt-1 flex items-center gap-2">
 										{homeTeam && (
 											<img
@@ -537,7 +541,11 @@ export function GroupMatchesTable({
 												onError={handleTeamLogoImageError}
 											/>
 										)}
-										<p className="text-base font-semibold">{homeTeam?.name ?? match.home_participant_name}</p>
+										<p className="text-base font-semibold">
+											{useParticipantNames
+												? (match.home_participant_name ?? homeTeam?.name ?? "TBD")
+												: (homeTeam?.name ?? match.home_participant_name)}
+										</p>
 									</div>
 									<p className="mt-1 text-xs text-muted-foreground">
 										Score: {match.result?.home_score ?? "-"} • SOG: {match.result?.home_shots ?? "-"}
@@ -564,9 +572,15 @@ export function GroupMatchesTable({
 								<div
 									className={`rounded-lg border border-primary/20 p-3 text-right ${winningSide === "AWAY" ? "bg-green-100/80" : ""}`}
 								>
-									<p className="text-xs font-semibold uppercase tracking-wide text-secondary-foreground">Away Team</p>
+									<p className="text-xs font-semibold uppercase tracking-wide text-secondary-foreground">
+										{useParticipantNames ? "Away Player" : "Away Team"}
+									</p>
 									<div className="mt-1 flex items-center justify-end gap-2">
-										<p className="text-base font-semibold">{awayTeam?.name ?? match.away_participant_name}</p>
+										<p className="text-base font-semibold">
+											{useParticipantNames
+												? (match.away_participant_name ?? awayTeam?.name ?? "TBD")
+												: (awayTeam?.name ?? match.away_participant_name)}
+										</p>
 										{awayTeam && (
 											<img
 												src={getTeamLogoUrl(awayTeam.code, awayTeam.team_pool)}

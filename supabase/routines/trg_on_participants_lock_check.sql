@@ -12,7 +12,7 @@ begin
     if v_total = v_locked then
       select preset_id into v_preset from public.tournaments where id = new.tournament_id;
 
-      if v_preset in ('2v2_tournament', '2v2_playoffs') then
+      if v_preset in ('2v2_tournament', '2v2_playoffs', 'round_robin_tiers') then
         select count(*) into v_team_entrants
         from (
           select tp.team_id

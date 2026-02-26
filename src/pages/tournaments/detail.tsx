@@ -739,19 +739,48 @@ export default function TournamentDetailPage() {
 			deltas.set(loserId, -1);
 		}
 
+		const latestTeamByParticipantId = new Map(participants.map((participant) => [participant.id, participant.team_id]));
+
 		for (const [participantId, delta] of deltas.entries()) {
 			const participant = participants.find((row) => row.id === participantId);
 			if (!participant) continue;
-			const currentTier = resolveTierFromTeam(participant.team_id, teams);
+
+			const currentTeamId = latestTeamByParticipantId.get(participant.id) ?? participant.team_id;
+			const currentTier = resolveTierFromTeam(currentTeamId, teams);
 			const currentIndex = TIER_ORDER.indexOf(currentTier);
 			const nextIndex = Math.min(TIER_ORDER.length - 1, Math.max(0, currentIndex + delta));
-			const nextTeamId = pickRerolledTeam({
-				teams,
-				targetTier: TIER_ORDER[nextIndex],
-				previousTeamId: participant.team_id,
-			});
-			if (!nextTeamId) continue;
-			await updateParticipant(participantId, nextTeamId);
+
+			const occupiedTeamIds = new Set(
+				[...latestTeamByParticipantId.entries()]
+					.filter(([id, teamId]) => id !== participantId && Boolean(teamId))
+					.map(([, teamId]) => teamId as string),
+			);
+			const attemptedTeamIds = new Set<string>();
+
+			for (let attempt = 0; attempt < 5; attempt += 1) {
+				const nextTeamId = pickRerolledTeam({
+					teams,
+					targetTier: TIER_ORDER[nextIndex],
+					previousTeamId: currentTeamId,
+					excludedTeamIds: new Set([...occupiedTeamIds, ...attemptedTeamIds]),
+				});
+				if (!nextTeamId || attemptedTeamIds.has(nextTeamId)) break;
+
+				attemptedTeamIds.add(nextTeamId);
+				try {
+					await updateParticipant(participantId, nextTeamId);
+					latestTeamByParticipantId.set(participantId, nextTeamId);
+					break;
+				} catch (error) {
+					const message = `${(error as Error).message ?? ""}`.toLowerCase();
+					if (!message.includes("tournament_participants_team_unique") && !message.includes("duplicate key value")) {
+						throw error;
+					}
+					if (attempt === 4) {
+						throw error;
+					}
+				}
+			}
 		}
 	};
 
@@ -773,7 +802,15 @@ export default function TournamentDetailPage() {
 			);
 			const matchForSnapshot =
 				groupMatches.find((match) => match.id === matchId) ?? playoffMatches.find((match) => match.id === matchId);
-			await lockMatchResult(matchId, matchForSnapshot?.home_team_id ?? null, matchForSnapshot?.away_team_id ?? null);
+			const homeTeamIdForResult =
+				participants.find((participant) => participant.id === matchForSnapshot?.home_participant_id)?.team_id ??
+				matchForSnapshot?.home_team_id ??
+				null;
+			const awayTeamIdForResult =
+				participants.find((participant) => participant.id === matchForSnapshot?.away_participant_id)?.team_id ??
+				matchForSnapshot?.away_team_id ??
+				null;
+			await lockMatchResult(matchId, homeTeamIdForResult, awayTeamIdForResult);
 			await rerollRoundRobinWaveIfNeeded(matchId, parsed);
 			setEditingMatchIds((previous) => {
 				const next = new Set(previous);

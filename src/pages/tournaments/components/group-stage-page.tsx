@@ -24,6 +24,11 @@ type EditableResult = {
 
 type TeamFilter = "ALL" | Team["ovr_tier"];
 
+const stripHostTag = (value: string | null | undefined): string => {
+	if (!value) return "TBD";
+	return value.replace(/\s*\(host\)$/i, "").trim();
+};
+
 export function ParticipantsTable({
 	tournament,
 	participants,
@@ -556,7 +561,7 @@ export function GroupMatchesTable({
 										)}
 										<p className="text-base font-semibold">
 											{useParticipantNames
-												? (match.home_participant_name ?? homeTeam?.name ?? "TBD")
+												? stripHostTag(match.home_participant_name ?? homeTeam?.name)
 												: (homeTeam?.name ?? match.home_participant_name)}
 										</p>
 									</div>
@@ -591,7 +596,7 @@ export function GroupMatchesTable({
 									<div className="mt-1 flex items-center justify-end gap-2">
 										<p className="text-base font-semibold">
 											{useParticipantNames
-												? (match.away_participant_name ?? awayTeam?.name ?? "TBD")
+												? stripHostTag(match.away_participant_name ?? awayTeam?.name)
 												: (awayTeam?.name ?? match.away_participant_name)}
 										</p>
 										{awayTeam && (

@@ -1,6 +1,6 @@
 import { type ReactNode, useMemo } from "react";
 import type { MatchParticipantDecision, MatchWithResult, Team } from "@/lib/db";
-import { getTeamLogoUrl } from "@/lib/teamLogos";
+import { getTeamLogoUrl, handleTeamLogoImageError } from "@/lib/teamLogos";
 import { Badge } from "@/ui/badge";
 import { Button } from "@/ui/button";
 import { Input } from "@/ui/input";
@@ -410,6 +410,7 @@ export function PlayoffMatchesTable({
 												src={getTeamLogoUrl(homeTeam.code, homeTeam.team_pool)}
 												alt={`${homeTeam.name} logo`}
 												className="h-14 w-14 object-contain"
+												onError={handleTeamLogoImageError}
 											/>
 										)}
 										<p className="text-base font-semibold">
@@ -453,6 +454,7 @@ export function PlayoffMatchesTable({
 												src={getTeamLogoUrl(awayTeam.code, awayTeam.team_pool)}
 												alt={`${awayTeam.name} logo`}
 												className="h-14 w-14 object-contain"
+												onError={handleTeamLogoImageError}
 											/>
 										)}
 									</div>

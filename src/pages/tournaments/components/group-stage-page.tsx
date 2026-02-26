@@ -8,7 +8,7 @@ import type {
 	TournamentGroup,
 	TournamentParticipant,
 } from "@/lib/db";
-import { getTeamLogoUrl } from "@/lib/teamLogos";
+import { getTeamLogoUrl, handleTeamLogoImageError } from "@/lib/teamLogos";
 import { Badge } from "@/ui/badge";
 import { Button } from "@/ui/button";
 import { Input } from "@/ui/input";
@@ -246,6 +246,7 @@ export function ParticipantsTable({
 														src={getTeamLogoUrl(pairTeam.code, pairTeam.team_pool)}
 														alt={`${pairTeam.name} logo`}
 														className="h-7 w-7 rounded-sm object-contain"
+														onError={handleTeamLogoImageError}
 													/>
 													<p className="text-center text-xs text-muted-foreground md:text-left">
 														OVR {pairTeam.overall} • OFF {pairTeam.offense} • DEF {pairTeam.defense} • GOA{" "}
@@ -523,6 +524,7 @@ export function GroupMatchesTable({
 												src={getTeamLogoUrl(homeTeam.code, homeTeam.team_pool)}
 												alt={`${homeTeam.name} logo`}
 												className="h-14 w-14 object-contain"
+												onError={handleTeamLogoImageError}
 											/>
 										)}
 										<p className="text-base font-semibold">{homeTeam?.name ?? match.home_participant_name}</p>
@@ -560,6 +562,7 @@ export function GroupMatchesTable({
 												src={getTeamLogoUrl(awayTeam.code, awayTeam.team_pool)}
 												alt={`${awayTeam.name} logo`}
 												className="h-14 w-14 object-contain"
+												onError={handleTeamLogoImageError}
 											/>
 										)}
 									</div>

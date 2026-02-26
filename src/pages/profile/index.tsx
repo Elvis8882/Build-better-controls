@@ -12,7 +12,7 @@ import {
 	searchRegisteredProfiles,
 	type TournamentTeamStat,
 } from "@/lib/db";
-import { getTeamLogoUrl } from "@/lib/teamLogos";
+import { getTeamLogoUrl, handleTeamLogoImageError } from "@/lib/teamLogos";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/ui/tabs";
 
 function formatSaveRate(value: number): string {
@@ -240,6 +240,7 @@ export default function ProfilePage() {
 										src={getTeamLogoUrl(mostPlayedTeam.team_code, mostPlayedTeam.team_pool)}
 										alt={`${mostPlayedTeam.team_name} logo`}
 										className="h-16 w-16 object-contain"
+										onError={handleTeamLogoImageError}
 									/>
 								) : (
 									<span className="text-3xl font-semibold">-</span>
@@ -260,6 +261,7 @@ export default function ProfilePage() {
 										src={getTeamLogoUrl(mostSkinnerMomentsTeam.team_code, mostSkinnerMomentsTeam.team_pool)}
 										alt={`${mostSkinnerMomentsTeam.team_name} logo`}
 										className="h-16 w-16 object-contain"
+										onError={handleTeamLogoImageError}
 									/>
 								) : (
 									<span className="text-3xl font-semibold">-</span>
@@ -306,6 +308,7 @@ export default function ProfilePage() {
 														src={getTeamLogoUrl(row.team_code, row.team_pool)}
 														alt={`${row.team_name} logo`}
 														className="h-5 w-5 object-contain"
+														onError={handleTeamLogoImageError}
 													/>
 													<span>{row.team_name}</span>
 												</div>
@@ -357,6 +360,7 @@ export default function ProfilePage() {
 										src={getTeamLogoUrl(bestGoalieTeam.team_code, bestGoalieTeam.team_pool)}
 										alt={`${bestGoalieTeam.team_name} logo`}
 										className="h-16 w-16 object-contain"
+										onError={handleTeamLogoImageError}
 									/>
 								) : (
 									<span className="text-3xl font-semibold">-</span>
@@ -371,6 +375,7 @@ export default function ProfilePage() {
 										src={getTeamLogoUrl(mostWinsTeam.team_code, mostWinsTeam.team_pool)}
 										alt={`${mostWinsTeam.team_name} logo`}
 										className="h-16 w-16 object-contain"
+										onError={handleTeamLogoImageError}
 									/>
 								) : (
 									<span className="text-3xl font-semibold">-</span>
@@ -388,6 +393,7 @@ export default function ProfilePage() {
 										)}
 										alt={`${tournamentMostSkinnerMomentsTeam.team_name} logo`}
 										className="h-16 w-16 object-contain"
+										onError={handleTeamLogoImageError}
 									/>
 								) : (
 									<span className="text-3xl font-semibold">-</span>
@@ -438,6 +444,7 @@ export default function ProfilePage() {
 														src={getTeamLogoUrl(row.team_code, row.team_pool)}
 														alt={`${row.team_name} logo`}
 														className="h-5 w-5 object-contain"
+														onError={handleTeamLogoImageError}
 													/>
 													<span>{row.team_name}</span>
 												</div>

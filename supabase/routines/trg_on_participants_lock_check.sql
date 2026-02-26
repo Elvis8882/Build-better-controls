@@ -26,12 +26,18 @@ begin
         if v_team_entrants < 3 then
           return new;
         end if;
+      elsif v_preset = 'round_robin_tiers' then
+        if v_total < 4 then
+          return new;
+        end if;
       elsif v_total < 3 then
         return new;
       end if;
 
       if v_preset in ('full_with_losers','full_no_losers','2v2_tournament') then
         perform public.generate_group_stage(new.tournament_id);
+      elsif v_preset = 'round_robin_tiers' then
+        perform public.generate_round_robin_tiers_stage(new.tournament_id);
       else
         perform public.ensure_playoff_bracket(new.tournament_id);
       end if;

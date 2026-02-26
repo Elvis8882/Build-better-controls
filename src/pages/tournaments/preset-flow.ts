@@ -4,6 +4,7 @@ import {
 	isGroupThenPlayoffPreset,
 	isPlayoffOnlyPreset,
 	isTwoVTwoPreset,
+	isRoundRobinTiersPreset,
 	type TournamentPreset,
 } from "@/lib/tournament-preset-contract";
 
@@ -80,3 +81,5 @@ export const resolvePresetGroupCount = (
 		error: resolution.error,
 	};
 };
+
+export const isRoundRobinTiersFlow = (preset: TournamentPresetFlowInput): boolean => isRoundRobinTiersPreset(preset);

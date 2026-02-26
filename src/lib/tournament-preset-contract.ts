@@ -8,6 +8,7 @@ export const TOURNAMENT_PRESET_VALUES = [
 	"full_no_losers",
 	"2v2_tournament",
 	"2v2_playoffs",
+	"round_robin_tiers",
 ] as const;
 
 export type TournamentPreset = (typeof TOURNAMENT_PRESET_VALUES)[number];
@@ -38,3 +39,6 @@ export function normalizeTournamentPreset(preset: string | null, context: string
 	}
 	throw new Error(`Unknown tournament preset \"${preset}\" encountered (${context}).`);
 }
+
+export const isRoundRobinTiersPreset = (preset: TournamentPreset | null | undefined): boolean =>
+	preset === "round_robin_tiers";

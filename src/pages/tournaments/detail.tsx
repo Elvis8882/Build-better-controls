@@ -6,13 +6,14 @@ import {
 	addTournamentGuest,
 	createParticipant,
 	ensurePlayoffBracket,
-	fetchTeamsByPool,
 	type FriendProfile,
+	fetchTeamsByPool,
 	type GroupStanding,
 	generateGroupsAndMatches,
+	generateRoundRobinTiersStage,
 	getTournament,
-	listFriends,
 	inviteMember,
+	listFriends,
 	listGroupStandings,
 	listGroups,
 	listMatchesWithResults,
@@ -45,7 +46,19 @@ import {
 	PlayoffBracketPage,
 	PlayoffMatchesTable,
 } from "@/pages/tournaments/components/playoff-bracket-page";
-import { hasLosersProgressionFlow, isGroupThenPlayoffFlow, isTwoVTwoFlow } from "@/pages/tournaments/preset-flow";
+import {
+	hasLosersProgressionFlow,
+	isGroupThenPlayoffFlow,
+	isRoundRobinTiersFlow,
+	isTwoVTwoFlow,
+} from "@/pages/tournaments/preset-flow";
+import {
+	computeRoundRobinStandings,
+	getActiveUpcomingMatches,
+	pickRerolledTeam,
+	resolveTierFromTeam,
+	TIER_ORDER,
+} from "@/pages/tournaments/round-robin-tiers";
 import { Button } from "@/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/ui/tabs";
 
@@ -81,6 +94,7 @@ const getPresetTypeLabel = (presetId: Tournament["preset_id"]): string => {
 	if (presetId === "full_with_losers") return "Full tournament (with loser bracket)";
 	if (presetId === "full_no_losers") return "Full tournament (without loser bracket)";
 	if (presetId === "2v2_tournament") return "2v2 Tournament";
+	if (presetId === "round_robin_tiers") return "Round-robin tiers (fun 1v1)";
 	return "Tournament";
 };
 
@@ -140,7 +154,7 @@ export default function TournamentDetailPage() {
 	const [editingParticipantIds, setEditingParticipantIds] = useState<Set<string>>(new Set());
 	const [editingMatchIds, setEditingMatchIds] = useState<Set<string>>(new Set());
 	const [activeTab, setActiveTab] = useState<"participants" | "group" | "playoff">("participants");
-	const [twoVTwoPairOrderById, setTwoVTwoPairOrderById] = useState<Map<string, number>>(new Map());
+	const [twoVTwoPairOrderById] = useState<Map<string, number>>(new Map());
 	const ensuringPlayoffBracketRef = useRef(false);
 
 	const isAdmin = profile?.role === "admin";
@@ -185,6 +199,7 @@ export default function TournamentDetailPage() {
 	}, [participants, tournament, twoVTwoPairOrderById]);
 	const teamById = useMemo(() => new Map(teams.map((team) => [team.id, team])), [teams]);
 	const twoVTwoPreset = isTwoVTwoFlow(tournament?.preset_id ?? null);
+	const roundRobinTiersPreset = isRoundRobinTiersFlow(tournament?.preset_id ?? null);
 	const assignedTeamCounts = useMemo(() => {
 		const counts = new Map<string, number>();
 		for (const participant of displayParticipants) {
@@ -204,7 +219,7 @@ export default function TournamentDetailPage() {
 	);
 	const allLockedWithTeams =
 		displayParticipants.length === slots &&
-		displayParticipants.every((participant) => participant.locked && participant.team_id);
+		displayParticipants.every((participant) => participant.locked && (roundRobinTiersPreset || participant.team_id));
 	const teamsValidForPreset = useMemo(() => {
 		if (!twoVTwoPreset) return true;
 		if (!allLockedWithTeams) return false;
@@ -216,8 +231,14 @@ export default function TournamentDetailPage() {
 	const allGroupMatchesLocked = groupMatches.length > 0 && groupMatches.every((match) => Boolean(match.result?.locked));
 	const fullPreset = isGroupThenPlayoffFlow(tournament?.preset_id ?? null);
 	const canGenerateGroups = fullPreset && allLockedWithTeams && teamsValidForPreset && groups.length === 0;
-	const groupStageAvailable = fullPreset && (groups.length > 0 || groupMatches.length > 0);
-	const playoffStageAvailable = fullPreset ? allGroupMatchesLocked : allLockedWithTeams && teamsValidForPreset;
+	const canGenerateRoundRobinTiers =
+		roundRobinTiersPreset && allLockedWithTeams && teamsValidForPreset && groupMatches.length === 0;
+	const groupStageAvailable = (fullPreset || roundRobinTiersPreset) && (groups.length > 0 || groupMatches.length > 0);
+	const playoffStageAvailable = roundRobinTiersPreset
+		? false
+		: fullPreset
+			? allGroupMatchesLocked
+			: allLockedWithTeams && teamsValidForPreset;
 	const anyPlayoffLocked = playoffMatches.some((match) => Boolean(match.result?.locked));
 	const lockedPlayoffMatchIds = useMemo(
 		() => new Set(playoffMatches.filter((match) => Boolean(match.result?.locked)).map((match) => match.id)),
@@ -280,11 +301,15 @@ export default function TournamentDetailPage() {
 	const allPlayoffMatchesLockedByStage =
 		playoffMatches.length > 0 &&
 		playoffMatches.filter(isMatchDisplayable).every((match) => Boolean(match.result?.locked));
-	const tournamentStarted = allLockedWithTeams && (fullPreset ? groupMatches.length > 0 : playoffMatches.length > 0);
-	const tournamentCanClose = allPlayoffMatchesLockedByStage && (fullPreset ? allGroupMatchesLocked : true);
+	const tournamentStarted =
+		allLockedWithTeams && (fullPreset || roundRobinTiersPreset ? groupMatches.length > 0 : playoffMatches.length > 0);
+	const tournamentCanClose = roundRobinTiersPreset
+		? allGroupMatchesLocked
+		: allPlayoffMatchesLockedByStage && (fullPreset ? allGroupMatchesLocked : true);
 	const tournamentClosed = tournament?.status === "Closed";
-	const participantFieldsLocked = tournamentClosed || (fullPreset ? groupStageAvailable : playoffMatches.length > 0);
-	const groupStageEditingLocked = tournamentClosed || anyPlayoffLocked;
+	const participantFieldsLocked =
+		tournamentClosed || (fullPreset || roundRobinTiersPreset ? groupStageAvailable : playoffMatches.length > 0);
+	const groupStageEditingLocked = tournamentClosed || (!roundRobinTiersPreset && anyPlayoffLocked);
 
 	useEffect(() => {
 		if (!id) return;
@@ -456,6 +481,16 @@ export default function TournamentDetailPage() {
 			.catch((error) => toast.error((error as Error).message))
 			.finally(() => setSaving(false));
 	}, [id, isHostOrAdmin, saving, canGenerateGroups, loadAll]);
+
+	useEffect(() => {
+		if (!id || !isHostOrAdmin || saving || !canGenerateRoundRobinTiers) return;
+		setSaving(true);
+		void generateRoundRobinTiersStage(id)
+			.then(loadAll)
+			.then(() => toast.success("Round-robin schedule generated."))
+			.catch((error) => toast.error((error as Error).message))
+			.finally(() => setSaving(false));
+	}, [id, isHostOrAdmin, saving, canGenerateRoundRobinTiers, loadAll]);
 
 	useEffect(() => {
 		if (!id || activeTab !== "playoff" || anyPlayoffLocked || !playoffStageAvailable) return;
@@ -653,6 +688,45 @@ export default function TournamentDetailPage() {
 		return parsed;
 	};
 
+	const rerollRoundRobinWaveIfNeeded = async (lockedMatchId: string, parsed: ParsedResult) => {
+		if (!roundRobinTiersPreset) return;
+		const lockedMatch = groupMatches.find((match) => match.id === lockedMatchId);
+		if (!lockedMatch) return;
+		const waveMatches = groupMatches.filter((match) => match.round === lockedMatch.round);
+		const waveComplete = waveMatches.every((match) =>
+			match.id === lockedMatchId ? true : Boolean(match.result?.locked),
+		);
+		if (!waveComplete) return;
+
+		const deltas = new Map<string, number>();
+		for (const match of waveMatches) {
+			const homeId = match.home_participant_id;
+			const awayId = match.away_participant_id;
+			if (!homeId || !awayId) continue;
+			const homeScore = match.id === lockedMatchId ? parsed.homeScore : (match.result?.home_score ?? 0);
+			const awayScore = match.id === lockedMatchId ? parsed.awayScore : (match.result?.away_score ?? 0);
+			const winnerId = homeScore > awayScore ? homeId : awayId;
+			const loserId = winnerId === homeId ? awayId : homeId;
+			deltas.set(winnerId, 1);
+			deltas.set(loserId, -1);
+		}
+
+		for (const [participantId, delta] of deltas.entries()) {
+			const participant = participants.find((row) => row.id === participantId);
+			if (!participant) continue;
+			const currentTier = resolveTierFromTeam(participant.team_id, teams);
+			const currentIndex = TIER_ORDER.indexOf(currentTier);
+			const nextIndex = Math.min(TIER_ORDER.length - 1, Math.max(0, currentIndex + delta));
+			const nextTeamId = pickRerolledTeam({
+				teams,
+				targetTier: TIER_ORDER[nextIndex],
+				previousTeamId: participant.team_id,
+			});
+			if (!nextTeamId) continue;
+			await updateParticipant(participantId, nextTeamId);
+		}
+	};
+
 	const onLockResult = async (matchId: string) => {
 		const parsed = parseResultDraft(matchId);
 		if (!parsed) return;
@@ -669,13 +743,19 @@ export default function TournamentDetailPage() {
 				parsed.awayShots,
 				parsed.decision,
 			);
-			await lockMatchResult(matchId);
+			const matchForSnapshot =
+				groupMatches.find((match) => match.id === matchId) ?? playoffMatches.find((match) => match.id === matchId);
+			await lockMatchResult(matchId, matchForSnapshot?.home_team_id ?? null, matchForSnapshot?.away_team_id ?? null);
+			await rerollRoundRobinWaveIfNeeded(matchId, parsed);
 			setEditingMatchIds((previous) => {
 				const next = new Set(previous);
 				next.delete(matchId);
 				return next;
 			});
 			if (isGroupMatch) {
+				if (roundRobinTiersPreset) {
+					await refreshParticipantsSection();
+				}
 				if (activeTab === "group") {
 					await refreshGroupStageSections();
 				} else if (activeTab === "playoff" && !anyPlayoffLocked && id) {
@@ -820,6 +900,16 @@ export default function TournamentDetailPage() {
 			setSaving(false);
 		}
 	};
+
+	const roundRobinStandings = useMemo(
+		() => computeRoundRobinStandings(groupMatches, displayParticipants),
+		[groupMatches, displayParticipants],
+	);
+	const roundRobinUpcomingMatches = useMemo(() => getActiveUpcomingMatches(groupMatches), [groupMatches]);
+	const roundRobinFinishedMatches = useMemo(
+		() => groupMatches.filter((match) => Boolean(match.result?.locked)),
+		[groupMatches],
+	);
 
 	if (loading) return <div className="p-6 text-sm text-muted-foreground">Loading tournament...</div>;
 	if (!tournament) return <div className="p-6 text-sm text-muted-foreground">Tournament not found.</div>;
@@ -970,6 +1060,7 @@ export default function TournamentDetailPage() {
 		if (standing === 2) medalByParticipantId.set(participantId, "silver");
 		if (standing === 3) medalByParticipantId.set(participantId, "bronze");
 	}
+
 	const finalStandings = [...standingByParticipantId.entries()]
 		.map(([participantId, placement]) => {
 			const participant = displayParticipants.find((row) => row.id === participantId);
@@ -998,14 +1089,16 @@ export default function TournamentDetailPage() {
 			<Tabs value={activeTab} onValueChange={(value) => onTabChange(value as "participants" | "group" | "playoff")}>
 				<TabsList>
 					<TabsTrigger value="participants">Participants</TabsTrigger>
-					{fullPreset && (
+					{(fullPreset || roundRobinTiersPreset) && (
 						<TabsTrigger value="group" disabled={!groupStageAvailable}>
-							Group Stage
+							{roundRobinTiersPreset ? "Round-robin" : "Group Stage"}
 						</TabsTrigger>
 					)}
-					<TabsTrigger value="playoff" disabled={!playoffStageAvailable}>
-						Playoff sheet
-					</TabsTrigger>
+					{!roundRobinTiersPreset && (
+						<TabsTrigger value="playoff" disabled={!playoffStageAvailable}>
+							Playoff sheet
+						</TabsTrigger>
+					)}
 				</TabsList>
 
 				<TabsContent value="participants" className="space-y-4">
@@ -1014,212 +1107,271 @@ export default function TournamentDetailPage() {
 							2v2 preset enabled: each team must have exactly 2 participants before the tournament can start.
 						</p>
 					)}
-					<ParticipantsTable
-						tournament={tournament}
-						participants={displayParticipants}
-						placeholderRows={placeholderRows}
-						teams={teams}
-						assignedTeamCounts={assignedTeamCounts}
-						twoVTwoPreset={twoVTwoPreset}
-						saving={saving}
-						isHostOrAdmin={isHostOrAdmin}
-						participantFieldsLocked={participantFieldsLocked}
-						editingParticipantIds={editingParticipantIds}
-						inviteQuery={inviteQuery}
-						inviteOptions={inviteOptions}
-						friendOptions={inviteableFriends}
-						selectedFriendId={selectedFriendId}
-						newGuestName={newGuestName}
-						onInviteQueryChange={(value) => {
-							setInviteQuery(value);
-							setSelectedInviteUserId("");
-						}}
-						onNewGuestNameChange={setNewGuestName}
-						onInvite={onInvite}
-						onFriendSelectionChange={setSelectedFriendId}
-						onInviteFriend={onInviteFriend}
-						onAddGuest={onAddGuest}
-						onTeamChange={onParticipantTeamChange}
-						onRandomizeTeam={onRandomizeTeam}
-						onRandomizeTwoVTwoTeams={async () => {
-							if (!twoVTwoPreset) return;
-							if (displayParticipants.some((participant) => Boolean(participant.team_id))) {
-								toast.warning("Clear all selected teams before randomizing 2v2 pairs.");
-								return;
-							}
-							if (displayParticipants.length !== slots) {
-								toast.warning("Fill all participant slots before randomizing 2v2 teams.");
-								return;
-							}
-							if (displayParticipants.length % 2 !== 0) {
-								toast.warning("2v2 mode requires an even number of participants.");
-								return;
-							}
-							const shuffledParticipants = [...displayParticipants].sort(() => Math.random() - 0.5);
-							setTwoVTwoPairOrderById(
-								new Map(shuffledParticipants.map((participant, index) => [participant.id, index])),
-							);
-							toast.success("Participants were randomized into new 2v2 pairs.");
-						}}
-						onLockParticipant={async (participantId) => {
-							setSaving(true);
-							try {
+					{roundRobinTiersPreset ? (
+						<section className="space-y-3 rounded-lg border p-3 md:p-4">
+							<h2 className="text-lg font-semibold">Participants</h2>
+							{displayParticipants.length < tournament.default_participants && !participantFieldsLocked && (
+								<div className="grid gap-3 md:grid-cols-3">
+									<div className="space-y-2">
+										<p className="text-sm">Quick invite friend</p>
+										<div className="flex gap-2">
+											<select
+												className="h-9 w-full rounded-md border px-2 text-sm"
+												disabled={inviteableFriends.length === 0}
+												value={selectedFriendId}
+												onChange={(event) => setSelectedFriendId(event.target.value)}
+											>
+												<option value="">
+													{inviteableFriends.length === 0 ? "No friends available" : "Select friend"}
+												</option>
+												{inviteableFriends.map((friend) => (
+													<option key={friend.id} value={friend.id}>
+														{friend.username}
+													</option>
+												))}
+											</select>
+											<Button
+												size="sm"
+												disabled={saving || !selectedFriendId || inviteableFriends.length === 0}
+												onClick={() => void onInviteFriend()}
+											>
+												Invite
+											</Button>
+										</div>
+									</div>
+									<div className="space-y-2">
+										<p className="text-sm">Invite registered user</p>
+										<div className="flex gap-2">
+											<input
+												className="h-9 w-full rounded-md border px-2 text-sm"
+												value={inviteQuery}
+												onChange={(event) => {
+													setInviteQuery(event.target.value);
+													setSelectedInviteUserId("");
+												}}
+												list="invite-user-options-min"
+											/>
+											<Button
+												disabled={saving || displayParticipants.length >= tournament.default_participants}
+												onClick={() => void onInvite()}
+											>
+												Add
+											</Button>
+										</div>
+										<datalist id="invite-user-options-min">
+											{inviteOptions.map((option) => (
+												<option key={option.id} value={option.username} />
+											))}
+										</datalist>
+									</div>
+									<div className="space-y-2">
+										<p className="text-sm">Create guest</p>
+										<div className="flex gap-2">
+											<input
+												className="h-9 w-full rounded-md border px-2 text-sm"
+												value={newGuestName}
+												onChange={(event) => setNewGuestName(event.target.value)}
+												placeholder="Guest name"
+											/>
+											<Button
+												disabled={saving || displayParticipants.length >= tournament.default_participants}
+												onClick={() => void onAddGuest()}
+											>
+												Add
+											</Button>
+										</div>
+									</div>
+								</div>
+							)}
+							<div className="space-y-2">
+								{displayParticipants.map((participant) => (
+									<div key={participant.id} className="flex items-center justify-between gap-2 rounded border p-2">
+										<span className="truncate text-sm">{participant.display_name}</span>
+										<Button
+											size="sm"
+											disabled={participant.locked || saving || participantFieldsLocked}
+											onClick={async () => {
+												await lockParticipant(participant.id);
+												await refreshParticipantsSection();
+											}}
+										>
+											{participant.locked ? "Locked" : "Lock in"}
+										</Button>
+									</div>
+								))}
+							</div>
+						</section>
+					) : (
+						<ParticipantsTable
+							tournament={tournament}
+							participants={displayParticipants}
+							placeholderRows={placeholderRows}
+							teams={teams}
+							assignedTeamCounts={assignedTeamCounts}
+							twoVTwoPreset={twoVTwoPreset}
+							saving={saving}
+							isHostOrAdmin={isHostOrAdmin}
+							participantFieldsLocked={participantFieldsLocked}
+							editingParticipantIds={editingParticipantIds}
+							inviteQuery={inviteQuery}
+							inviteOptions={inviteOptions}
+							friendOptions={inviteableFriends}
+							selectedFriendId={selectedFriendId}
+							newGuestName={newGuestName}
+							onInviteQueryChange={(value) => {
+								setInviteQuery(value);
+								setSelectedInviteUserId("");
+							}}
+							onNewGuestNameChange={setNewGuestName}
+							onInvite={onInvite}
+							onFriendSelectionChange={setSelectedFriendId}
+							onInviteFriend={onInviteFriend}
+							onAddGuest={onAddGuest}
+							onTeamChange={onParticipantTeamChange}
+							onRandomizeTeam={onRandomizeTeam}
+							onRandomizeTwoVTwoTeams={async () => {}}
+							onLockParticipant={async (participantId) => {
 								await lockParticipant(participantId);
-								setEditingParticipantIds((previous) => {
-									const next = new Set(previous);
-									next.delete(participantId);
-									return next;
-								});
 								await refreshParticipantsSection();
-							} catch (error) {
-								toast.error((error as Error).message);
-							} finally {
-								setSaving(false);
+							}}
+							onEditParticipant={(participantId) =>
+								setEditingParticipantIds((previous) => new Set(previous).add(participantId))
 							}
-						}}
-						onEditParticipant={(participantId) =>
-							setEditingParticipantIds((previous) => new Set(previous).add(participantId))
-						}
-						onClearParticipant={onClearParticipant}
-					/>
+							onClearParticipant={onClearParticipant}
+						/>
+					)}
 					{!allLockedWithTeams && (
-						<p className="text-sm text-muted-foreground">Waiting for all participants to lock teams.</p>
+						<p className="text-sm text-muted-foreground">Waiting for all participants to lock in.</p>
 					)}
 				</TabsContent>
 
-				{fullPreset && (
+				{(fullPreset || roundRobinTiersPreset) && (
 					<TabsContent value="group" className="space-y-4">
 						<GroupStagePage
 							standingsTable={
-								<GroupStandings
-									groups={groups}
-									standings={standings}
-									teamById={teamById}
-									showPlacement={allGroupMatchesLocked}
-									groupMatches={groupMatches}
-								/>
+								roundRobinTiersPreset ? (
+									<section className="space-y-3 rounded-lg border p-4">
+										<h2 className="text-lg font-semibold">Standings</h2>
+										<div className="overflow-x-auto">
+											<table className="w-full min-w-[460px] text-sm">
+												<thead>
+													<tr className="border-b">
+														<th className="py-1 text-left">Participant</th>
+														<th className="py-1 text-right">GP</th>
+														<th className="py-1 text-right">W</th>
+														<th className="py-1 text-right">L</th>
+														<th className="py-1 text-right">GF:GA</th>
+														<th className="py-1 text-right">Pts</th>
+													</tr>
+												</thead>
+												<tbody>
+													{roundRobinStandings.map((row) => (
+														<tr key={row.id} className="border-b">
+															<td className="py-1">{row.name}</td>
+															<td className="py-1 text-right">{row.gp}</td>
+															<td className="py-1 text-right">{row.w}</td>
+															<td className="py-1 text-right">{row.l}</td>
+															<td className="py-1 text-right">
+																{row.gf}:{row.ga}
+															</td>
+															<td className="py-1 text-right font-semibold">{row.pts}</td>
+														</tr>
+													))}
+												</tbody>
+											</table>
+										</div>
+									</section>
+								) : (
+									<GroupStandings
+										groups={groups}
+										standings={standings}
+										teamById={teamById}
+										showPlacement={allGroupMatchesLocked}
+										groupMatches={groupMatches}
+									/>
+								)
 							}
 							matchesTable={
-								<GroupMatchesTable
-									matches={groupMatches}
-									teamById={teamById}
-									resultDrafts={resultDrafts}
-									saving={saving}
-									canEditMatch={canEditGroupMatch}
-									onResultDraftChange={(matchId, next) =>
-										setResultDrafts((previous) => ({ ...previous, [matchId]: next }))
-									}
-									onLockResult={onLockResult}
-									onEditResult={
-										isHostOrAdmin && !groupStageEditingLocked
-											? (matchId) => setEditingMatchIds((previous) => new Set(previous).add(matchId))
-											: undefined
-									}
-								/>
+								roundRobinTiersPreset ? (
+									<section className="space-y-3 rounded-lg border p-4">
+										<h2 className="text-lg font-semibold">Matches</h2>
+										<GroupMatchesTable
+											matches={roundRobinUpcomingMatches}
+											teamById={teamById}
+											resultDrafts={resultDrafts}
+											saving={saving}
+											canEditMatch={canEditGroupMatch}
+											onResultDraftChange={(matchId, next) =>
+												setResultDrafts((previous) => ({ ...previous, [matchId]: next }))
+											}
+											onLockResult={onLockResult}
+											onEditResult={
+												isHostOrAdmin
+													? (matchId) => setEditingMatchIds((previous) => new Set(previous).add(matchId))
+													: undefined
+											}
+										/>
+										<div className="pt-3">
+											<GroupMatchesTable
+												matches={roundRobinFinishedMatches}
+												teamById={teamById}
+												resultDrafts={resultDrafts}
+												saving={saving}
+												canEditMatch={canEditGroupMatch}
+												onResultDraftChange={(matchId, next) =>
+													setResultDrafts((previous) => ({ ...previous, [matchId]: next }))
+												}
+												onLockResult={onLockResult}
+											/>
+										</div>
+									</section>
+								) : (
+									<GroupMatchesTable
+										matches={groupMatches}
+										teamById={teamById}
+										resultDrafts={resultDrafts}
+										saving={saving}
+										canEditMatch={canEditGroupMatch}
+										onResultDraftChange={(matchId, next) =>
+											setResultDrafts((previous) => ({ ...previous, [matchId]: next }))
+										}
+										onLockResult={onLockResult}
+										onEditResult={
+											isHostOrAdmin && !groupStageEditingLocked
+												? (matchId) => setEditingMatchIds((previous) => new Set(previous).add(matchId))
+												: undefined
+										}
+									/>
+								)
 							}
 						/>
-						{!groupStageAvailable && (
-							<p className="text-sm text-muted-foreground">
-								Group Stage unlocks after all teams are locked and groups are generated.
-							</p>
-						)}
-						{fullPreset && allLockedWithTeams && groups.length === 0 && (
-							<p className="text-sm text-muted-foreground">Generating groups...</p>
-						)}
-						{allGroupMatchesLocked && <p className="text-sm text-muted-foreground">Group stage complete.</p>}
 					</TabsContent>
 				)}
 
-				<TabsContent value="playoff" className="space-y-4">
-					<PlayoffBracketPage
-						banner={
-							fullPreset
-								? anyPlayoffLocked
-									? "Bracket frozen"
-									: "Bracket can update until first playoff game is locked"
-								: anyPlayoffLocked
-									? "Bracket frozen"
-									: undefined
-						}
-						diagram={
-							<BracketDiagram
-								title="Winners bracket"
-								matches={winnersBracketMatchesRaw}
-								teamById={teamById}
-								standingByParticipantId={standingByParticipantId}
-								medalByParticipantId={medalByParticipantId}
-								placementRevealKeys={placementRevealKeys}
-								finalStandings={allPlayoffMatchesLocked ? finalStandings : undefined}
-							/>
-						}
-						table={
-							<Tabs defaultValue="upcoming" className="space-y-3">
-								<TabsList>
-									<TabsTrigger value="upcoming">Upcoming games</TabsTrigger>
-									<TabsTrigger value="finished">Finished games</TabsTrigger>
-								</TabsList>
-								<TabsContent value="upcoming">
-									<PlayoffMatchesTable
-										title="Winners bracket matches"
-										matches={winnersBracketMatches.filter((match) => !match.result?.locked)}
-										teamById={teamById}
-										resultDrafts={resultDrafts}
-										saving={saving}
-										canEditMatch={canEditPlayoffMatch}
-										onResultDraftChange={(matchId, next) =>
-											setResultDrafts((previous) => ({ ...previous, [matchId]: next }))
-										}
-										onLockResult={onLockResult}
-										onEditResult={
-											isHostOrAdmin && !tournamentClosed
-												? (matchId) => setEditingMatchIds((previous) => new Set(previous).add(matchId))
-												: undefined
-										}
-										canEnableEditResult={canEnableEditPlayoffResult}
-										standingByParticipantId={standingByParticipantId}
-										medalByParticipantId={medalByParticipantId}
-										placementRevealKeys={placementRevealKeys}
-									/>
-								</TabsContent>
-								<TabsContent value="finished">
-									<PlayoffMatchesTable
-										title="Winners bracket matches"
-										matches={winnersBracketMatches.filter((match) => Boolean(match.result?.locked))}
-										teamById={teamById}
-										resultDrafts={resultDrafts}
-										saving={saving}
-										canEditMatch={canEditPlayoffMatch}
-										onResultDraftChange={(matchId, next) =>
-											setResultDrafts((previous) => ({ ...previous, [matchId]: next }))
-										}
-										onLockResult={onLockResult}
-										onEditResult={
-											isHostOrAdmin && !tournamentClosed
-												? (matchId) => setEditingMatchIds((previous) => new Set(previous).add(matchId))
-												: undefined
-										}
-										canEnableEditResult={canEnableEditPlayoffResult}
-										standingByParticipantId={standingByParticipantId}
-										medalByParticipantId={medalByParticipantId}
-										placementRevealKeys={placementRevealKeys}
-									/>
-								</TabsContent>
-							</Tabs>
-						}
-						placementDiagram={
-							shouldShowPlacementBracket ? (
+				{!roundRobinTiersPreset && (
+					<TabsContent value="playoff" className="space-y-4">
+						<PlayoffBracketPage
+							banner={
+								fullPreset
+									? anyPlayoffLocked
+										? "Bracket frozen"
+										: "Bracket can update until first playoff game is locked"
+									: anyPlayoffLocked
+										? "Bracket frozen"
+										: undefined
+							}
+							diagram={
 								<BracketDiagram
-									title="Placement bracket"
-									matches={placementBracketMatchesRaw}
+									title="Winners bracket"
+									matches={winnersBracketMatchesRaw}
 									teamById={teamById}
 									standingByParticipantId={standingByParticipantId}
 									medalByParticipantId={medalByParticipantId}
 									placementRevealKeys={placementRevealKeys}
+									finalStandings={allPlayoffMatchesLocked ? finalStandings : undefined}
 								/>
-							) : undefined
-						}
-						placementTable={
-							shouldShowPlacementBracket ? (
+							}
+							table={
 								<Tabs defaultValue="upcoming" className="space-y-3">
 									<TabsList>
 										<TabsTrigger value="upcoming">Upcoming games</TabsTrigger>
@@ -1227,8 +1379,8 @@ export default function TournamentDetailPage() {
 									</TabsList>
 									<TabsContent value="upcoming">
 										<PlayoffMatchesTable
-											title="Placement bracket matches"
-											matches={placementBracketMatches.filter((match) => !match.result?.locked)}
+											title="Winners bracket matches"
+											matches={winnersBracketMatches.filter((match) => !match.result?.locked)}
 											teamById={teamById}
 											resultDrafts={resultDrafts}
 											saving={saving}
@@ -1250,8 +1402,8 @@ export default function TournamentDetailPage() {
 									</TabsContent>
 									<TabsContent value="finished">
 										<PlayoffMatchesTable
-											title="Placement bracket matches"
-											matches={placementBracketMatches.filter((match) => Boolean(match.result?.locked))}
+											title="Winners bracket matches"
+											matches={winnersBracketMatches.filter((match) => Boolean(match.result?.locked))}
 											teamById={teamById}
 											resultDrafts={resultDrafts}
 											saving={saving}
@@ -1272,10 +1424,78 @@ export default function TournamentDetailPage() {
 										/>
 									</TabsContent>
 								</Tabs>
-							) : undefined
-						}
-					/>
-				</TabsContent>
+							}
+							placementDiagram={
+								shouldShowPlacementBracket ? (
+									<BracketDiagram
+										title="Placement bracket"
+										matches={placementBracketMatchesRaw}
+										teamById={teamById}
+										standingByParticipantId={standingByParticipantId}
+										medalByParticipantId={medalByParticipantId}
+										placementRevealKeys={placementRevealKeys}
+									/>
+								) : undefined
+							}
+							placementTable={
+								shouldShowPlacementBracket ? (
+									<Tabs defaultValue="upcoming" className="space-y-3">
+										<TabsList>
+											<TabsTrigger value="upcoming">Upcoming games</TabsTrigger>
+											<TabsTrigger value="finished">Finished games</TabsTrigger>
+										</TabsList>
+										<TabsContent value="upcoming">
+											<PlayoffMatchesTable
+												title="Placement bracket matches"
+												matches={placementBracketMatches.filter((match) => !match.result?.locked)}
+												teamById={teamById}
+												resultDrafts={resultDrafts}
+												saving={saving}
+												canEditMatch={canEditPlayoffMatch}
+												onResultDraftChange={(matchId, next) =>
+													setResultDrafts((previous) => ({ ...previous, [matchId]: next }))
+												}
+												onLockResult={onLockResult}
+												onEditResult={
+													isHostOrAdmin && !tournamentClosed
+														? (matchId) => setEditingMatchIds((previous) => new Set(previous).add(matchId))
+														: undefined
+												}
+												canEnableEditResult={canEnableEditPlayoffResult}
+												standingByParticipantId={standingByParticipantId}
+												medalByParticipantId={medalByParticipantId}
+												placementRevealKeys={placementRevealKeys}
+											/>
+										</TabsContent>
+										<TabsContent value="finished">
+											<PlayoffMatchesTable
+												title="Placement bracket matches"
+												matches={placementBracketMatches.filter((match) => Boolean(match.result?.locked))}
+												teamById={teamById}
+												resultDrafts={resultDrafts}
+												saving={saving}
+												canEditMatch={canEditPlayoffMatch}
+												onResultDraftChange={(matchId, next) =>
+													setResultDrafts((previous) => ({ ...previous, [matchId]: next }))
+												}
+												onLockResult={onLockResult}
+												onEditResult={
+													isHostOrAdmin && !tournamentClosed
+														? (matchId) => setEditingMatchIds((previous) => new Set(previous).add(matchId))
+														: undefined
+												}
+												canEnableEditResult={canEnableEditPlayoffResult}
+												standingByParticipantId={standingByParticipantId}
+												medalByParticipantId={medalByParticipantId}
+												placementRevealKeys={placementRevealKeys}
+											/>
+										</TabsContent>
+									</Tabs>
+								) : undefined
+							}
+						/>
+					</TabsContent>
+				)}
 			</Tabs>
 		</div>
 	);

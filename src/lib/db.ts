@@ -59,6 +59,8 @@ export type MatchResult = {
 	away_shots: number | null;
 	decision: MatchParticipantDecision | null;
 	locked: boolean;
+	home_team_id: string | null;
+	away_team_id: string | null;
 };
 
 export type MatchWithResult = Match & {
@@ -292,10 +294,18 @@ export async function createTournament(payload: {
 	}
 
 	const isTwoVTwoPreset = payload.presetId === "2v2_tournament" || payload.presetId === "2v2_playoffs";
+	const isRoundRobinTiersPreset = payload.presetId === "round_robin_tiers";
+	if (isRoundRobinTiersPreset && (payload.defaultParticipants < 4 || payload.defaultParticipants > 8)) {
+		throw new Error("Round-robin tiers mode requires between 4 and 8 participants.");
+	}
 	if (isTwoVTwoPreset && (payload.defaultParticipants < 6 || payload.defaultParticipants > 16)) {
 		throw new Error("2v2 tournaments require between 6 and 16 default participants (minimum 3 teams).");
 	}
-	if (!isTwoVTwoPreset && (payload.defaultParticipants < 3 || payload.defaultParticipants > 16)) {
+	if (
+		!isTwoVTwoPreset &&
+		!isRoundRobinTiersPreset &&
+		(payload.defaultParticipants < 3 || payload.defaultParticipants > 16)
+	) {
 		throw new Error("Participants must be between 3 and 16.");
 	}
 	if (isTwoVTwoPreset && payload.defaultParticipants % 2 !== 0) {
@@ -762,6 +772,11 @@ export async function generateGroupsAndMatches(tournamentId: string): Promise<vo
 	throwOnError(error, "Unable to generate group stage");
 }
 
+export async function generateRoundRobinTiersStage(tournamentId: string): Promise<void> {
+	const { error } = await supabase.rpc("generate_round_robin_tiers_stage", { p_tournament_id: tournamentId });
+	throwOnError(error, "Unable to generate round-robin tiers stage");
+}
+
 export async function generatePlayoffs(tournamentId: string): Promise<void> {
 	const { error } = await supabase.rpc("generate_playoff_bracket", { p_tournament_id: tournamentId });
 	throwOnError(error, "Unable to generate playoff bracket");
@@ -824,7 +839,7 @@ export async function listMatchesWithResults(tournamentId: string, stage?: Match
 	const matchIds = matchRows.map((match) => match.id);
 	const { data: results, error: resultsError } = await supabase
 		.from("match_results")
-		.select("match_id, home_score, away_score, home_shots, away_shots, decision, locked")
+		.select("match_id, home_score, away_score, home_shots, away_shots, decision, locked, home_team_id, away_team_id")
 		.in("match_id", matchIds);
 	throwOnError(resultsError, "Unable to load match results");
 
@@ -838,6 +853,8 @@ export async function listMatchesWithResults(tournamentId: string, stage?: Match
 			away_shots: result.away_shots as number | null,
 			decision: (result.decision as MatchParticipantDecision | null) ?? null,
 			locked: Boolean(result.locked),
+			home_team_id: (result.home_team_id as string | null) ?? null,
+			away_team_id: (result.away_team_id as string | null) ?? null,
 		});
 	}
 
@@ -861,11 +878,23 @@ export async function listMatchesWithResults(tournamentId: string, stage?: Match
 			bracket_type: match.bracket_type,
 			home_participant_name: homeParticipant?.display_name ?? placeholderName,
 			away_participant_name: awayParticipant?.display_name ?? placeholderName,
-			home_team_id: homeParticipant?.team_id ?? null,
-			away_team_id: awayParticipant?.team_id ?? null,
+			home_team_id: resultMap.get(match.id)?.home_team_id ?? homeParticipant?.team_id ?? null,
+			away_team_id: resultMap.get(match.id)?.away_team_id ?? awayParticipant?.team_id ?? null,
 			result: resultMap.get(match.id) ?? null,
 		};
 	});
+}
+
+export async function lockMatchResult(
+	matchId: string,
+	homeTeamId?: string | null,
+	awayTeamId?: string | null,
+): Promise<void> {
+	const payload: { locked: boolean; home_team_id?: string | null; away_team_id?: string | null } = { locked: true };
+	if (homeTeamId !== undefined) payload.home_team_id = homeTeamId;
+	if (awayTeamId !== undefined) payload.away_team_id = awayTeamId;
+	const { error } = await supabase.from("match_results").update(payload).eq("match_id", matchId);
+	throwOnError(error, "Unable to lock result");
 }
 
 export async function upsertMatchResult(
@@ -919,11 +948,6 @@ export async function removeTournamentGuest(tournamentId: string, guestId: strin
 		.delete()
 		.match({ tournament_id: tournamentId, id: guestId });
 	throwOnError(error, "Unable to remove guest");
-}
-
-export async function lockMatchResult(matchId: string): Promise<void> {
-	const { error } = await supabase.from("match_results").update({ locked: true }).eq("match_id", matchId);
-	throwOnError(error, "Unable to lock result");
 }
 
 export async function listUserTeamStats(userId: string): Promise<PlayerTeamStat[]> {

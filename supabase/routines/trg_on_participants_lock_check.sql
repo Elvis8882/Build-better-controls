@@ -12,7 +12,7 @@ begin
     if v_total = v_locked then
       select preset_id into v_preset from public.tournaments where id = new.tournament_id;
 
-      if v_preset in ('2v2_tournament', '2v2_playoffs') then
+      if v_preset in ('2v2_tournament', '2v2_playoffs', 'round_robin_tiers') then
         select count(*) into v_team_entrants
         from (
           select tp.team_id
@@ -32,6 +32,8 @@ begin
 
       if v_preset in ('full_with_losers','full_no_losers','2v2_tournament') then
         perform public.generate_group_stage(new.tournament_id);
+      elsif v_preset = 'round_robin_tiers' then
+        perform public.generate_round_robin_tiers_stage(new.tournament_id);
       else
         perform public.ensure_playoff_bracket(new.tournament_id);
       end if;

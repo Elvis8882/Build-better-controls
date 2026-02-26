@@ -2,13 +2,33 @@ declare
   v_preset text;
   v_n int;
   v_s int;
+  v_team_based boolean := false;
 begin
-  select preset_id into v_preset from public.tournaments where id = p_tournament_id;
+  select preset_id, public.preset_is_team_based(preset_id)
+  into v_preset, v_team_based
+  from public.tournaments
+  where id = p_tournament_id;
+
   if v_preset is null then
     return;
   end if;
 
-  select count(*) into v_n from public.tournament_participants where tournament_id = p_tournament_id;
+  -- determine entrant count (team-based for 2v2 flows)
+  if v_team_based then
+    select count(*) into v_n
+    from (
+      select distinct on (tp.team_id) tp.id
+      from public.tournament_participants tp
+      where tp.tournament_id = p_tournament_id
+        and tp.team_id is not null
+      order by tp.team_id, tp.created_at asc, tp.id asc
+    ) seeded;
+  else
+    select count(*) into v_n
+    from public.tournament_participants
+    where tournament_id = p_tournament_id;
+  end if;
+
   if v_n < 4 then
     return;
   end if;

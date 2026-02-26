@@ -651,6 +651,31 @@ export default function TournamentDetailPage() {
 		}
 	};
 
+	const onLockParticipant = async (participantId: string) => {
+		setSaving(true);
+		try {
+			await lockParticipant(participantId);
+			await refreshParticipantsSection();
+
+			if (!id || !roundRobinTiersPreset) return;
+			const latestParticipants = await listParticipants(id);
+			const allSlotsLocked =
+				latestParticipants.length === slots && latestParticipants.every((participant) => participant.locked);
+			if (!allSlotsLocked) return;
+
+			const existingGroupMatches = await listMatchesWithResults(id, "GROUP");
+			if (existingGroupMatches.length > 0) return;
+
+			await generateRoundRobinTiersStage(id);
+			await refreshGroupStageSections();
+			toast.success("Round-robin schedule generated.");
+		} catch (error) {
+			toast.error((error as Error).message);
+		} finally {
+			setSaving(false);
+		}
+	};
+
 	const parseResultDraft = (matchId: string): ParsedResult | null => {
 		const draft = resultDrafts[matchId] ?? defaultResult;
 		if ([draft.home_score, draft.away_score, draft.home_shots, draft.away_shots].some((value) => value.trim() === "")) {
@@ -1187,16 +1212,34 @@ export default function TournamentDetailPage() {
 								{displayParticipants.map((participant) => (
 									<div key={participant.id} className="flex items-center justify-between gap-2 rounded border p-2">
 										<span className="truncate text-sm">{participant.display_name}</span>
-										<Button
-											size="sm"
-											disabled={participant.locked || saving || participantFieldsLocked}
-											onClick={async () => {
-												await lockParticipant(participant.id);
-												await refreshParticipantsSection();
-											}}
-										>
-											{participant.locked ? "Locked" : "Lock in"}
-										</Button>
+										<div className="flex items-center gap-2">
+											{isHostOrAdmin && !participant.locked && !participantFieldsLocked && (
+												<Button
+													variant="ghost"
+													size="icon"
+													disabled={saving}
+													onClick={() => void onClearParticipant(participant)}
+													aria-label={`Remove ${participant.display_name}`}
+												>
+													×
+												</Button>
+											)}
+											<Button
+												size="sm"
+												disabled={participant.locked || saving || participantFieldsLocked}
+												onClick={() => void onLockParticipant(participant.id)}
+											>
+												{participant.locked ? "Locked" : "Lock in"}
+											</Button>
+										</div>
+									</div>
+								))}
+								{placeholderRows.map((placeholder) => (
+									<div
+										key={placeholder.id}
+										className="flex items-center justify-between gap-2 rounded border border-dashed p-2 text-muted-foreground"
+									>
+										<span className="truncate text-sm">{placeholder.label}</span>
 									</div>
 								))}
 							</div>
@@ -1230,10 +1273,7 @@ export default function TournamentDetailPage() {
 							onTeamChange={onParticipantTeamChange}
 							onRandomizeTeam={onRandomizeTeam}
 							onRandomizeTwoVTwoTeams={async () => {}}
-							onLockParticipant={async (participantId) => {
-								await lockParticipant(participantId);
-								await refreshParticipantsSection();
-							}}
+							onLockParticipant={onLockParticipant}
 							onEditParticipant={(participantId) =>
 								setEditingParticipantIds((previous) => new Set(previous).add(participantId))
 							}

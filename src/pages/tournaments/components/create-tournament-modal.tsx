@@ -12,6 +12,7 @@ const PRESET_OPTIONS: Array<{ label: string; value: TournamentPresetUi }> = [
 	{ label: "Full tournament (with losers bracket)", value: "full_with_losers" },
 	{ label: "Full tournament (no losers bracket)", value: "full_no_losers" },
 	{ label: "2v2 Tournament", value: "2v2_tournament" },
+	{ label: "Round-robin tiers (fun 1v1)", value: "round_robin_tiers" },
 ];
 
 type Props = {
@@ -25,6 +26,7 @@ export function CreateTournamentModal({ open, onOpenChange, onCreated }: Props) 
 	const [name, setName] = useState("");
 	const [presetId, setPresetId] = useState<TournamentPresetUi>("full_with_losers");
 	const isTwoVTwoPreset = presetId === "2v2_playoffs" || presetId === "2v2_tournament";
+	const isRoundRobinTiersPreset = presetId === "round_robin_tiers";
 	const [teamPool, setTeamPool] = useState<TeamPool>("NHL");
 	const [defaultParticipants, setDefaultParticipants] = useState(4);
 	const [groupCountInput, setGroupCountInput] = useState(1);
@@ -43,7 +45,11 @@ export function CreateTournamentModal({ open, onOpenChange, onCreated }: Props) 
 			toast.warning("2v2 tournaments require between 6 and 16 default participants (minimum 3 teams).");
 			return;
 		}
-		if (!isTwoVTwoPreset && (defaultParticipants < 3 || defaultParticipants > 16)) {
+		if (isRoundRobinTiersPreset && (defaultParticipants < 4 || defaultParticipants > 8)) {
+			toast.warning("Round-robin tiers mode requires between 4 and 8 participants.");
+			return;
+		}
+		if (!isTwoVTwoPreset && !isRoundRobinTiersPreset && (defaultParticipants < 3 || defaultParticipants > 16)) {
 			toast.warning("Participants must be between 3 and 16.");
 			return;
 		}
@@ -104,8 +110,8 @@ export function CreateTournamentModal({ open, onOpenChange, onCreated }: Props) 
 						<p className="text-sm">Default participants</p>
 						<Input
 							type="number"
-							min={isTwoVTwoPreset ? 6 : 3}
-							max={16}
+							min={isTwoVTwoPreset ? 6 : isRoundRobinTiersPreset ? 4 : 3}
+							max={isRoundRobinTiersPreset ? 8 : 16}
 							value={defaultParticipants}
 							onChange={(event) => setDefaultParticipants(Number(event.target.value))}
 						/>

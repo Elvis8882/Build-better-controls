@@ -26,6 +26,10 @@ begin
         if v_team_entrants < 3 then
           return new;
         end if;
+      elsif v_preset = 'round_robin_tiers' then
+        if v_total < 4 then
+          return new;
+        end if;
       elsif v_total < 3 then
         return new;
       end if;

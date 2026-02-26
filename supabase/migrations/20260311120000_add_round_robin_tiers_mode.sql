@@ -2,6 +2,23 @@ alter table public.match_results
   add column if not exists home_team_id uuid references public.teams(id),
   add column if not exists away_team_id uuid references public.teams(id);
 
+alter table public.tournaments
+	drop constraint if exists tournaments_preset_check;
+
+alter table public.tournaments
+	add constraint tournaments_preset_check
+	check (
+		preset_id is not null
+		and preset_id in (
+			'playoffs_only',
+			'full_with_losers',
+			'full_no_losers',
+			'2v2_tournament',
+			'2v2_playoffs',
+			'round_robin_tiers'
+		)
+	);
+
 create or replace function public.generate_round_robin_tiers_stage(p_tournament_id uuid)
 returns void
 language plpgsql
@@ -156,7 +173,7 @@ begin
     if v_total = v_locked then
       select preset_id into v_preset from public.tournaments where id = new.tournament_id;
 
-      if v_preset in ('2v2_tournament', '2v2_playoffs', 'round_robin_tiers') then
+      if v_preset in ('2v2_tournament', '2v2_playoffs') then
         select count(*) into v_team_entrants
         from (
           select tp.team_id
@@ -168,6 +185,10 @@ begin
         ) entrants;
 
         if v_team_entrants < 3 then
+          return new;
+        end if;
+      elsif v_preset = 'round_robin_tiers' then
+        if v_total < 4 then
           return new;
         end if;
       elsif v_total < 3 then

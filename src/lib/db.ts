@@ -318,7 +318,15 @@ export async function createTournament(payload: {
 		payload.presetId === "2v2_tournament";
 
 	let resolvedGroupCount: number | null = null;
-	if (isGroupThenPlayoffPreset) {
+	if (isRoundRobinTiersPreset) {
+		if (payload.groupCount === null) {
+			resolvedGroupCount = 1;
+		} else if (payload.groupCount === 1 || payload.groupCount === 2) {
+			resolvedGroupCount = payload.groupCount;
+		} else {
+			throw new Error("Round-robin tiers mode supports only Single (1) or Double (2).");
+		}
+	} else if (isGroupThenPlayoffPreset) {
 		if (payload.groupCount === null || !Number.isInteger(payload.groupCount)) {
 			throw new Error("Group count is required for group-then-playoff tournaments.");
 		}
@@ -1056,17 +1064,20 @@ export async function listUserTeamStats(userId: string): Promise<PlayerTeamStat[
 	const matchIds = matches.map((match) => match.id);
 	const { data: resultsData, error: resultsError } = await supabase
 		.from("match_results")
-		.select("match_id, home_score, away_score, home_shots, away_shots")
+		.select("match_id, home_score, away_score, home_shots, away_shots, locked, home_team_id, away_team_id")
 		.in("match_id", matchIds);
 	throwOnError(resultsError, "Unable to load player match results");
 
 	const resultsByMatch = new Map<
 		string,
 		{
+			locked: boolean;
 			home_score: number;
 			away_score: number;
 			home_shots: number;
 			away_shots: number;
+			home_team_id: string | null;
+			away_team_id: string | null;
 		}
 	>();
 
@@ -1081,10 +1092,13 @@ export async function listUserTeamStats(userId: string): Promise<PlayerTeamStat[
 		}
 
 		resultsByMatch.set(result.match_id as string, {
+			locked: Boolean(result.locked),
 			home_score: result.home_score,
 			away_score: result.away_score,
 			home_shots: result.home_shots,
 			away_shots: result.away_shots,
+			home_team_id: (result.home_team_id as string | null) ?? null,
+			away_team_id: (result.away_team_id as string | null) ?? null,
 		});
 	}
 
@@ -1092,7 +1106,7 @@ export async function listUserTeamStats(userId: string): Promise<PlayerTeamStat[
 
 	for (const match of matches) {
 		const result = resultsByMatch.get(match.id);
-		if (!result) continue;
+		if (!result?.locked) continue;
 
 		const resolveTeamMeta = (participantId: string | null) => {
 			if (!participantId || !allowedParticipantIds.has(participantId)) return null;
@@ -1110,10 +1124,19 @@ export async function listUserTeamStats(userId: string): Promise<PlayerTeamStat[
 
 		const row = isHome
 			? {
-					team_id: isHome.team_id,
-					team_code: isHome.team_code,
-					team_pool: isHome.team_pool,
-					team_name: isHome.team_name,
+					team_id: result.home_team_id ?? isHome.team_id,
+					team_code:
+						(result.home_team_id
+							? teamMetaByTournamentTeam.get(`${match.tournament_id}:${result.home_team_id}`)?.team_code
+							: null) ?? isHome.team_code,
+					team_pool:
+						(result.home_team_id
+							? teamMetaByTournamentTeam.get(`${match.tournament_id}:${result.home_team_id}`)?.team_pool
+							: null) ?? isHome.team_pool,
+					team_name:
+						(result.home_team_id
+							? teamMetaByTournamentTeam.get(`${match.tournament_id}:${result.home_team_id}`)?.team_name
+							: null) ?? isHome.team_name,
 					shots_made: result.home_shots,
 					goals_made: result.home_score,
 					shots_received: result.away_shots,
@@ -1121,10 +1144,19 @@ export async function listUserTeamStats(userId: string): Promise<PlayerTeamStat[
 				}
 			: isAway
 				? {
-						team_id: isAway.team_id,
-						team_code: isAway.team_code,
-						team_pool: isAway.team_pool,
-						team_name: isAway.team_name,
+						team_id: result.away_team_id ?? isAway.team_id,
+						team_code:
+							(result.away_team_id
+								? teamMetaByTournamentTeam.get(`${match.tournament_id}:${result.away_team_id}`)?.team_code
+								: null) ?? isAway.team_code,
+						team_pool:
+							(result.away_team_id
+								? teamMetaByTournamentTeam.get(`${match.tournament_id}:${result.away_team_id}`)?.team_pool
+								: null) ?? isAway.team_pool,
+						team_name:
+							(result.away_team_id
+								? teamMetaByTournamentTeam.get(`${match.tournament_id}:${result.away_team_id}`)?.team_name
+								: null) ?? isAway.team_name,
 						shots_made: result.away_shots,
 						goals_made: result.away_score,
 						shots_received: result.home_shots,
@@ -1290,8 +1322,9 @@ export async function countUserTournamentWins(userId: string): Promise<number> {
 export async function listClosedTournaments(): Promise<Array<{ id: string; name: string }>> {
 	const { data, error } = await supabase
 		.from("tournaments")
-		.select("id, name, status")
+		.select("id, name, status, preset_id")
 		.ilike("status", "closed")
+		.neq("preset_id", "round_robin_tiers")
 		.order("created_at", { ascending: false });
 	throwOnError(error, "Unable to load closed tournaments");
 

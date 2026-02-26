@@ -474,6 +474,7 @@ export function GroupMatchesTable({
 	onLockResult,
 	onEditResult,
 	useParticipantNames = false,
+	limitUpcomingMatches = false,
 }: {
 	matches: MatchWithResult[];
 	teamById: Map<string, Team>;
@@ -484,9 +485,15 @@ export function GroupMatchesTable({
 	onLockResult: (matchId: string) => Promise<void>;
 	onEditResult?: (matchId: string) => void;
 	useParticipantNames?: boolean;
+	limitUpcomingMatches?: boolean;
 }) {
 	const finishedMatches = useMemo(() => matches.filter((match) => Boolean(match.result?.locked)), [matches]);
-	const upcomingMatches = useMemo(() => matches.filter((match) => !match.result?.locked), [matches]);
+	const upcomingMatches = useMemo(() => {
+		const unlocked = matches.filter((match) => !match.result?.locked);
+		if (!limitUpcomingMatches || unlocked.length === 0) return unlocked;
+		const nextRound = Math.min(...unlocked.map((match) => match.round));
+		return unlocked.filter((match) => match.round === nextRound).slice(0, 2);
+	}, [matches, limitUpcomingMatches]);
 
 	const renderMatchList = (list: MatchWithResult[], emptyMessage: string) => {
 		if (list.length === 0) {
@@ -503,8 +510,14 @@ export function GroupMatchesTable({
 						away_shots: "",
 						decision: "R" as MatchParticipantDecision,
 					};
-					const homeTeam = match.home_team_id ? teamById.get(match.home_team_id) : null;
-					const awayTeam = match.away_team_id ? teamById.get(match.away_team_id) : null;
+					const homeTeamId = match.result?.locked
+						? (match.result.home_team_id ?? match.home_team_id)
+						: match.home_team_id;
+					const awayTeamId = match.result?.locked
+						? (match.result.away_team_id ?? match.away_team_id)
+						: match.away_team_id;
+					const homeTeam = homeTeamId ? teamById.get(homeTeamId) : null;
+					const awayTeam = awayTeamId ? teamById.get(awayTeamId) : null;
 					const winningSide =
 						match.result?.locked && (match.result.home_score ?? 0) !== (match.result.away_score ?? 0)
 							? (match.result.home_score ?? 0) > (match.result.away_score ?? 0)
@@ -697,7 +710,7 @@ export function GroupStagePage({
 	return (
 		<div className="space-y-4">
 			<div className="overflow-x-auto">
-				<div className="min-w-[760px] md:min-w-0">{standingsTable}</div>
+				<div className="inline-block min-w-fit">{standingsTable}</div>
 			</div>
 			{matchesTable}
 		</div>

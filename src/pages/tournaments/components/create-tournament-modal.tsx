@@ -12,7 +12,7 @@ const PRESET_OPTIONS: Array<{ label: string; value: TournamentPresetUi }> = [
 	{ label: "Full tournament (with losers bracket)", value: "full_with_losers" },
 	{ label: "Full tournament (no losers bracket)", value: "full_no_losers" },
 	{ label: "2v2 Tournament", value: "2v2_tournament" },
-	{ label: "Round-robin tiers (fun 1v1)", value: "round_robin_tiers" },
+	{ label: "Round-Robin Tiers", value: "round_robin_tiers" },
 ];
 
 type Props = {

@@ -36,7 +36,7 @@ export function CreateTournamentModal({ open, onOpenChange, onCreated }: Props) 
 		const isTeamBasedPreset = isTwoVTwoFlow(presetId);
 		return sanitizeGroupCount(defaultParticipants, groupCountInput, {
 			autoExpand: !isTeamBasedPreset,
-			maxParticipantsPerGroup: isTeamBasedPreset ? 8 : 6,
+			maxParticipantsPerGroup: isTeamBasedPreset ? 16 : 6,
 		});
 	}, [presetId, defaultParticipants, groupCountInput]);
 

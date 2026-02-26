@@ -738,18 +738,24 @@ export async function lockParticipant(participantId: string): Promise<void> {
 	const { data: authData, error: authError } = await supabase.auth.getUser();
 	throwOnError(authError, "Unable to read authenticated user");
 
-	let { error } = await supabase
+	const lockPayload = { locked: true, locked_by: authData.user?.id ?? null, locked_at: new Date().toISOString() };
+	let { data, error } = await supabase
 		.from("tournament_participants")
-		.update({ locked: true, locked_by: authData.user?.id ?? null, locked_at: new Date().toISOString() })
-		.eq("id", participantId);
+		.update(lockPayload)
+		.eq("id", participantId)
+		.select("id");
 
 	if (error && `${error.message ?? ""}`.toLowerCase().includes("locked_by")) {
-		({ error } = await supabase
+		({ data, error } = await supabase
 			.from("tournament_participants")
-			.update({ locked: true, locked_by: null, locked_at: new Date().toISOString() })
-			.eq("id", participantId));
+			.update({ ...lockPayload, locked_by: null })
+			.eq("id", participantId)
+			.select("id"));
 	}
 	throwOnError(error, "Unable to lock participant");
+	if (!data || data.length === 0) {
+		throw new Error("Unable to lock participant: participant not found or permission denied.");
+	}
 }
 
 export async function removeParticipant(participantId: string): Promise<void> {

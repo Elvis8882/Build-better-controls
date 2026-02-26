@@ -60,7 +60,19 @@ function getBracketTeamLabel(match: MatchWithResult, side: "HOME" | "AWAY"): str
 }
 
 function TeamName({ teamName, team }: { teamName: string; team?: Team | null }) {
-	return <span className="text-sm font-medium">{team?.name ?? teamName}</span>;
+	return (
+		<span className="inline-flex items-center gap-1.5 text-sm font-medium">
+			{team && (
+				<img
+					src={getTeamLogoUrl(team.code, team.team_pool)}
+					alt={`${team.name} logo`}
+					className="h-4 w-4 shrink-0 object-contain"
+					onError={handleTeamLogoImageError}
+				/>
+			)}
+			<span>{team?.name ?? teamName}</span>
+		</span>
+	);
 }
 
 function getWinningSide(match: MatchWithResult): "HOME" | "AWAY" | null {
@@ -149,7 +161,7 @@ export function BracketDiagram({
 	standingByParticipantId?: Map<string, number>;
 	medalByParticipantId?: Map<string, "gold" | "silver" | "bronze">;
 	placementRevealKeys?: Set<string>;
-	finalStandings?: Array<{ participantId: string; name: string; placement: number }>;
+	finalStandings?: Array<{ participantId: string; name: string; placement: number; team?: Team | null }>;
 	hideUnplayableMatches?: boolean;
 }) {
 	const roundSlots = useMemo(
@@ -301,7 +313,17 @@ export function BracketDiagram({
 											className="flex items-center justify-between rounded-md px-2 py-1 text-xs"
 											style={{ backgroundColor: podiumColor }}
 										>
-											<span className="truncate pr-2">{row.name}</span>
+											<span className="inline-flex min-w-0 items-center gap-1.5 truncate pr-2">
+												{row.team && (
+													<img
+														src={getTeamLogoUrl(row.team.code, row.team.team_pool)}
+														alt={`${row.team.name} logo`}
+														className="h-4 w-4 shrink-0 object-contain"
+														onError={handleTeamLogoImageError}
+													/>
+												)}
+												<span className="truncate">{row.name}</span>
+											</span>
 											<span className="font-semibold">#{row.placement}</span>
 										</div>
 									);

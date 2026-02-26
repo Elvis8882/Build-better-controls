@@ -441,7 +441,19 @@ export function GroupStandings({
 											const placement = overallPlacementByParticipantId.get(row.participant_id);
 											return (
 												<tr key={row.participant_id} className="border-b">
-													<td className="py-1 pr-2">{team?.name ?? `Participant ${row.participant_id.slice(0, 6)}`}</td>
+													<td className="py-1 pr-2">
+														<div className="flex items-center gap-2">
+															{team && (
+																<img
+																	src={getTeamLogoUrl(team.code, team.team_pool)}
+																	alt={`${team.name} logo`}
+																	className="h-4 w-4 shrink-0 object-contain"
+																	onError={handleTeamLogoImageError}
+																/>
+															)}
+															<span>{team?.name ?? `Participant ${row.participant_id.slice(0, 6)}`}</span>
+														</div>
+													</td>
 													<td className="py-1 pl-2 text-right">
 														{statsByParticipantId.get(row.participant_id)?.gamesPlayed ?? 0}
 													</td>

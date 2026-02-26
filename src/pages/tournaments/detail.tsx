@@ -1127,7 +1127,7 @@ export default function TournamentDetailPage() {
 		.map(([participantId, placement]) => {
 			const participant = displayParticipants.find((row) => row.id === participantId);
 			const team = participant?.team_id ? teamById.get(participant.team_id) : null;
-			return { participantId, placement, name: team?.name ?? participant?.display_name ?? "Unknown" };
+			return { participantId, placement, name: team?.name ?? participant?.display_name ?? "Unknown", team };
 		})
 		.sort((left, right) => left.placement - right.placement);
 

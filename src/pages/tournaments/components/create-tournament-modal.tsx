@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { createTournament, sanitizeGroupCount, type TeamPool, type TournamentPresetUi } from "@/lib/db";
-import { isGroupThenPlayoffFlow, isTwoVTwoFlow } from "@/pages/tournaments/preset-flow";
+import { createTournament, type TeamPool, type TournamentPresetUi } from "@/lib/db";
+import { isGroupThenPlayoffFlow, resolvePresetGroupCount } from "@/pages/tournaments/preset-flow";
 import { Button } from "@/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/ui/dialog";
 import { Input } from "@/ui/input";
@@ -29,16 +29,10 @@ export function CreateTournamentModal({ open, onOpenChange, onCreated }: Props) 
 	const [defaultParticipants, setDefaultParticipants] = useState(4);
 	const [groupCountInput, setGroupCountInput] = useState(1);
 
-	const groupResolution = useMemo(() => {
-		if (!isGroupThenPlayoffFlow(presetId)) {
-			return { groupCount: null, note: null, error: null };
-		}
-		const isTeamBasedPreset = isTwoVTwoFlow(presetId);
-		return sanitizeGroupCount(defaultParticipants, groupCountInput, {
-			autoExpand: !isTeamBasedPreset,
-			maxParticipantsPerGroup: isTeamBasedPreset ? 16 : 6,
-		});
-	}, [presetId, defaultParticipants, groupCountInput]);
+	const groupResolution = useMemo(
+		() => resolvePresetGroupCount(presetId, defaultParticipants, groupCountInput),
+		[presetId, defaultParticipants, groupCountInput],
+	);
 
 	const onCreate = async () => {
 		if (!name.trim()) {

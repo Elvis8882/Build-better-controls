@@ -133,7 +133,7 @@ export default function PermissionPage() {
 					<CardDescription>点击下面按钮，当拥有页面指定权限时正常显示，否则显示403</CardDescription>
 				</CardHeader>
 				<CardContent>
-					<Link to="/permission/page-test">
+					<Link to="/dashboard/permission/page-test">
 						<Button>跳转页面</Button>
 					</Link>
 				</CardContent>

@@ -38,13 +38,7 @@ export const getGroupingSemanticsByPreset = (preset: TournamentPresetFlowInput):
 	}
 
 	if (preset === "2v2_tournament") {
-		return {
-			isGroupStagePreset: true,
-			usesTeamEntrants: true,
-			entrantCountDivisor: 2,
-			autoExpand: true,
-			maxEntrantsPerGroup: 6,
-		};
+		return TWO_V_TWO_TOURNAMENT_GROUPING;
 	}
 
 	return {

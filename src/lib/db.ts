@@ -314,16 +314,28 @@ export async function createTournament(payload: {
 		}
 
 		const isTeamBasedPreset = payload.presetId === "2v2_tournament";
-		const groupResolution = sanitizeGroupCount(payload.defaultParticipants, payload.groupCount, {
-			autoExpand: !isTeamBasedPreset,
-			maxParticipantsPerGroup: isTeamBasedPreset ? 16 : 6,
+		const entrantCount = isTeamBasedPreset ? Math.floor(payload.defaultParticipants / 2) : payload.defaultParticipants;
+		const maxEntrantsPerGroup = 6;
+		const groupResolution = sanitizeGroupCount(entrantCount, payload.groupCount, {
+			autoExpand: true,
+			maxParticipantsPerGroup: maxEntrantsPerGroup,
 		});
 
 		if (groupResolution.error) {
+			if (isTeamBasedPreset) {
+				throw new Error(
+					`Invalid group count: 2v2 tournament groups must have between 3 and ${maxEntrantsPerGroup} teams each.`,
+				);
+			}
 			throw new Error(`Invalid group count: ${groupResolution.error}`);
 		}
 
 		if (groupResolution.groupCount !== payload.groupCount) {
+			if (isTeamBasedPreset) {
+				throw new Error(
+					`Invalid group count ${payload.groupCount}; expected ${groupResolution.groupCount} for ${entrantCount} teams (2 participants per team, max ${maxEntrantsPerGroup} teams per group).`,
+				);
+			}
 			throw new Error(
 				`Invalid group count ${payload.groupCount}; expected ${groupResolution.groupCount} for ${payload.defaultParticipants} participants.`,
 			);

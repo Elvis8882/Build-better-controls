@@ -1,6 +1,13 @@
-import { sanitizeGroupCount, type Tournament, type TournamentPresetUi } from "@/lib/db";
+import { sanitizeGroupCount } from "@/lib/db";
+import {
+	hasLosersProgressionPreset,
+	isGroupThenPlayoffPreset,
+	isPlayoffOnlyPreset,
+	isTwoVTwoPreset,
+	type TournamentPreset,
+} from "@/lib/tournament-preset-contract";
 
-type TournamentPreset = Tournament["preset_id"] | TournamentPresetUi | null | undefined;
+type TournamentPresetFlowInput = TournamentPreset | null | undefined;
 
 type GroupingSemantics = {
 	isGroupStagePreset: boolean;
@@ -10,26 +17,16 @@ type GroupingSemantics = {
 	maxEntrantsPerGroup: number;
 };
 
-const TWO_V_TWO_TOURNAMENT_GROUPING: GroupingSemantics = {
-	isGroupStagePreset: true,
-	usesTeamEntrants: true,
-	entrantCountDivisor: 2,
-	autoExpand: true,
-	maxEntrantsPerGroup: 6,
-};
+export const isPlayoffOnlyFlow = (preset: TournamentPresetFlowInput): boolean => isPlayoffOnlyPreset(preset);
 
-export const isPlayoffOnlyFlow = (preset: TournamentPreset): boolean =>
-	preset === "playoffs_only" || preset === "2v2_playoffs";
+export const isGroupThenPlayoffFlow = (preset: TournamentPresetFlowInput): boolean => isGroupThenPlayoffPreset(preset);
 
-export const isGroupThenPlayoffFlow = (preset: TournamentPreset): boolean =>
-	preset === "full_no_losers" || preset === "2v2_tournament" || preset === "full_with_losers";
+export const hasLosersProgressionFlow = (preset: TournamentPresetFlowInput): boolean =>
+	hasLosersProgressionPreset(preset);
 
-export const hasLosersProgressionFlow = (preset: TournamentPreset): boolean => preset === "full_with_losers";
+export const isTwoVTwoFlow = (preset: TournamentPresetFlowInput): boolean => isTwoVTwoPreset(preset);
 
-export const isTwoVTwoFlow = (preset: TournamentPreset): boolean =>
-	preset === "2v2_tournament" || preset === "2v2_playoffs";
-
-export const getGroupingSemanticsByPreset = (preset: TournamentPreset): GroupingSemantics => {
+export const getGroupingSemanticsByPreset = (preset: TournamentPresetFlowInput): GroupingSemantics => {
 	if (!isGroupThenPlayoffFlow(preset)) {
 		return {
 			isGroupStagePreset: false,
@@ -54,7 +51,7 @@ export const getGroupingSemanticsByPreset = (preset: TournamentPreset): Grouping
 };
 
 export const resolvePresetGroupCount = (
-	preset: TournamentPreset,
+	preset: TournamentPresetFlowInput,
 	defaultParticipants: number,
 	selectedGroupCount: number,
 ): { groupCount: number | null; note: string | null; error: string | null } => {

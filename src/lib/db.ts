@@ -1,11 +1,7 @@
 import { supabase } from "@/lib/supabaseClient";
+import { normalizeTournamentPreset, type TournamentPreset } from "@/lib/tournament-preset-contract";
 
-export type TournamentPreset =
-	| "playoffs_only"
-	| "full_with_losers"
-	| "full_no_losers"
-	| "2v2_tournament"
-	| "2v2_playoffs";
+export type { TournamentPreset };
 export type TournamentPresetUi = TournamentPreset;
 export type TeamPool = "NHL" | "INTL";
 export type TournamentStage = "GROUP" | "PLAYOFF";
@@ -251,20 +247,6 @@ export function sanitizeGroupCount(
 	return { groupCount, note, error: null };
 }
 
-function normalizeTournamentPreset(preset: string | null): TournamentPreset | null {
-	if (!preset) return null;
-	if (preset === "full_tournament") return "full_no_losers";
-	if (
-		preset === "playoffs_only" ||
-		preset === "full_with_losers" ||
-		preset === "full_no_losers" ||
-		preset === "2v2_tournament" ||
-		preset === "2v2_playoffs"
-	)
-		return preset;
-	return null;
-}
-
 export async function listTournaments(): Promise<Tournament[]> {
 	const { data, error } = await supabase
 		.from("tournaments")
@@ -289,7 +271,7 @@ export async function listTournaments(): Promise<Tournament[]> {
 
 	return rows.map((item) => ({
 		...item,
-		preset_id: normalizeTournamentPreset(item.preset_id as string | null),
+		preset_id: normalizeTournamentPreset(item.preset_id as string | null, "listTournaments"),
 		hosted_by: usernameById.get(item.created_by) ?? "unknown",
 	}));
 }
@@ -384,7 +366,7 @@ export async function createTournament(payload: {
 	const created = data as Omit<Tournament, "hosted_by">;
 	return {
 		...created,
-		preset_id: normalizeTournamentPreset(created.preset_id as string | null),
+		preset_id: normalizeTournamentPreset(created.preset_id as string | null, "createTournament"),
 		hosted_by: "unknown",
 	};
 }

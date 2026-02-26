@@ -45,8 +45,8 @@ export function CreateTournamentModal({ open, onOpenChange, onCreated }: Props) 
 			toast.warning("Tournament name is required.");
 			return;
 		}
-		if (isTwoVTwoPreset && (defaultParticipants < 4 || defaultParticipants > 16)) {
-			toast.warning("2v2 tournaments require between 4 and 16 default participants.");
+		if (isTwoVTwoPreset && (defaultParticipants < 6 || defaultParticipants > 16)) {
+			toast.warning("2v2 tournaments require between 6 and 16 default participants (minimum 3 teams).");
 			return;
 		}
 		if (!isTwoVTwoPreset && (defaultParticipants < 3 || defaultParticipants > 16)) {
@@ -110,7 +110,7 @@ export function CreateTournamentModal({ open, onOpenChange, onCreated }: Props) 
 						<p className="text-sm">Default participants</p>
 						<Input
 							type="number"
-							min={isTwoVTwoPreset ? 4 : 3}
+							min={isTwoVTwoPreset ? 6 : 3}
 							max={16}
 							value={defaultParticipants}
 							onChange={(event) => setDefaultParticipants(Number(event.target.value))}

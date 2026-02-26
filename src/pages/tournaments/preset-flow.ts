@@ -17,6 +17,14 @@ type GroupingSemantics = {
 	maxEntrantsPerGroup: number;
 };
 
+const TWO_V_TWO_TOURNAMENT_GROUPING: GroupingSemantics = {
+	isGroupStagePreset: true,
+	usesTeamEntrants: true,
+	entrantCountDivisor: 2,
+	autoExpand: true,
+	maxEntrantsPerGroup: 6,
+};
+
 export const isPlayoffOnlyFlow = (preset: TournamentPresetFlowInput): boolean => isPlayoffOnlyPreset(preset);
 
 export const isGroupThenPlayoffFlow = (preset: TournamentPresetFlowInput): boolean => isGroupThenPlayoffPreset(preset);

@@ -30,6 +30,7 @@ export function CreateTournamentModal({ open, onOpenChange, onCreated }: Props) 
 	const [teamPool, setTeamPool] = useState<TeamPool>("NHL");
 	const [defaultParticipants, setDefaultParticipants] = useState(4);
 	const [groupCountInput, setGroupCountInput] = useState(1);
+	const [roundRobinMode, setRoundRobinMode] = useState<"single" | "double">("single");
 
 	const groupResolution = useMemo(
 		() => resolvePresetGroupCount(presetId, defaultParticipants, groupCountInput),
@@ -68,7 +69,13 @@ export function CreateTournamentModal({ open, onOpenChange, onCreated }: Props) 
 				presetId,
 				teamPool,
 				defaultParticipants,
-				groupCount: isGroupThenPlayoffFlow(presetId) ? groupResolution.groupCount : null,
+				groupCount: isGroupThenPlayoffFlow(presetId)
+					? groupResolution.groupCount
+					: isRoundRobinTiersPreset
+						? roundRobinMode === "double"
+							? 2
+							: 1
+						: null,
 			});
 			toast.success("Tournament created.");
 			onOpenChange(false);
@@ -127,6 +134,20 @@ export function CreateTournamentModal({ open, onOpenChange, onCreated }: Props) 
 							<option value="INTL">International</option>
 						</select>
 					</div>
+
+					{isRoundRobinTiersPreset && (
+						<div className="space-y-1">
+							<p className="text-sm">Round robin mode</p>
+							<select
+								className="h-10 w-full rounded-md border bg-transparent px-3 text-sm"
+								value={roundRobinMode}
+								onChange={(event) => setRoundRobinMode(event.target.value as "single" | "double")}
+							>
+								<option value="single">Single</option>
+								<option value="double">Double</option>
+							</select>
+						</div>
+					)}
 					{isGroupThenPlayoffFlow(presetId) && (
 						<div className="space-y-1">
 							<p className="text-sm">Group count</p>

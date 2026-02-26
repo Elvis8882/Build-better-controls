@@ -172,12 +172,7 @@ export default function TournamentDetailPage() {
 
 	const displayParticipants = useMemo(() => {
 		if (!tournament) return participants;
-		const withHostLabel = participants.map((participant) => {
-			if (participant.user_id !== tournament.created_by) return participant;
-			if (participant.display_name.includes("(Host)")) return participant;
-			return { ...participant, display_name: `${participant.display_name} (Host)` };
-		});
-		const sortedByDefaultOrder = [...withHostLabel].sort((left, right) => {
+		const sortedByDefaultOrder = [...participants].sort((left, right) => {
 			const leftIsHost = left.user_id === tournament.created_by;
 			const rightIsHost = right.user_id === tournament.created_by;
 			if (leftIsHost && !rightIsHost) return -1;
@@ -196,6 +191,15 @@ export default function TournamentDetailPage() {
 			return leftOrder - rightOrder;
 		});
 	}, [participants, tournament, twoVTwoPairOrderById]);
+	const participantsWithHostLabel = useMemo(
+		() =>
+			displayParticipants.map((participant) => {
+				if (!tournament || participant.user_id !== tournament.created_by) return participant;
+				if (participant.display_name.includes("(Host)")) return participant;
+				return { ...participant, display_name: `${participant.display_name} (Host)` };
+			}),
+		[displayParticipants, tournament],
+	);
 	const teamById = useMemo(() => new Map(teams.map((team) => [team.id, team])), [teams]);
 	const twoVTwoPreset = isTwoVTwoFlow(tournament?.preset_id ?? null);
 	const roundRobinTiersPreset = isRoundRobinTiersFlow(tournament?.preset_id ?? null);
@@ -926,9 +930,11 @@ export default function TournamentDetailPage() {
 	};
 
 	const roundRobinStandings = useMemo(
-		() => computeRoundRobinStandings(groupMatches, displayParticipants),
-		[groupMatches, displayParticipants],
+		() => computeRoundRobinStandings(groupMatches, participants),
+		[groupMatches, participants],
 	);
+	const showRoundRobinPlacement =
+		roundRobinTiersPreset && groupMatches.length > 0 && groupMatches.every((match) => Boolean(match.result?.locked));
 
 	if (loading) return <div className="p-6 text-sm text-muted-foreground">Loading tournament...</div>;
 	if (!tournament) return <div className="p-6 text-sm text-muted-foreground">Tournament not found.</div>;
@@ -1203,7 +1209,7 @@ export default function TournamentDetailPage() {
 								</div>
 							)}
 							<div className="space-y-2">
-								{displayParticipants.map((participant) => (
+								{participantsWithHostLabel.map((participant) => (
 									<div key={participant.id} className="flex items-center justify-between gap-2 rounded border p-2">
 										<span className="truncate text-sm">{participant.display_name}</span>
 										<div className="flex items-center gap-2">
@@ -1241,7 +1247,7 @@ export default function TournamentDetailPage() {
 					) : (
 						<ParticipantsTable
 							tournament={tournament}
-							participants={displayParticipants}
+							participants={participantsWithHostLabel}
 							placeholderRows={placeholderRows}
 							teams={teams}
 							assignedTeamCounts={assignedTeamCounts}
@@ -1287,7 +1293,7 @@ export default function TournamentDetailPage() {
 									<section className="space-y-3 rounded-lg border p-4">
 										<h2 className="text-lg font-semibold">Standings</h2>
 										<div className="overflow-x-auto">
-											<table className="w-full min-w-[460px] text-sm">
+											<table className="w-auto min-w-[460px] text-sm">
 												<thead>
 													<tr className="border-b">
 														<th className="py-1 text-left">Participant</th>
@@ -1296,10 +1302,11 @@ export default function TournamentDetailPage() {
 														<th className="py-1 text-right">L</th>
 														<th className="py-1 text-right">GF:GA</th>
 														<th className="py-1 text-right">Pts</th>
+														{showRoundRobinPlacement && <th className="py-1 text-right">Placement</th>}
 													</tr>
 												</thead>
 												<tbody>
-													{roundRobinStandings.map((row) => (
+													{roundRobinStandings.map((row, index) => (
 														<tr key={row.id} className="border-b">
 															<td className="py-1">{row.name}</td>
 															<td className="py-1 text-right">{row.gp}</td>
@@ -1309,6 +1316,9 @@ export default function TournamentDetailPage() {
 																{row.gf}:{row.ga}
 															</td>
 															<td className="py-1 text-right font-semibold">{row.pts}</td>
+															{showRoundRobinPlacement && (
+																<td className="py-1 text-right font-semibold">#{index + 1}</td>
+															)}
 														</tr>
 													))}
 												</tbody>
@@ -1343,6 +1353,7 @@ export default function TournamentDetailPage() {
 												: undefined
 										}
 										useParticipantNames
+										limitUpcomingMatches
 									/>
 								) : (
 									<GroupMatchesTable

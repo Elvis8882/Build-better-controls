@@ -93,7 +93,7 @@ const getPresetTypeLabel = (presetId: Tournament["preset_id"]): string => {
 	if (presetId === "full_with_losers") return "Full tournament (with loser bracket)";
 	if (presetId === "full_no_losers") return "Full tournament (without loser bracket)";
 	if (presetId === "2v2_tournament") return "2v2 Tournament";
-	if (presetId === "round_robin_tiers") return "Round-robin tiers (fun 1v1)";
+	if (presetId === "round_robin_tiers") return "Round-Robin Tiers";
 	return "Tournament";
 };
 

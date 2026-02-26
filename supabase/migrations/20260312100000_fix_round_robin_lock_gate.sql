@@ -1,3 +1,9 @@
+create or replace function public.trg_on_participants_lock_check()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
 declare
   v_total int;
   v_locked int;
@@ -46,3 +52,4 @@ begin
 
   return new;
 end;
+$$;

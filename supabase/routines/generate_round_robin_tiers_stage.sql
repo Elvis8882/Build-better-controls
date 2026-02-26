@@ -10,7 +10,11 @@ declare
   v_home_id uuid;
   v_away_id uuid;
   v_wave int := 1;
+<<<<<<< codex/fix-round-robin-sheet-generation-issue
   v_assign_idx int;
+=======
+  v_participant_id uuid;
+>>>>>>> main
   v_middle_team_ids uuid[];
   v_pick uuid;
 begin
@@ -35,10 +39,17 @@ begin
   where t.team_pool = (select team_pool from public.tournaments where id = p_tournament_id)
     and t.ovr_tier = 'Middle Tier';
 
+<<<<<<< codex/fix-round-robin-sheet-generation-issue
   if v_middle_team_ids is not null and v_participant_ids is not null then
     for v_assign_idx in 1..least(array_length(v_participant_ids,1), array_length(v_middle_team_ids,1)) loop
       v_pick := v_middle_team_ids[v_assign_idx];
       update public.tournament_participants set team_id = v_pick where id = v_participant_ids[v_assign_idx];
+=======
+  if v_middle_team_ids is not null then
+    foreach v_participant_id in array v_participant_ids loop
+      v_pick := v_middle_team_ids[1 + floor(random() * array_length(v_middle_team_ids,1))::int];
+      update public.tournament_participants set team_id = v_pick where id = v_participant_id;
+>>>>>>> main
     end loop;
   end if;
 

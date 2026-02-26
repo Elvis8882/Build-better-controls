@@ -320,13 +320,45 @@ export async function createTournament(payload: {
 		throw new Error("2v2 tournaments require an even default participant count.");
 	}
 
+	const isGroupThenPlayoffPreset =
+		payload.presetId === "full_no_losers" ||
+		payload.presetId === "full_with_losers" ||
+		payload.presetId === "2v2_tournament";
+
+	let resolvedGroupCount: number | null = null;
+	if (isGroupThenPlayoffPreset) {
+		if (payload.groupCount === null || !Number.isInteger(payload.groupCount)) {
+			throw new Error("Group count is required for group-then-playoff tournaments.");
+		}
+
+		const isTeamBasedPreset = payload.presetId === "2v2_tournament";
+		const groupResolution = sanitizeGroupCount(payload.defaultParticipants, payload.groupCount, {
+			autoExpand: !isTeamBasedPreset,
+			maxParticipantsPerGroup: isTeamBasedPreset ? 16 : 6,
+		});
+
+		if (groupResolution.error) {
+			throw new Error(`Invalid group count: ${groupResolution.error}`);
+		}
+
+		if (groupResolution.groupCount !== payload.groupCount) {
+			throw new Error(
+				`Invalid group count ${payload.groupCount}; expected ${groupResolution.groupCount} for ${payload.defaultParticipants} participants.`,
+			);
+		}
+
+		resolvedGroupCount = groupResolution.groupCount;
+	} else if (payload.groupCount !== null) {
+		throw new Error("Group count is only allowed for group-then-playoff tournaments.");
+	}
+
 	const insertPayload = {
 		name: payload.name,
 		preset_id: payload.presetId,
 		created_by: userId,
 		team_pool: payload.teamPool,
 		default_participants: payload.defaultParticipants,
-		group_count: payload.groupCount,
+		group_count: resolvedGroupCount,
 		stage: payload.presetId === "playoffs_only" || payload.presetId === "2v2_playoffs" ? "PLAYOFF" : "GROUP",
 	};
 

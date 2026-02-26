@@ -10,6 +10,14 @@ type GroupingSemantics = {
 	maxEntrantsPerGroup: number;
 };
 
+const TWO_V_TWO_TOURNAMENT_GROUPING: GroupingSemantics = {
+	isGroupStagePreset: true,
+	usesTeamEntrants: true,
+	entrantCountDivisor: 2,
+	autoExpand: true,
+	maxEntrantsPerGroup: 6,
+};
+
 export const isPlayoffOnlyFlow = (preset: TournamentPreset): boolean =>
 	preset === "playoffs_only" || preset === "2v2_playoffs";
 
@@ -33,13 +41,7 @@ export const getGroupingSemanticsByPreset = (preset: TournamentPreset): Grouping
 	}
 
 	if (preset === "2v2_tournament") {
-		return {
-			isGroupStagePreset: true,
-			usesTeamEntrants: true,
-			entrantCountDivisor: 2,
-			autoExpand: true,
-			maxEntrantsPerGroup: 6,
-		};
+		return TWO_V_TWO_TOURNAMENT_GROUPING;
 	}
 
 	return {

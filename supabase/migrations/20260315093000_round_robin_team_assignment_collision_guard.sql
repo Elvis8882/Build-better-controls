@@ -1,3 +1,9 @@
+create or replace function public.generate_round_robin_tiers_stage(p_tournament_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
 declare
   v_participant_ids uuid[];
   v_slots uuid[];
@@ -122,3 +128,4 @@ begin
     v_wave := v_wave + 1;
   end loop;
 end;
+$$;

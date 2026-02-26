@@ -82,12 +82,20 @@ export function pickRerolledTeam(params: {
 	teams: Team[];
 	targetTier: TierName;
 	previousTeamId: string | null;
+	excludedTeamIds?: Set<string>;
 }): string | null {
 	const bucket = params.teams.filter((team) => team.ovr_tier === params.targetTier);
 	if (bucket.length === 0) return null;
+	const availableInTier =
+		params.excludedTeamIds && params.excludedTeamIds.size > 0
+			? bucket.filter((team) => !params.excludedTeamIds?.has(team.id))
+			: bucket;
+	const candidateBucket = availableInTier.length > 0 ? availableInTier : bucket;
 	const candidates =
-		bucket.length > 1 && params.previousTeamId ? bucket.filter((team) => team.id !== params.previousTeamId) : bucket;
-	const picks = candidates.length > 0 ? candidates : bucket;
+		candidateBucket.length > 1 && params.previousTeamId
+			? candidateBucket.filter((team) => team.id !== params.previousTeamId)
+			: candidateBucket;
+	const picks = candidates.length > 0 ? candidates : candidateBucket;
 	return picks[Math.floor(Math.random() * picks.length)]?.id ?? null;
 }
 

@@ -1102,6 +1102,33 @@ export async function listUserTeamStats(userId: string): Promise<PlayerTeamStat[
 		});
 	}
 
+	const resultTeamIds = new Set<string>();
+	for (const result of resultsByMatch.values()) {
+		if (result.home_team_id) resultTeamIds.add(result.home_team_id);
+		if (result.away_team_id) resultTeamIds.add(result.away_team_id);
+	}
+	for (const value of participantToTeam.values()) {
+		resultTeamIds.add(value.team_id);
+	}
+
+	const teamMetaById = new Map<string, { code: string; team_pool: TeamPool; name: string }>();
+	if (resultTeamIds.size > 0) {
+		const { data: teamsData, error: teamsError } = await supabase
+			.from("teams")
+			.select("id, code, team_pool, name")
+			.in("id", [...resultTeamIds]);
+		throwOnError(teamsError, "Unable to load team metadata");
+		for (const team of teamsData ?? []) {
+			const teamId = team.id as string | null;
+			if (!teamId) continue;
+			teamMetaById.set(teamId, {
+				code: team.code as string,
+				team_pool: team.team_pool as TeamPool,
+				name: team.name as string,
+			});
+		}
+	}
+
 	const aggregates = new Map<string, PlayerTeamStat>();
 
 	for (const match of matches) {
@@ -1125,18 +1152,10 @@ export async function listUserTeamStats(userId: string): Promise<PlayerTeamStat[
 		const row = isHome
 			? {
 					team_id: result.home_team_id ?? isHome.team_id,
-					team_code:
-						(result.home_team_id
-							? teamMetaByTournamentTeam.get(`${match.tournament_id}:${result.home_team_id}`)?.team_code
-							: null) ?? isHome.team_code,
+					team_code: (result.home_team_id ? teamMetaById.get(result.home_team_id)?.code : null) ?? isHome.team_code,
 					team_pool:
-						(result.home_team_id
-							? teamMetaByTournamentTeam.get(`${match.tournament_id}:${result.home_team_id}`)?.team_pool
-							: null) ?? isHome.team_pool,
-					team_name:
-						(result.home_team_id
-							? teamMetaByTournamentTeam.get(`${match.tournament_id}:${result.home_team_id}`)?.team_name
-							: null) ?? isHome.team_name,
+						(result.home_team_id ? teamMetaById.get(result.home_team_id)?.team_pool : null) ?? isHome.team_pool,
+					team_name: (result.home_team_id ? teamMetaById.get(result.home_team_id)?.name : null) ?? isHome.team_name,
 					shots_made: result.home_shots,
 					goals_made: result.home_score,
 					shots_received: result.away_shots,
@@ -1145,18 +1164,10 @@ export async function listUserTeamStats(userId: string): Promise<PlayerTeamStat[
 			: isAway
 				? {
 						team_id: result.away_team_id ?? isAway.team_id,
-						team_code:
-							(result.away_team_id
-								? teamMetaByTournamentTeam.get(`${match.tournament_id}:${result.away_team_id}`)?.team_code
-								: null) ?? isAway.team_code,
+						team_code: (result.away_team_id ? teamMetaById.get(result.away_team_id)?.code : null) ?? isAway.team_code,
 						team_pool:
-							(result.away_team_id
-								? teamMetaByTournamentTeam.get(`${match.tournament_id}:${result.away_team_id}`)?.team_pool
-								: null) ?? isAway.team_pool,
-						team_name:
-							(result.away_team_id
-								? teamMetaByTournamentTeam.get(`${match.tournament_id}:${result.away_team_id}`)?.team_name
-								: null) ?? isAway.team_name,
+							(result.away_team_id ? teamMetaById.get(result.away_team_id)?.team_pool : null) ?? isAway.team_pool,
+						team_name: (result.away_team_id ? teamMetaById.get(result.away_team_id)?.name : null) ?? isAway.team_name,
 						shots_made: result.away_shots,
 						goals_made: result.away_score,
 						shots_received: result.home_shots,

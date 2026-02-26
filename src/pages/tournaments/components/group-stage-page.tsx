@@ -52,6 +52,8 @@ export function ParticipantsTable({
 	onLockParticipant,
 	onEditParticipant,
 	onClearParticipant,
+	showTeamControls = true,
+	requireTeamBeforeLock = true,
 }: {
 	tournament: Tournament;
 	participants: TournamentParticipant[];
@@ -80,6 +82,8 @@ export function ParticipantsTable({
 	onLockParticipant: (participantId: string) => Promise<void>;
 	onEditParticipant: (participantId: string) => void;
 	onClearParticipant: (participant: TournamentParticipant) => Promise<void>;
+	showTeamControls?: boolean;
+	requireTeamBeforeLock?: boolean;
 }) {
 	const [teamFilterByParticipantId, setTeamFilterByParticipantId] = useState<Record<string, TeamFilter>>({});
 	const hasOpenSlots = participants.length < tournament.default_participants;
@@ -170,7 +174,7 @@ export function ParticipantsTable({
 					<thead>
 						<tr className="border-b">
 							<th className="px-2 py-2 text-center">Participant</th>
-							<th className="px-2 py-2 text-center">Team</th>
+							{showTeamControls && <th className="px-2 py-2 text-center">Team</th>}
 							<th className="px-2 py-2 text-center">Actions</th>
 						</tr>
 					</thead>
@@ -197,65 +201,67 @@ export function ParticipantsTable({
 											{twoVTwoPreset && !teammate && !hasOpenSlots && <p>TBD</p>}
 										</div>
 									</td>
-									<td className={`px-2 align-middle ${twoVTwoPreset && pairIndex > 0 ? "pt-4 pb-2" : "py-2"}`}>
-										<div className="flex flex-col items-center justify-center gap-2 md:flex-row">
-											<span className="text-xs text-muted-foreground">Filter</span>
-											<select
-												className="h-8 rounded-md border px-2 text-xs"
-												disabled={!canEditTeam}
-												value={teamFilter}
-												onChange={(event) =>
-													setTeamFilterByParticipantId((previous) => ({
-														...previous,
-														[participant.id]: event.target.value as TeamFilter,
-													}))
-												}
-											>
-												<option value="ALL">All teams</option>
-												<option value="Top 5">Top 5</option>
-												<option value="Top 10">Top 10</option>
-												<option value="Middle Tier">Middle Tier</option>
-												<option value="Bottom Tier">Bottom Tier</option>
-											</select>
-											<select
-												className="h-9 min-w-[120px] max-w-full rounded-md border px-2"
-												disabled={!canEditTeam}
-												value={pairTeamId ?? ""}
-												onChange={async (event) => {
-													const teamId = event.target.value || null;
-													await onTeamChange(participant, teamId);
-													if (twoVTwoPreset && teammate) {
-														await onTeamChange(teammate, teamId);
+									{showTeamControls && (
+										<td className={`px-2 align-middle ${twoVTwoPreset && pairIndex > 0 ? "pt-4 pb-2" : "py-2"}`}>
+											<div className="flex flex-col items-center justify-center gap-2 md:flex-row">
+												<span className="text-xs text-muted-foreground">Filter</span>
+												<select
+													className="h-8 rounded-md border px-2 text-xs"
+													disabled={!canEditTeam}
+													value={teamFilter}
+													onChange={(event) =>
+														setTeamFilterByParticipantId((previous) => ({
+															...previous,
+															[participant.id]: event.target.value as TeamFilter,
+														}))
 													}
-												}}
-											>
-												<option value="">Select team</option>
-												{filteredTeams.map((team) => (
-													<option
-														key={team.id}
-														value={team.id}
-														disabled={(assignedTeamCounts.get(team.id) ?? 0) >= maxPerTeam && pairTeamId !== team.id}
-													>
-														{team.name}
-													</option>
-												))}
-											</select>
-											{pairTeam && (
-												<>
-													<img
-														src={getTeamLogoUrl(pairTeam.code, pairTeam.team_pool)}
-														alt={`${pairTeam.name} logo`}
-														className="h-7 w-7 rounded-sm object-contain"
-														onError={handleTeamLogoImageError}
-													/>
-													<p className="text-center text-xs text-muted-foreground md:text-left">
-														OVR {pairTeam.overall} • OFF {pairTeam.offense} • DEF {pairTeam.defense} • GOA{" "}
-														{pairTeam.goalie}
-													</p>
-												</>
-											)}
-										</div>
-									</td>
+												>
+													<option value="ALL">All teams</option>
+													<option value="Top 5">Top 5</option>
+													<option value="Top 10">Top 10</option>
+													<option value="Middle Tier">Middle Tier</option>
+													<option value="Bottom Tier">Bottom Tier</option>
+												</select>
+												<select
+													className="h-9 min-w-[120px] max-w-full rounded-md border px-2"
+													disabled={!canEditTeam}
+													value={pairTeamId ?? ""}
+													onChange={async (event) => {
+														const teamId = event.target.value || null;
+														await onTeamChange(participant, teamId);
+														if (twoVTwoPreset && teammate) {
+															await onTeamChange(teammate, teamId);
+														}
+													}}
+												>
+													<option value="">Select team</option>
+													{filteredTeams.map((team) => (
+														<option
+															key={team.id}
+															value={team.id}
+															disabled={(assignedTeamCounts.get(team.id) ?? 0) >= maxPerTeam && pairTeamId !== team.id}
+														>
+															{team.name}
+														</option>
+													))}
+												</select>
+												{pairTeam && (
+													<>
+														<img
+															src={getTeamLogoUrl(pairTeam.code, pairTeam.team_pool)}
+															alt={`${pairTeam.name} logo`}
+															className="h-7 w-7 rounded-sm object-contain"
+															onError={handleTeamLogoImageError}
+														/>
+														<p className="text-center text-xs text-muted-foreground md:text-left">
+															OVR {pairTeam.overall} • OFF {pairTeam.offense} • DEF {pairTeam.defense} • GOA{" "}
+															{pairTeam.goalie}
+														</p>
+													</>
+												)}
+											</div>
+										</td>
+									)}
 									<td className={`px-2 align-middle ${twoVTwoPreset && pairIndex > 0 ? "pt-4 pb-2" : "py-2"}`}>
 										<div className="flex flex-wrap justify-center gap-2">
 											<Button
@@ -273,7 +279,11 @@ export function ParticipantsTable({
 											</Button>
 											<Button
 												size="sm"
-												disabled={participantFieldsLocked || (!pairEditing && pairLocked) || !pairTeamId}
+												disabled={
+													participantFieldsLocked ||
+													(!pairEditing && pairLocked) ||
+													(requireTeamBeforeLock && !pairTeamId)
+												}
 												onClick={async () => {
 													await onLockParticipant(participant.id);
 													if (twoVTwoPreset && teammate) {
@@ -320,7 +330,7 @@ export function ParticipantsTable({
 						{placeholderRows.map((row) => (
 							<tr key={row.id} className="border-b border-dashed bg-muted/20">
 								<td className="px-2 py-3 text-center text-muted-foreground">{row.label}</td>
-								<td className="px-2 py-3 text-center text-muted-foreground">-</td>
+								{showTeamControls && <td className="px-2 py-3 text-center text-muted-foreground">-</td>}
 								<td className="px-2 py-3 text-center text-muted-foreground">Invite or add guest</td>
 							</tr>
 						))}

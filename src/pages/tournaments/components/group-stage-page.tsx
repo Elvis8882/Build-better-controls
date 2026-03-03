@@ -54,6 +54,7 @@ export function ParticipantsTable({
 	onTeamChange,
 	onRandomizeTeam,
 	onRandomizeTwoVTwoTeams,
+	canRandomizeTwoVTwoPairs,
 	onLockParticipant,
 	onEditParticipant,
 	onClearParticipant,
@@ -84,6 +85,7 @@ export function ParticipantsTable({
 	onTeamChange: (participant: TournamentParticipant, teamId: string | null) => Promise<void>;
 	onRandomizeTeam: (participant: TournamentParticipant, teamFilter: TeamFilter) => Promise<string | null>;
 	onRandomizeTwoVTwoTeams: () => Promise<void>;
+	canRandomizeTwoVTwoPairs: boolean;
 	onLockParticipant: (participantId: string) => Promise<void>;
 	onEditParticipant: (participantId: string) => void;
 	onClearParticipant: (participant: TournamentParticipant) => Promise<void>;
@@ -347,7 +349,7 @@ export function ParticipantsTable({
 					<Button
 						size="sm"
 						variant="outline"
-						disabled={saving || participantFieldsLocked}
+						disabled={saving || participantFieldsLocked || !canRandomizeTwoVTwoPairs}
 						onClick={() => void onRandomizeTwoVTwoTeams()}
 					>
 						Randomize 2v2 pairs

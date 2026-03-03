@@ -153,7 +153,7 @@ export default function TournamentDetailPage() {
 	const [editingParticipantIds, setEditingParticipantIds] = useState<Set<string>>(new Set());
 	const [editingMatchIds, setEditingMatchIds] = useState<Set<string>>(new Set());
 	const [activeTab, setActiveTab] = useState<"participants" | "group" | "playoff">("participants");
-	const [twoVTwoPairOrderById] = useState<Map<string, number>>(new Map());
+	const [twoVTwoPairOrderById, setTwoVTwoPairOrderById] = useState<Map<string, number>>(new Map());
 	const ensuringPlayoffBracketRef = useRef(false);
 
 	const isAdmin = profile?.role === "admin";
@@ -231,6 +231,10 @@ export default function TournamentDetailPage() {
 		}
 		return assignedTeamCounts.size * 2 === displayParticipants.length;
 	}, [twoVTwoPreset, allLockedWithTeams, assignedTeamCounts, displayParticipants.length]);
+	const canRandomizeTwoVTwoPairs =
+		twoVTwoPreset &&
+		displayParticipants.length >= 2 &&
+		displayParticipants.every((participant) => !participant.team_id);
 	const allGroupMatchesLocked = groupMatches.length > 0 && groupMatches.every((match) => Boolean(match.result?.locked));
 	const fullPreset = isGroupThenPlayoffFlow(tournament?.preset_id ?? null);
 	const canGenerateGroups = fullPreset && allLockedWithTeams && teamsValidForPreset && groups.length === 0;
@@ -916,6 +920,21 @@ export default function TournamentDetailPage() {
 		}
 	};
 
+	const onRandomizeTwoVTwoTeams = async () => {
+		if (!canRandomizeTwoVTwoPairs) return;
+		setTwoVTwoPairOrderById(() => {
+			const shuffled = [...displayParticipants];
+			for (let index = shuffled.length - 1; index > 0; index -= 1) {
+				const swapIndex = Math.floor(Math.random() * (index + 1));
+				const temp = shuffled[index];
+				shuffled[index] = shuffled[swapIndex];
+				shuffled[swapIndex] = temp;
+			}
+			return new Map(shuffled.map((participant, index) => [participant.id, index]));
+		});
+		toast.success("2v2 pairs randomized.");
+	};
+
 	const onClearParticipant = async (participant: TournamentParticipant) => {
 		if (!isHostOrAdmin) return;
 		setSaving(true);
@@ -1309,7 +1328,8 @@ export default function TournamentDetailPage() {
 							onAddGuest={onAddGuest}
 							onTeamChange={onParticipantTeamChange}
 							onRandomizeTeam={onRandomizeTeam}
-							onRandomizeTwoVTwoTeams={async () => {}}
+							onRandomizeTwoVTwoTeams={onRandomizeTwoVTwoTeams}
+							canRandomizeTwoVTwoPairs={canRandomizeTwoVTwoPairs}
 							onLockParticipant={onLockParticipant}
 							onEditParticipant={(participantId) =>
 								setEditingParticipantIds((previous) => new Set(previous).add(participantId))

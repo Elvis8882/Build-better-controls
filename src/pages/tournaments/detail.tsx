@@ -237,7 +237,17 @@ export default function TournamentDetailPage() {
 		displayParticipants.every((participant) => !participant.team_id);
 	const allGroupMatchesLocked = groupMatches.length > 0 && groupMatches.every((match) => Boolean(match.result?.locked));
 	const fullPreset = isGroupThenPlayoffFlow(tournament?.preset_id ?? null);
-	const canGenerateGroups = fullPreset && allLockedWithTeams && teamsValidForPreset && groups.length === 0;
+	const anyGroupLocked = groupMatches.some((match) => Boolean(match.result?.locked));
+	const anyPlayoffLocked = playoffMatches.some((match) => Boolean(match.result?.locked));
+	const canGenerateGroups =
+		fullPreset &&
+		allLockedWithTeams &&
+		teamsValidForPreset &&
+		tournament?.status !== "Closed" &&
+		!anyGroupLocked &&
+		!anyPlayoffLocked &&
+		groups.length === 0 &&
+		groupMatches.length === 0;
 	const canGenerateRoundRobinTiers =
 		roundRobinTiersPreset && allLockedWithTeams && teamsValidForPreset && groupMatches.length === 0;
 	const groupStageAvailable = (fullPreset || roundRobinTiersPreset) && (groups.length > 0 || groupMatches.length > 0);
@@ -246,8 +256,6 @@ export default function TournamentDetailPage() {
 		: fullPreset
 			? allGroupMatchesLocked
 			: allLockedWithTeams && teamsValidForPreset;
-	const anyGroupLocked = groupMatches.some((match) => Boolean(match.result?.locked));
-	const anyPlayoffLocked = playoffMatches.some((match) => Boolean(match.result?.locked));
 	const lockedPlayoffMatchIds = useMemo(
 		() => new Set(playoffMatches.filter((match) => Boolean(match.result?.locked)).map((match) => match.id)),
 		[playoffMatches],
@@ -577,16 +585,6 @@ export default function TournamentDetailPage() {
 	}, [id, isHostOrAdmin, members, participants, slots, tournament, loadAll]);
 
 	useEffect(() => {
-		if (!id || !isHostOrAdmin || saving || !canGenerateGroups) return;
-		setSaving(true);
-		void generateGroupsAndMatches(id)
-			.then(loadAll)
-			.then(() => toast.success("Groups and group schedule generated."))
-			.catch((error) => toast.error((error as Error).message))
-			.finally(() => setSaving(false));
-	}, [id, isHostOrAdmin, saving, canGenerateGroups, loadAll]);
-
-	useEffect(() => {
 		if (!id || !isHostOrAdmin || saving || !canGenerateRoundRobinTiers) return;
 		if (tournamentClosed) {
 			toast.error("Cannot regenerate round-robin tiers for a closed tournament.");
@@ -798,6 +796,20 @@ export default function TournamentDetailPage() {
 			await generateRoundRobinTiersStage(id);
 			await refreshGroupStageSections();
 			toast.success("Round-robin schedule generated.");
+		} catch (error) {
+			toast.error((error as Error).message);
+		} finally {
+			setSaving(false);
+		}
+	};
+
+	const onGenerateGroups = async () => {
+		if (!id || !isHostOrAdmin || saving || !canGenerateGroups) return;
+		setSaving(true);
+		try {
+			await generateGroupsAndMatches(id);
+			await loadAll();
+			toast.success("Groups and group schedule generated.");
 		} catch (error) {
 			toast.error((error as Error).message);
 		} finally {
@@ -1461,6 +1473,11 @@ export default function TournamentDetailPage() {
 					)}
 					{!allLockedWithTeams && (
 						<p className="text-sm text-muted-foreground">Waiting for all participants to lock in.</p>
+					)}
+					{fullPreset && isHostOrAdmin && (
+						<Button disabled={saving || !canGenerateGroups} onClick={() => void onGenerateGroups()}>
+							Generate groups & schedule
+						</Button>
 					)}
 				</TabsContent>
 

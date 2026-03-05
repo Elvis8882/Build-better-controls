@@ -192,6 +192,22 @@ export type FriendProfile = {
 	username: string;
 };
 
+export type TournamentNotificationType =
+	| "tournament_opened"
+	| "added_to_tournament"
+	| "tournament_closed"
+	| "tournament_winner";
+
+export type TournamentNotification = {
+	id: string;
+	type: TournamentNotificationType;
+	tournament_id: string;
+	tournament_name: string;
+	title: string;
+	description: string;
+	created_at: string;
+};
+
 type QueryError = {
 	message?: string;
 	status?: number;
@@ -722,6 +738,133 @@ export async function listPendingFriendRequests(userId: string): Promise<FriendR
 		...row,
 		sender_username: usernameById.get(row.sender_id) ?? "unknown",
 	}));
+}
+
+export async function listTournamentNotifications(userId: string): Promise<TournamentNotification[]> {
+	const [membershipData, createdData] = await Promise.all([
+		runAuthAwareQuery(
+			() => supabase.from("tournament_members").select("tournament_id, role").eq("user_id", userId),
+			"Unable to load tournament memberships",
+		),
+		runAuthAwareQuery(
+			() =>
+				supabase
+					.from("tournaments")
+					.select("id, name, status, created_at, created_by")
+					.eq("created_by", userId)
+					.order("created_at", { ascending: false }),
+			"Unable to load tournaments",
+		),
+	]);
+
+	const membershipRows = (membershipData ?? []) as Array<{ tournament_id: string; role: string | null }>;
+	const createdRows = (createdData ?? []) as Array<{
+		id: string;
+		name: string;
+		status: string | null;
+		created_at: string;
+		created_by: string;
+	}>;
+
+	const memberTournamentIds = [...new Set(membershipRows.map((row) => row.tournament_id).filter(Boolean))];
+	const memberTournamentsData =
+		memberTournamentIds.length > 0
+			? await runAuthAwareQuery(
+					() =>
+						supabase
+							.from("tournaments")
+							.select("id, name, status, created_at, created_by")
+							.in("id", memberTournamentIds)
+							.order("created_at", { ascending: false }),
+					"Unable to load member tournaments",
+				)
+			: [];
+
+	const tournaments = new Map<
+		string,
+		{ id: string; name: string; status: string | null; created_at: string; created_by: string }
+	>();
+	for (const tournament of [...createdRows, ...((memberTournamentsData ?? []) as typeof createdRows)]) {
+		tournaments.set(tournament.id, tournament);
+	}
+
+	if (tournaments.size === 0) return [];
+
+	const notifications: TournamentNotification[] = [];
+	const closedTournamentIds: string[] = [];
+
+	for (const tournament of tournaments.values()) {
+		const status = (tournament.status ?? "Open").toLowerCase();
+
+		if (status !== "closed") {
+			notifications.push({
+				id: `opened-${tournament.id}`,
+				type: "tournament_opened",
+				tournament_id: tournament.id,
+				tournament_name: tournament.name,
+				title: `Tournament opened: ${tournament.name}`,
+				description: "Registration and match prep are active.",
+				created_at: tournament.created_at,
+			});
+		}
+
+		if (status === "closed") {
+			closedTournamentIds.push(tournament.id);
+			notifications.push({
+				id: `closed-${tournament.id}`,
+				type: "tournament_closed",
+				tournament_id: tournament.id,
+				tournament_name: tournament.name,
+				title: `Tournament closed: ${tournament.name}`,
+				description: "Final standings are now locked.",
+				created_at: tournament.created_at,
+			});
+		}
+	}
+
+	for (const membership of membershipRows) {
+		const tournament = tournaments.get(membership.tournament_id);
+		if (!tournament) continue;
+		if (tournament.created_by === userId) continue;
+		notifications.push({
+			id: `member-${tournament.id}`,
+			type: "added_to_tournament",
+			tournament_id: tournament.id,
+			tournament_name: tournament.name,
+			title: `You've been added to ${tournament.name}`,
+			description: "You can now manage teams and play scheduled matches.",
+			created_at: tournament.created_at,
+		});
+	}
+
+	for (const tournamentId of closedTournamentIds) {
+		const tournament = tournaments.get(tournamentId);
+		if (!tournament) continue;
+		const matches = await listMatchesWithResults(tournamentId, "PLAYOFF");
+		const finals = matches.filter((match) => match.bracket_type !== "LOSERS" && match.next_match_id === null);
+		if (finals.length === 0) continue;
+		const finalRound = Math.max(...finals.map((item) => item.round));
+		const finalMatch = finals.find((item) => item.round === finalRound && Boolean(item.result?.locked));
+		if (!finalMatch?.result) continue;
+		if (finalMatch.result.home_score === finalMatch.result.away_score) continue;
+
+		const winnerName =
+			(finalMatch.result.home_score ?? 0) > (finalMatch.result.away_score ?? 0)
+				? finalMatch.home_participant_name
+				: finalMatch.away_participant_name;
+
+		notifications.push({
+			id: `winner-${tournament.id}`,
+			type: "tournament_winner",
+			tournament_id: tournament.id,
+			tournament_name: tournament.name,
+			title: `${winnerName} won ${tournament.name}`,
+			description: "Champion confirmed after the final playoff match.",
+			created_at: finalMatch.created_at,
+		});
+	}
+
+	return notifications.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 }
 
 export async function acceptFriendRequest(requestId: string, receiverUserId: string): Promise<void> {

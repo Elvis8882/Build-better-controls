@@ -420,44 +420,101 @@ export default function TournamentDetailPage() {
 		}
 	}, [id, refreshPlayoffSection]);
 
+	const retrySectionQuery = useCallback(async <T,>(query: () => Promise<T>): Promise<T> => {
+		try {
+			return await query();
+		} catch {
+			await new Promise((resolve) => setTimeout(resolve, 250));
+			return query();
+		}
+	}, []);
+
 	const loadAll = useCallback(async () => {
 		if (!id) return;
+		setLoading(true);
 		try {
-			setLoading(true);
-			const [
-				tournamentData,
-				memberData,
-				participantData,
-				groupData,
-				standingData,
-				groupMatchData,
-				playoffMatchData,
-				teamData,
-			] = await Promise.all([
-				getTournament(id),
-				listTournamentMembers(id),
-				listParticipants(id),
-				listGroups(id),
-				listGroupStandings(id),
-				listMatchesWithResults(id, "GROUP"),
-				listMatchesWithResults(id, "PLAYOFF"),
-				getTournament(id).then((tournamentRow) => fetchTeamsByPool(tournamentRow?.team_pool ?? "NHL")),
+			let tournamentData: Tournament | null = null;
+			try {
+				tournamentData = await retrySectionQuery(() => getTournament(id));
+				setTournament(tournamentData);
+			} catch (error) {
+				toast.error(`Tournament data failed to refresh: ${(error as Error).message}`);
+			}
+
+			try {
+				const participantData = await retrySectionQuery(() => listParticipants(id));
+				setParticipants(participantData);
+			} catch (error) {
+				toast.error(`Participant data failed to refresh: ${(error as Error).message}`);
+			}
+
+			const optionalSectionResults = await Promise.allSettled([
+				retrySectionQuery(() => listTournamentMembers(id)),
+				retrySectionQuery(() => listGroups(id)),
+				retrySectionQuery(() => listGroupStandings(id)),
+				retrySectionQuery(() => listMatchesWithResults(id, "GROUP")),
+				retrySectionQuery(() => listMatchesWithResults(id, "PLAYOFF")),
+				tournamentData
+					? retrySectionQuery(() => fetchTeamsByPool(tournamentData?.team_pool ?? "NHL"))
+					: Promise.reject(new Error("Tournament data unavailable for team refresh.")),
 			]);
-			setTournament(tournamentData);
-			setMembers(memberData);
-			setParticipants(participantData);
-			setGroups(groupData);
-			setStandings(standingData);
-			setGroupMatches(groupMatchData);
-			setPlayoffMatches(playoffMatchData);
-			setTeams(teamData);
-			mergeResultDrafts([...groupMatchData, ...playoffMatchData]);
-		} catch (error) {
-			toast.error((error as Error).message);
+
+			const [memberResult, groupResult, standingResult, groupMatchesResult, playoffMatchesResult, teamsResult] =
+				optionalSectionResults;
+
+			if (memberResult.status === "fulfilled") {
+				setMembers(memberResult.value);
+			} else {
+				toast.error(
+					`Member data failed to refresh: ${memberResult.reason instanceof Error ? memberResult.reason.message : "Unknown error"}`,
+				);
+			}
+
+			if (groupResult.status === "fulfilled") {
+				setGroups(groupResult.value);
+			} else {
+				toast.error(
+					`Group data failed to refresh: ${groupResult.reason instanceof Error ? groupResult.reason.message : "Unknown error"}`,
+				);
+			}
+
+			if (standingResult.status === "fulfilled") {
+				setStandings(standingResult.value);
+			} else {
+				toast.error(
+					`Group standings failed to refresh: ${standingResult.reason instanceof Error ? standingResult.reason.message : "Unknown error"}`,
+				);
+			}
+
+			if (groupMatchesResult.status === "fulfilled") {
+				setGroupMatches(groupMatchesResult.value);
+				mergeResultDrafts(groupMatchesResult.value);
+			} else {
+				toast.error(
+					`Group match data failed to refresh: ${groupMatchesResult.reason instanceof Error ? groupMatchesResult.reason.message : "Unknown error"}`,
+				);
+			}
+
+			if (playoffMatchesResult.status === "fulfilled") {
+				setPlayoffMatches(playoffMatchesResult.value);
+				mergeResultDrafts(playoffMatchesResult.value);
+			} else {
+				toast.error(
+					`Playoff data failed to refresh: ${playoffMatchesResult.reason instanceof Error ? playoffMatchesResult.reason.message : "Unknown error"}`,
+				);
+			}
+
+			if (teamsResult.status === "fulfilled") {
+				setTeams(teamsResult.value);
+			} else {
+				toast.error(
+					`Team pool data failed to refresh: ${teamsResult.reason instanceof Error ? teamsResult.reason.message : "Unknown error"}`,
+				);
+			}
 		} finally {
 			setLoading(false);
 		}
-	}, [id, mergeResultDrafts]);
+	}, [id, mergeResultDrafts, retrySectionQuery]);
 
 	useEffect(() => {
 		void loadAll();

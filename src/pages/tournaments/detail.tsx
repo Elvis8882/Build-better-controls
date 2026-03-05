@@ -132,7 +132,7 @@ export default function TournamentDetailPage() {
 	const { id } = useParams();
 	const navigate = useNavigate();
 	const location = useLocation();
-	const { user, profile } = useAuth();
+	const { user, profile, isSessionReady } = useAuth();
 	const [loading, setLoading] = useState(true);
 	const [tournament, setTournament] = useState<Tournament | null>(null);
 	const [members, setMembers] = useState<TournamentMember[]>([]);
@@ -320,7 +320,7 @@ export default function TournamentDetailPage() {
 	const groupStageEditingLocked = tournamentClosed || (!roundRobinTiersPreset && anyPlayoffLocked);
 
 	useEffect(() => {
-		if (!id) return;
+		if (!id || !isSessionReady) return;
 		const participantsPath = `/dashboard/tournaments/${id}/participants`;
 		const segments = location.pathname.split("/").filter(Boolean);
 		const lastSegment = segments[segments.length - 1];
@@ -347,7 +347,7 @@ export default function TournamentDetailPage() {
 			return;
 		}
 		setActiveTab("participants");
-	}, [id, location.pathname, groupStageAvailable, playoffStageAvailable, navigate]);
+	}, [id, isSessionReady, location.pathname, groupStageAvailable, playoffStageAvailable, navigate]);
 
 	const onTabChange = (nextTab: "participants" | "group" | "playoff") => {
 		if (nextTab === "group" && !groupStageAvailable) return;
@@ -385,7 +385,7 @@ export default function TournamentDetailPage() {
 	}, []);
 
 	const refreshGroupStageSections = useCallback(async () => {
-		if (!id) return;
+		if (!id || !isSessionReady) return;
 		const [standingData, groupMatchData] = await Promise.all([
 			listGroupStandings(id),
 			listMatchesWithResults(id, "GROUP"),
@@ -393,20 +393,20 @@ export default function TournamentDetailPage() {
 		setStandings(standingData);
 		setGroupMatches(groupMatchData);
 		mergeResultDrafts(groupMatchData);
-	}, [id, mergeResultDrafts]);
+	}, [id, isSessionReady, mergeResultDrafts]);
 
 	const refreshParticipantsSection = useCallback(async () => {
-		if (!id) return;
+		if (!id || !isSessionReady) return;
 		const participantData = await listParticipants(id);
 		setParticipants(participantData);
-	}, [id]);
+	}, [id, isSessionReady]);
 
 	const refreshPlayoffSection = useCallback(async () => {
-		if (!id) return;
+		if (!id || !isSessionReady) return;
 		const playoffMatchData = await listMatchesWithResults(id, "PLAYOFF");
 		setPlayoffMatches(playoffMatchData);
 		mergeResultDrafts(playoffMatchData);
-	}, [id, mergeResultDrafts]);
+	}, [id, isSessionReady, mergeResultDrafts]);
 
 	const ensurePlayoffBracketSafe = useCallback(async () => {
 		if (!id || ensuringPlayoffBracketRef.current) return false;
@@ -421,7 +421,7 @@ export default function TournamentDetailPage() {
 	}, [id, refreshPlayoffSection]);
 
 	const loadAll = useCallback(async () => {
-		if (!id) return;
+		if (!id || !isSessionReady) return;
 		try {
 			setLoading(true);
 			const [
@@ -457,11 +457,12 @@ export default function TournamentDetailPage() {
 		} finally {
 			setLoading(false);
 		}
-	}, [id, mergeResultDrafts]);
+	}, [id, isSessionReady, mergeResultDrafts]);
 
 	useEffect(() => {
+		if (!isSessionReady) return;
 		void loadAll();
-	}, [loadAll]);
+	}, [isSessionReady, loadAll]);
 
 	useEffect(() => {
 		if (!id || !tournament || !isHostOrAdmin) return;

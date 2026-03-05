@@ -192,17 +192,91 @@ export type FriendProfile = {
 	username: string;
 };
 
-function throwOnError(error: { message: string } | null, fallbackMessage: string): void {
-	if (error) {
-		const message = `${error.message ?? ""}`;
-		const maybeAuthError = message.toLowerCase().includes("jwt") || (error as { status?: number }).status === 401;
-		if (maybeAuthError) {
-			void supabase.auth.signOut().finally(() => {
-				if (typeof window !== "undefined" && window.location.pathname !== "/auth/login") {
-					window.location.assign("/auth/login");
-				}
-			});
+type QueryError = {
+	message?: string;
+	status?: number;
+	code?: string;
+	name?: string;
+	details?: string;
+	hint?: string;
+};
+
+let authFailureHandled = false;
+
+function isAuthError(error: QueryError | null): boolean {
+	if (!error) return false;
+	if (error.status === 401 || error.status === 403) return true;
+
+	const joinedMessage = [error.message, error.code, error.name, error.details, error.hint]
+		.filter(Boolean)
+		.join(" ")
+		.toLowerCase();
+
+	return [
+		"jwt",
+		"token",
+		"session",
+		"auth",
+		"not authenticated",
+		"not authorized",
+		"invalid claim",
+		"expired",
+		"refresh",
+	].some((fragment) => joinedMessage.includes(fragment));
+}
+
+async function stabilizeAuthSession(): Promise<boolean> {
+	const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+	if (!sessionError && sessionData.session) return true;
+
+	const { data: refreshedData, error: refreshError } = await supabase.auth.refreshSession();
+	if (!refreshError && refreshedData.session) return true;
+
+	const { data: postRefreshData, error: postRefreshError } = await supabase.auth.getSession();
+	return !postRefreshError && Boolean(postRefreshData.session);
+}
+
+async function handleUnrecoverableAuthFailure(): Promise<void> {
+	if (authFailureHandled) return;
+	authFailureHandled = true;
+	await supabase.auth.signOut();
+	if (typeof window !== "undefined" && window.location.pathname !== "/auth/login") {
+		window.location.assign("/auth/login");
+	}
+}
+
+async function runAuthAwareQuery<T>(
+	request: () => PromiseLike<{ data: T; error: QueryError | null }>,
+	fallbackMessage: string,
+): Promise<T> {
+	const firstAttempt = await request();
+	if (!firstAttempt.error) {
+		authFailureHandled = false;
+		return firstAttempt.data;
+	}
+
+	if (isAuthError(firstAttempt.error)) {
+		const recovered = await stabilizeAuthSession();
+		if (recovered) {
+			const secondAttempt = await request();
+			if (!secondAttempt.error) {
+				authFailureHandled = false;
+				return secondAttempt.data;
+			}
+			if (isAuthError(secondAttempt.error)) {
+				await handleUnrecoverableAuthFailure();
+			}
+			throw new Error(secondAttempt.error.message || fallbackMessage);
 		}
+
+		await handleUnrecoverableAuthFailure();
+	}
+
+	throw new Error(firstAttempt.error.message || fallbackMessage);
+}
+
+function throwOnError(error: QueryError | null, fallbackMessage: string): void {
+	if (error) {
 		throw new Error(error.message || fallbackMessage);
 	}
 }
@@ -452,20 +526,23 @@ export async function deleteTournament(tournamentId: string): Promise<void> {
 }
 
 export async function getTournament(tournamentId: string): Promise<Tournament | null> {
-	const { data, error } = await supabase
-		.from("tournaments")
-		.select("id, name, status, created_at, preset_id, created_by, team_pool, default_participants, group_count, stage")
-		.eq("id", tournamentId)
-		.maybeSingle();
-	throwOnError(error, "Unable to load tournament");
+	const data = await runAuthAwareQuery(
+		() =>
+			supabase
+				.from("tournaments")
+				.select(
+					"id, name, status, created_at, preset_id, created_by, team_pool, default_participants, group_count, stage",
+				)
+				.eq("id", tournamentId)
+				.maybeSingle(),
+		"Unable to load tournament",
+	);
 	if (!data) return null;
 	const tournament = data as Omit<Tournament, "hosted_by">;
-	const { data: profileData, error: profileError } = await supabase
-		.from("profiles")
-		.select("username")
-		.eq("id", tournament.created_by)
-		.maybeSingle();
-	throwOnError(profileError, "Unable to load tournament host");
+	const profileData = await runAuthAwareQuery(
+		() => supabase.from("profiles").select("username").eq("id", tournament.created_by).maybeSingle(),
+		"Unable to load tournament host",
+	);
 	return {
 		...tournament,
 		hosted_by: (profileData?.username as string | undefined) ?? "unknown",
@@ -473,13 +550,16 @@ export async function getTournament(tournamentId: string): Promise<Tournament | 
 }
 
 export async function listTournamentMembers(tournamentId: string): Promise<TournamentMember[]> {
-	const { data, error } = await supabase
-		.from("tournament_members")
-		.select("tournament_id, user_id, role")
-		.eq("tournament_id", tournamentId)
-		.order("role", { ascending: true })
-		.order("user_id", { ascending: true });
-	throwOnError(error, "Unable to load members");
+	const data = await runAuthAwareQuery(
+		() =>
+			supabase
+				.from("tournament_members")
+				.select("tournament_id, user_id, role")
+				.eq("tournament_id", tournamentId)
+				.order("role", { ascending: true })
+				.order("user_id", { ascending: true }),
+		"Unable to load members",
+	);
 
 	const memberRows = data ?? [];
 	const userIds = [...new Set(memberRows.map((member) => member.user_id).filter(Boolean))];
@@ -487,11 +567,10 @@ export async function listTournamentMembers(tournamentId: string): Promise<Tourn
 		return [];
 	}
 
-	const { data: profileData, error: profileError } = await supabase
-		.from("profiles")
-		.select("id, username")
-		.in("id", userIds);
-	throwOnError(profileError, "Unable to load member profiles");
+	const profileData = await runAuthAwareQuery(
+		() => supabase.from("profiles").select("id, username").in("id", userIds),
+		"Unable to load member profiles",
+	);
 
 	const usernameMap = new Map<string, string>();
 	for (const profile of profileData ?? []) {
@@ -668,14 +747,17 @@ export async function listFriends(userId: string): Promise<FriendProfile[]> {
 }
 
 export async function listParticipants(tournamentId: string): Promise<TournamentParticipant[]> {
-	const { data, error } = await supabase
-		.from("tournament_participants")
-		.select(
-			"id, tournament_id, user_id, guest_id, display_name, team_id, locked, created_at, team:teams(id, code, name, short_name, team_pool, primary_color, secondary_color, text_color, overall, off_def_sum, offense, defense, goalie, ovr_tier, last_updated)",
-		)
-		.eq("tournament_id", tournamentId)
-		.order("created_at", { ascending: true });
-	throwOnError(error, "Unable to load participants");
+	const data = await runAuthAwareQuery(
+		() =>
+			supabase
+				.from("tournament_participants")
+				.select(
+					"id, tournament_id, user_id, guest_id, display_name, team_id, locked, created_at, team:teams(id, code, name, short_name, team_pool, primary_color, secondary_color, text_color, overall, off_def_sum, offense, defense, goalie, ovr_tier, last_updated)",
+				)
+				.eq("tournament_id", tournamentId)
+				.order("created_at", { ascending: true }),
+		"Unable to load participants",
+	);
 
 	return ((data ?? []) as Array<TournamentParticipant & { team: Team | Team[] | null }>).map((participant) => ({
 		...participant,
@@ -772,12 +854,15 @@ export async function removeParticipant(participantId: string): Promise<void> {
 }
 
 export async function listGroups(tournamentId: string): Promise<TournamentGroup[]> {
-	const { data, error } = await supabase
-		.from("tournament_groups")
-		.select("id, tournament_id, group_code")
-		.eq("tournament_id", tournamentId)
-		.order("group_code", { ascending: true });
-	throwOnError(error, "Unable to load groups");
+	const data = await runAuthAwareQuery(
+		() =>
+			supabase
+				.from("tournament_groups")
+				.select("id, tournament_id, group_code")
+				.eq("tournament_id", tournamentId)
+				.order("group_code", { ascending: true }),
+		"Unable to load groups",
+	);
 	return (data ?? []) as TournamentGroup[];
 }
 
@@ -832,32 +917,36 @@ export async function ensurePlayoffBracket(tournamentId: string): Promise<void> 
 }
 
 export async function listGroupStandings(tournamentId: string): Promise<GroupStanding[]> {
-	const { data, error } = await supabase
-		.from("v_group_standings")
-		.select(
-			"tournament_id, group_id, rank_in_group, participant_id, team_id, points, goals_for, goals_against, goal_diff, shots_diff",
-		)
-		.eq("tournament_id", tournamentId)
-		.order("group_id", { ascending: true })
-		.order("rank_in_group", { ascending: true });
-	throwOnError(error, "Unable to load standings");
+	const data = await runAuthAwareQuery(
+		() =>
+			supabase
+				.from("v_group_standings")
+				.select(
+					"tournament_id, group_id, rank_in_group, participant_id, team_id, points, goals_for, goals_against, goal_diff, shots_diff",
+				)
+				.eq("tournament_id", tournamentId)
+				.order("group_id", { ascending: true })
+				.order("rank_in_group", { ascending: true }),
+		"Unable to load standings",
+	);
 	return (data ?? []) as GroupStanding[];
 }
 
 export async function listMatchesWithResults(tournamentId: string, stage?: MatchStage): Promise<MatchWithResult[]> {
-	let query = supabase
-		.from("matches")
-		.select(
-			"id, tournament_id, home_participant_id, away_participant_id, round, bracket_slot, next_match_id, next_match_side, created_at, stage, bracket_type, home_participant:tournament_participants!matches_home_participant_id_fkey(display_name,team_id), away_participant:tournament_participants!matches_away_participant_id_fkey(display_name,team_id)",
-		)
-		.eq("tournament_id", tournamentId)
-		.order("round", { ascending: true })
-		.order("created_at", { ascending: true });
-	if (stage) {
-		query = query.eq("stage", stage);
-	}
-	const { data: matches, error: matchesError } = await query;
-	throwOnError(matchesError, "Unable to load matches");
+	const matches = await runAuthAwareQuery(() => {
+		let query = supabase
+			.from("matches")
+			.select(
+				"id, tournament_id, home_participant_id, away_participant_id, round, bracket_slot, next_match_id, next_match_side, created_at, stage, bracket_type, home_participant:tournament_participants!matches_home_participant_id_fkey(display_name,team_id), away_participant:tournament_participants!matches_away_participant_id_fkey(display_name,team_id)",
+			)
+			.eq("tournament_id", tournamentId)
+			.order("round", { ascending: true })
+			.order("created_at", { ascending: true });
+		if (stage) {
+			query = query.eq("stage", stage);
+		}
+		return query;
+	}, "Unable to load matches");
 
 	const matchRows = (matches ?? []) as Array<
 		Match & {
@@ -876,11 +965,16 @@ export async function listMatchesWithResults(tournamentId: string, stage?: Match
 	}
 
 	const matchIds = matchRows.map((match) => match.id);
-	const { data: results, error: resultsError } = await supabase
-		.from("match_results")
-		.select("match_id, home_score, away_score, home_shots, away_shots, decision, locked, home_team_id, away_team_id")
-		.in("match_id", matchIds);
-	throwOnError(resultsError, "Unable to load match results");
+	const results = await runAuthAwareQuery(
+		() =>
+			supabase
+				.from("match_results")
+				.select(
+					"match_id, home_score, away_score, home_shots, away_shots, decision, locked, home_team_id, away_team_id",
+				)
+				.in("match_id", matchIds),
+		"Unable to load match results",
+	);
 
 	const resultMap = new Map<string, MatchResult>();
 	for (const result of results ?? []) {

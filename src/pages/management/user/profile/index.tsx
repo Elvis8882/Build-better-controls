@@ -94,6 +94,13 @@ export default function UserProfilePage() {
 		if (!query) return nhlTeams.slice(0, 8);
 		return nhlTeams.filter((team) => team.name.toLowerCase().includes(query)).slice(0, 8);
 	}, [form.favorite_team, nhlTeams]);
+	const showTeamSuggestions = useMemo(() => {
+		if (editLocked) return false;
+		const normalizedValue = form.favorite_team.trim().toLowerCase();
+		if (!normalizedValue) return false;
+		const exactMatch = nhlTeams.some((team) => team.name.toLowerCase() === normalizedValue);
+		return !exactMatch && teamSuggestions.length > 0;
+	}, [editLocked, form.favorite_team, nhlTeams, teamSuggestions]);
 
 	useEffect(() => {
 		void (async () => {
@@ -246,20 +253,28 @@ export default function UserProfilePage() {
 						<CardTitle>Locker room identity</CardTitle>
 					</CardHeader>
 					<CardContent className="space-y-3 text-sm">
-						<div className="space-y-2">
+						<div className="flex flex-col items-center space-y-2 text-center">
 							<p className="text-muted-foreground">Custom avatar</p>
 							<img
 								src={form.avatar_url || defaultAvatar}
 								alt="Profile avatar"
-								className="h-20 w-20 rounded-full border object-cover"
+								className="h-24 w-24 rounded-full border object-cover"
 							/>
 							{canEdit && (
-								<Input
-									type="file"
-									accept="image/*"
-									onChange={(event) => void handleAvatarUpload(event)}
-									disabled={editLocked}
-								/>
+								<label
+									className={`inline-flex h-9 cursor-pointer items-center justify-center rounded-md border px-4 text-sm font-medium transition-colors ${
+										editLocked ? "pointer-events-none opacity-50" : "hover:bg-muted"
+									}`}
+								>
+									Choose avatar
+									<input
+										type="file"
+										accept="image/*"
+										onChange={(event) => void handleAvatarUpload(event)}
+										disabled={editLocked}
+										className="hidden"
+									/>
+								</label>
 							)}
 						</div>
 						<p>
@@ -286,6 +301,16 @@ export default function UserProfilePage() {
 						<CardTitle>NHL preferences</CardTitle>
 					</CardHeader>
 					<CardContent className="space-y-3 text-sm">
+						{favoriteTeamMeta && (
+							<div className="flex justify-center">
+								<img
+									src={getTeamLogoUrl(favoriteTeamMeta.code, "NHL")}
+									alt={`${favoriteTeamMeta.name} logo`}
+									className="h-24 w-24 object-contain"
+									onError={handleTeamLogoImageError}
+								/>
+							</div>
+						)}
 						<div className="space-y-2">
 							<p className="text-muted-foreground">Favorite NHL team</p>
 							{canEdit ? (
@@ -297,7 +322,7 @@ export default function UserProfilePage() {
 										placeholder="Start typing NHL team name"
 										disabled={editLocked}
 									/>
-									{!editLocked && teamSuggestions.length > 0 && (
+									{showTeamSuggestions && (
 										<div className="max-h-36 overflow-y-auto rounded-md border bg-background p-1">
 											{teamSuggestions.map((team) => (
 												<button
@@ -314,16 +339,6 @@ export default function UserProfilePage() {
 								</div>
 							) : (
 								<p>{profile.favorite_team ?? "No favorite NHL team selected."}</p>
-							)}
-							{favoriteTeamMeta && (
-								<div className="flex items-center gap-2">
-									<img
-										src={getTeamLogoUrl(favoriteTeamMeta.code, "NHL")}
-										alt={`${favoriteTeamMeta.name} logo`}
-										className="h-10 w-10 object-contain"
-										onError={handleTeamLogoImageError}
-									/>
-								</div>
 							)}
 						</div>
 						<div className="space-y-2">

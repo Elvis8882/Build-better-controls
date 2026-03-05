@@ -154,7 +154,10 @@ export default function TournamentDetailPage() {
 	const [editingMatchIds, setEditingMatchIds] = useState<Set<string>>(new Set());
 	const [activeTab, setActiveTab] = useState<"participants" | "group" | "playoff">("participants");
 	const [twoVTwoPairOrderById, setTwoVTwoPairOrderById] = useState<Map<string, number>>(new Map());
+	const [initialDataLoaded, setInitialDataLoaded] = useState(false);
 	const ensuringPlayoffBracketRef = useRef(false);
+	const roundRobinAutoGenerationAttemptedRef = useRef(false);
+	const initializedTournamentIdRef = useRef<string | null>(null);
 
 	const isAdmin = profile?.role === "admin";
 	const managerMembership = useMemo(
@@ -249,7 +252,13 @@ export default function TournamentDetailPage() {
 		groups.length === 0 &&
 		groupMatches.length === 0;
 	const canGenerateRoundRobinTiers =
-		roundRobinTiersPreset && allLockedWithTeams && teamsValidForPreset && groupMatches.length === 0;
+		roundRobinTiersPreset &&
+		allLockedWithTeams &&
+		teamsValidForPreset &&
+		groupMatches.length === 0 &&
+		tournament?.status !== "Closed" &&
+		!anyGroupLocked &&
+		!anyPlayoffLocked;
 	const groupStageAvailable = (fullPreset || roundRobinTiersPreset) && (groups.length > 0 || groupMatches.length > 0);
 	const playoffStageAvailable = roundRobinTiersPreset
 		? false
@@ -470,6 +479,13 @@ export default function TournamentDetailPage() {
 
 	const loadAll = useCallback(async () => {
 		if (!id || !isSessionReady) return;
+
+		if (initializedTournamentIdRef.current !== id) {
+			initializedTournamentIdRef.current = id;
+			roundRobinAutoGenerationAttemptedRef.current = false;
+			setInitialDataLoaded(false);
+		}
+
 		try {
 			let tournamentData: Tournament | null = null;
 			try {
@@ -558,6 +574,7 @@ export default function TournamentDetailPage() {
 				);
 			}
 		} finally {
+			setInitialDataLoaded(true);
 			setLoading(false);
 		}
 	}, [id, isSessionReady, mergeResultDrafts, retrySectionQuery]);
@@ -585,31 +602,16 @@ export default function TournamentDetailPage() {
 	}, [id, isHostOrAdmin, members, participants, slots, tournament, loadAll]);
 
 	useEffect(() => {
-		if (!id || !isHostOrAdmin || saving || !canGenerateRoundRobinTiers) return;
-		if (tournamentClosed) {
-			toast.error("Cannot regenerate round-robin tiers for a closed tournament.");
-			return;
-		}
-		if (anyGroupLocked || anyPlayoffLocked) {
-			toast.error("Cannot regenerate round-robin tiers after match results are locked.");
-			return;
-		}
+		if (!id || !initialDataLoaded || !isHostOrAdmin || saving || !canGenerateRoundRobinTiers) return;
+		if (roundRobinAutoGenerationAttemptedRef.current) return;
+		roundRobinAutoGenerationAttemptedRef.current = true;
 		setSaving(true);
 		void generateRoundRobinTiersStage(id)
 			.then(loadAll)
 			.then(() => toast.success("Round-robin schedule generated."))
 			.catch((error) => toast.error((error as Error).message))
 			.finally(() => setSaving(false));
-	}, [
-		id,
-		isHostOrAdmin,
-		saving,
-		canGenerateRoundRobinTiers,
-		loadAll,
-		tournamentClosed,
-		anyGroupLocked,
-		anyPlayoffLocked,
-	]);
+	}, [id, initialDataLoaded, isHostOrAdmin, saving, canGenerateRoundRobinTiers, loadAll]);
 
 	useEffect(() => {
 		if (!id || activeTab !== "playoff" || tournamentClosed || anyPlayoffLocked || !playoffStageAvailable) return;

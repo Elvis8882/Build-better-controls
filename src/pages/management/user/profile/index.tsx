@@ -3,7 +3,15 @@ import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { Chart } from "@/components/chart";
 import { useAuth } from "@/auth/AuthProvider";
-import { getProfileOverview, listUserTeamStats, type ProfileOverview, updateProfileOverview } from "@/lib/db";
+import {
+	fetchTeamsByPool,
+	getProfileOverview,
+	listUserTournamentPerformance,
+	type ProfileOverview,
+	type Team,
+	updateProfileOverview,
+} from "@/lib/db";
+import { getTeamLogoUrl, handleTeamLogoImageError } from "@/lib/teamLogos";
 import { Button } from "@/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/ui/card";
 import { Input } from "@/ui/input";
@@ -21,16 +29,36 @@ export default function UserProfilePage() {
 	const [profile, setProfile] = useState<ProfileOverview | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [saving, setSaving] = useState(false);
-	const [performanceSeries, setPerformanceSeries] = useState([
-		{ name: "Goals", data: [0] },
+	const [offenseSeries, setOffenseSeries] = useState([
 		{ name: "Shots on goal", data: [0] },
+		{ name: "Goals", data: [0] },
+	]);
+	const [defenseSeries, setDefenseSeries] = useState([
+		{ name: "Shots against", data: [0] },
 		{ name: "Goals let in", data: [0] },
 	]);
 	const [performanceCategories, setPerformanceCategories] = useState(["Career"]);
+	const [nhlTeams, setNhlTeams] = useState<Array<Pick<Team, "code" | "name">>>([]);
 	const [form, setForm] = useState<ProfileFormState>({ bio: "", favorite_team: "", club_preference: "" });
 
 	const targetUserId = useMemo(() => searchParams.get("userId") ?? user?.id ?? null, [searchParams, user?.id]);
 	const canEdit = Boolean(user?.id && targetUserId && user.id === targetUserId);
+
+	const favoriteTeamMeta = useMemo(
+		() => nhlTeams.find((team) => team.name.toLowerCase() === form.favorite_team.trim().toLowerCase()) ?? null,
+		[form.favorite_team, nhlTeams],
+	);
+
+	useEffect(() => {
+		void (async () => {
+			try {
+				const teams = await fetchTeamsByPool("NHL");
+				setNhlTeams(teams.map((team) => ({ code: team.code, name: team.name })));
+			} catch (error) {
+				toast.error((error as Error).message);
+			}
+		})();
+	}, []);
 
 	useEffect(() => {
 		if (!targetUserId) return;
@@ -40,7 +68,7 @@ export default function UserProfilePage() {
 			try {
 				const [profileData, statsResult] = await Promise.allSettled([
 					getProfileOverview(targetUserId),
-					listUserTeamStats(targetUserId),
+					listUserTournamentPerformance(targetUserId),
 				]);
 
 				if (profileData.status !== "fulfilled") {
@@ -57,9 +85,12 @@ export default function UserProfilePage() {
 
 				if (statsResult.status !== "fulfilled" || statsResult.value.length === 0) {
 					setPerformanceCategories(["Career"]);
-					setPerformanceSeries([
-						{ name: "Goals", data: [0] },
+					setOffenseSeries([
 						{ name: "Shots on goal", data: [0] },
+						{ name: "Goals", data: [0] },
+					]);
+					setDefenseSeries([
+						{ name: "Shots against", data: [0] },
 						{ name: "Goals let in", data: [0] },
 					]);
 
@@ -70,11 +101,14 @@ export default function UserProfilePage() {
 				}
 
 				const stats = statsResult.value;
-				setPerformanceCategories(stats.map((item) => item.team_code));
-				setPerformanceSeries([
-					{ name: "Goals", data: stats.map((item) => item.goals_made) },
-					{ name: "Shots on goal", data: stats.map((item) => item.shots_made) },
-					{ name: "Goals let in", data: stats.map((item) => item.goals_received) },
+				setPerformanceCategories(stats.map((item) => item.tournament_name));
+				setOffenseSeries([
+					{ name: "Shots on goal", data: stats.map((item) => item.shots_on_goal) },
+					{ name: "Goals", data: stats.map((item) => item.goals) },
+				]);
+				setDefenseSeries([
+					{ name: "Shots against", data: stats.map((item) => item.shots_against) },
+					{ name: "Goals let in", data: stats.map((item) => item.goals_against) },
 				]);
 			} catch {
 				setProfile(null);
@@ -95,12 +129,20 @@ export default function UserProfilePage() {
 	const handleSave = async () => {
 		if (!canEdit) return;
 		if (!targetUserId) return;
+		const normalizedFavoriteTeam = form.favorite_team.trim();
+		if (normalizedFavoriteTeam) {
+			const isAllowedTeam = nhlTeams.some((team) => team.name.toLowerCase() === normalizedFavoriteTeam.toLowerCase());
+			if (!isAllowedTeam) {
+				toast.error("Favorite NHL Team must match a valid NHL team.");
+				return;
+			}
+		}
 
 		try {
 			setSaving(true);
 			await updateProfileOverview(targetUserId, {
 				bio: form.bio.trim() || null,
-				favorite_team: form.favorite_team.trim() || null,
+				favorite_team: normalizedFavoriteTeam || null,
 				club_preference: form.club_preference.trim() || null,
 			});
 			setProfile((current) =>
@@ -160,13 +202,32 @@ export default function UserProfilePage() {
 						<div className="space-y-2">
 							<p className="text-muted-foreground">Favorite NHL team</p>
 							{canEdit ? (
-								<Input
-									value={form.favorite_team}
-									onChange={(event) => setForm((current) => ({ ...current, favorite_team: event.target.value }))}
-									placeholder="e.g. Edmonton Oilers"
-								/>
+								<>
+									<Input
+										value={form.favorite_team}
+										onChange={(event) => setForm((current) => ({ ...current, favorite_team: event.target.value }))}
+										list="nhl-team-options"
+										placeholder="e.g. Edmonton Oilers"
+									/>
+									<datalist id="nhl-team-options">
+										{nhlTeams.map((team) => (
+											<option key={team.code} value={team.name} />
+										))}
+									</datalist>
+								</>
 							) : (
 								<p>{profile.favorite_team ?? "No favorite NHL team selected."}</p>
+							)}
+							{favoriteTeamMeta && (
+								<div className="flex items-center gap-2">
+									<img
+										src={getTeamLogoUrl(favoriteTeamMeta.code, "NHL")}
+										alt={`${favoriteTeamMeta.name} logo`}
+										className="h-10 w-10 object-contain"
+										onError={handleTeamLogoImageError}
+									/>
+									<span>{favoriteTeamMeta.name}</span>
+								</div>
 							)}
 						</div>
 						<div className="space-y-2">
@@ -193,17 +254,31 @@ export default function UserProfilePage() {
 				<CardHeader>
 					<CardTitle>Performance tracker</CardTitle>
 				</CardHeader>
-				<CardContent>
+				<CardContent className="grid gap-4 md:grid-cols-2">
 					<Chart
-						type="bar"
+						type="line"
 						height={320}
-						series={performanceSeries}
+						series={offenseSeries}
 						options={{
 							chart: { toolbar: { show: false } },
 							xaxis: { categories: performanceCategories },
 							yaxis: { title: { text: "Total" } },
 							legend: { position: "top" },
-							plotOptions: { bar: { borderRadius: 4, columnWidth: "55%" } },
+							stroke: { curve: "smooth", width: 3 },
+							title: { text: "Offense by tournament", align: "left" },
+						}}
+					/>
+					<Chart
+						type="line"
+						height={320}
+						series={defenseSeries}
+						options={{
+							chart: { toolbar: { show: false } },
+							xaxis: { categories: performanceCategories },
+							yaxis: { title: { text: "Total" } },
+							legend: { position: "top" },
+							stroke: { curve: "smooth", width: 3 },
+							title: { text: "Defense by tournament", align: "left" },
 						}}
 					/>
 				</CardContent>

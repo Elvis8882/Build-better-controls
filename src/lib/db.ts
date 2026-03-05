@@ -787,6 +787,31 @@ export async function generateGroupsAndMatches(tournamentId: string): Promise<vo
 }
 
 export async function generateRoundRobinTiersStage(tournamentId: string): Promise<void> {
+	const { data: tournament, error: tournamentError } = await supabase
+		.from("tournaments")
+		.select("id, status")
+		.eq("id", tournamentId)
+		.maybeSingle();
+	throwOnError(tournamentError, "Unable to validate tournament status");
+	if (!tournament) {
+		throw new Error("Unable to generate round-robin tiers stage: tournament not found.");
+	}
+	if ((tournament.status ?? "").toLowerCase() === "closed") {
+		throw new Error("Cannot regenerate round-robin tiers for a closed tournament.");
+	}
+
+	const { data: lockedResult, error: lockedResultError } = await supabase
+		.from("match_results")
+		.select("match_id, matches!inner(tournament_id)")
+		.eq("locked", true)
+		.eq("matches.tournament_id", tournamentId)
+		.limit(1)
+		.maybeSingle();
+	throwOnError(lockedResultError, "Unable to validate locked match results");
+	if (lockedResult) {
+		throw new Error("Cannot regenerate round-robin tiers after match results are locked.");
+	}
+
 	const { error } = await supabase.rpc("generate_round_robin_tiers_stage", { p_tournament_id: tournamentId });
 	throwOnError(error, "Unable to generate round-robin tiers stage");
 }

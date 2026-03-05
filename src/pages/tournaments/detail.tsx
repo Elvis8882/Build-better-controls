@@ -246,6 +246,7 @@ export default function TournamentDetailPage() {
 		: fullPreset
 			? allGroupMatchesLocked
 			: allLockedWithTeams && teamsValidForPreset;
+	const anyGroupLocked = groupMatches.some((match) => Boolean(match.result?.locked));
 	const anyPlayoffLocked = playoffMatches.some((match) => Boolean(match.result?.locked));
 	const lockedPlayoffMatchIds = useMemo(
 		() => new Set(playoffMatches.filter((match) => Boolean(match.result?.locked)).map((match) => match.id)),
@@ -491,13 +492,30 @@ export default function TournamentDetailPage() {
 
 	useEffect(() => {
 		if (!id || !isHostOrAdmin || saving || !canGenerateRoundRobinTiers) return;
+		if (tournamentClosed) {
+			toast.error("Cannot regenerate round-robin tiers for a closed tournament.");
+			return;
+		}
+		if (anyGroupLocked || anyPlayoffLocked) {
+			toast.error("Cannot regenerate round-robin tiers after match results are locked.");
+			return;
+		}
 		setSaving(true);
 		void generateRoundRobinTiersStage(id)
 			.then(loadAll)
 			.then(() => toast.success("Round-robin schedule generated."))
 			.catch((error) => toast.error((error as Error).message))
 			.finally(() => setSaving(false));
-	}, [id, isHostOrAdmin, saving, canGenerateRoundRobinTiers, loadAll]);
+	}, [
+		id,
+		isHostOrAdmin,
+		saving,
+		canGenerateRoundRobinTiers,
+		loadAll,
+		tournamentClosed,
+		anyGroupLocked,
+		anyPlayoffLocked,
+	]);
 
 	useEffect(() => {
 		if (!id || activeTab !== "playoff" || anyPlayoffLocked || !playoffStageAvailable) return;
@@ -665,6 +683,14 @@ export default function TournamentDetailPage() {
 			await refreshParticipantsSection();
 
 			if (!id || !roundRobinTiersPreset) return;
+			if (tournamentClosed) {
+				toast.error("Cannot regenerate round-robin tiers for a closed tournament.");
+				return;
+			}
+			if (anyGroupLocked || anyPlayoffLocked) {
+				toast.error("Cannot regenerate round-robin tiers after match results are locked.");
+				return;
+			}
 			const latestParticipants = await listParticipants(id);
 			const allSlotsLocked =
 				latestParticipants.length === slots && latestParticipants.every((participant) => participant.locked);

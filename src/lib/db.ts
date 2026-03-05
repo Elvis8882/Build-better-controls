@@ -730,18 +730,18 @@ export async function acceptFriendRequest(requestId: string, receiverUserId: str
 }
 
 export async function listFriends(userId: string): Promise<FriendProfile[]> {
-	const { data, error } = await supabase.from("friendships").select("friend_id").eq("user_id", userId);
-	throwOnError(error, "Unable to load friends");
+	const data = await runAuthAwareQuery(
+		() => supabase.from("friendships").select("friend_id").eq("user_id", userId),
+		"Unable to load friends",
+	);
 
 	const friendIds = [...new Set((data ?? []).map((item) => item.friend_id as string).filter(Boolean))];
 	if (friendIds.length === 0) return [];
 
-	const { data: profileData, error: profileError } = await supabase
-		.from("profiles")
-		.select("id, username")
-		.in("id", friendIds)
-		.order("username", { ascending: true });
-	throwOnError(profileError, "Unable to load friend profiles");
+	const profileData = await runAuthAwareQuery(
+		() => supabase.from("profiles").select("id, username").in("id", friendIds).order("username", { ascending: true }),
+		"Unable to load friend profiles",
+	);
 
 	return (profileData ?? []) as FriendProfile[];
 }
@@ -766,14 +766,17 @@ export async function listParticipants(tournamentId: string): Promise<Tournament
 }
 
 export async function fetchTeamsByPool(teamPool: TeamPool): Promise<Team[]> {
-	const { data, error } = await supabase
-		.from("teams")
-		.select(
-			"id, code, name, short_name, team_pool, primary_color, secondary_color, text_color, overall, off_def_sum, offense, defense, goalie, ovr_tier, last_updated",
-		)
-		.eq("team_pool", teamPool)
-		.order("name", { ascending: true });
-	throwOnError(error, "Unable to load teams");
+	const data = await runAuthAwareQuery(
+		() =>
+			supabase
+				.from("teams")
+				.select(
+					"id, code, name, short_name, team_pool, primary_color, secondary_color, text_color, overall, off_def_sum, offense, defense, goalie, ovr_tier, last_updated",
+				)
+				.eq("team_pool", teamPool)
+				.order("name", { ascending: true }),
+		"Unable to load teams",
+	);
 	return (data ?? []) as Team[];
 }
 

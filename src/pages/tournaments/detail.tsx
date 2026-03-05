@@ -349,25 +349,6 @@ export default function TournamentDetailPage() {
 		setActiveTab("participants");
 	}, [id, location.pathname, groupStageAvailable, playoffStageAvailable, navigate]);
 
-	const onTabChange = (nextTab: "participants" | "group" | "playoff") => {
-		if (nextTab === "group" && !groupStageAvailable) return;
-		if (nextTab === "playoff" && !playoffStageAvailable) return;
-		setActiveTab(nextTab);
-		if (!id) return;
-		if (nextTab === "participants") {
-			navigate(`/dashboard/tournaments/${id}/participants`);
-			void refreshParticipantsSection();
-			return;
-		}
-		if (nextTab === "group") {
-			navigate(`/dashboard/tournaments/${id}/group-stage`);
-			void refreshGroupStageSections();
-			return;
-		}
-		navigate(`/dashboard/tournaments/${id}/playoff-bracket`);
-		void refreshPlayoffSection();
-	};
-
 	const mergeResultDrafts = useCallback((matches: MatchWithResult[]) => {
 		setResultDrafts((previous) => {
 			const next = { ...previous };
@@ -407,6 +388,56 @@ export default function TournamentDetailPage() {
 		setPlayoffMatches(playoffMatchData);
 		mergeResultDrafts(playoffMatchData);
 	}, [id, mergeResultDrafts]);
+
+	const isRetryableRefreshError = useCallback((error: unknown) => {
+		if (typeof error !== "object" || error === null) return false;
+		const status = (error as { status?: number }).status;
+		if (typeof status === "number") return status === 408 || status === 429 || status >= 500;
+		const message = (error as { message?: string }).message?.toLowerCase() ?? "";
+		return ["network", "timeout", "timed out", "temporar", "rate limit"].some((needle) => message.includes(needle));
+	}, []);
+
+	const runSectionRefresh = useCallback(
+		async (name: "participants" | "group" | "playoff", fn: () => Promise<void>) => {
+			try {
+				await fn();
+			} catch (error) {
+				const retryable = isRetryableRefreshError(error);
+				console.debug(`[tournament-detail] ${name} refresh failed`, error);
+				if (!retryable) {
+					toast.error(`Failed to refresh ${name} section: ${(error as Error).message}`);
+					return;
+				}
+				console.debug(`[tournament-detail] ${name} refresh retrying once after retryable error`);
+				try {
+					await fn();
+				} catch (retryError) {
+					console.debug(`[tournament-detail] ${name} refresh retry failed`, retryError);
+					toast.error(`Failed to refresh ${name} section after retry: ${(retryError as Error).message}`);
+				}
+			}
+		},
+		[isRetryableRefreshError],
+	);
+
+	const onTabChange = (nextTab: "participants" | "group" | "playoff") => {
+		if (nextTab === "group" && !groupStageAvailable) return;
+		if (nextTab === "playoff" && !playoffStageAvailable) return;
+		setActiveTab(nextTab);
+		if (!id) return;
+		if (nextTab === "participants") {
+			navigate(`/dashboard/tournaments/${id}/participants`);
+			void runSectionRefresh("participants", refreshParticipantsSection);
+			return;
+		}
+		if (nextTab === "group") {
+			navigate(`/dashboard/tournaments/${id}/group-stage`);
+			void runSectionRefresh("group", refreshGroupStageSections);
+			return;
+		}
+		navigate(`/dashboard/tournaments/${id}/playoff-bracket`);
+		void runSectionRefresh("playoff", refreshPlayoffSection);
+	};
 
 	const ensurePlayoffBracketSafe = useCallback(async () => {
 		if (!id || ensuringPlayoffBracketRef.current) return false;
@@ -531,14 +562,14 @@ export default function TournamentDetailPage() {
 		const refreshActiveTabData = () => {
 			if (document.visibilityState !== "visible") return;
 			if (activeTab === "participants") {
-				void refreshParticipantsSection();
+				void runSectionRefresh("participants", refreshParticipantsSection);
 				return;
 			}
 			if (activeTab === "group") {
-				void refreshGroupStageSections();
+				void runSectionRefresh("group", refreshGroupStageSections);
 				return;
 			}
-			void refreshPlayoffSection();
+			void runSectionRefresh("playoff", refreshPlayoffSection);
 		};
 
 		document.addEventListener("visibilitychange", refreshActiveTabData);
@@ -548,7 +579,7 @@ export default function TournamentDetailPage() {
 			document.removeEventListener("visibilitychange", refreshActiveTabData);
 			window.removeEventListener("focus", refreshActiveTabData);
 		};
-	}, [id, activeTab, refreshParticipantsSection, refreshGroupStageSections, refreshPlayoffSection]);
+	}, [id, activeTab, refreshParticipantsSection, refreshGroupStageSections, refreshPlayoffSection, runSectionRefresh]);
 
 	useEffect(() => {
 		if (!user?.id) return;

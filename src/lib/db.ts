@@ -641,16 +641,57 @@ export async function getPublicProfile(profileId: string): Promise<PublicProfile
 }
 
 export async function getProfileOverview(profileId: string): Promise<ProfileOverview | null> {
-	const { data, error } = await supabase.from("profiles").select("id, username").eq("id", profileId).maybeSingle();
+	const { data, error } = await supabase
+		.from("profiles")
+		.select("id, username, bio, favorite_team, club_preference")
+		.eq("id", profileId)
+		.maybeSingle();
+
+	if (error) {
+		const details = [error.message, error.details, error.hint].filter(Boolean).join(" ").toLowerCase();
+		const missingProfileFields =
+			details.includes("bio") || details.includes("favorite_team") || details.includes("club_preference");
+
+		if (missingProfileFields) {
+			const fallback = await runAuthAwareQuery(
+				() => supabase.from("profiles").select("id, username").eq("id", profileId).maybeSingle(),
+				"Unable to load profile",
+			);
+			if (!fallback) return null;
+			return {
+				id: fallback.id as string,
+				username: (fallback.username as string | null) ?? null,
+				bio: null,
+				favorite_team: null,
+				club_preference: null,
+			};
+		}
+	}
+
 	throwOnError(error, "Unable to load profile");
 	if (!data) return null;
 	return {
 		id: data.id as string,
 		username: (data.username as string | null) ?? null,
-		bio: null,
-		favorite_team: null,
-		club_preference: null,
+		bio: (data.bio as string | null) ?? null,
+		favorite_team: (data.favorite_team as string | null) ?? null,
+		club_preference: (data.club_preference as string | null) ?? null,
 	};
+}
+
+export async function updateProfileOverview(
+	profileId: string,
+	updates: Pick<ProfileOverview, "bio" | "favorite_team" | "club_preference">,
+): Promise<void> {
+	const { error } = await supabase
+		.from("profiles")
+		.update({
+			bio: updates.bio,
+			favorite_team: updates.favorite_team,
+			club_preference: updates.club_preference,
+		})
+		.eq("id", profileId);
+	throwOnError(error, "Unable to update profile");
 }
 
 export async function inviteMember(tournamentId: string, userId: string): Promise<void> {

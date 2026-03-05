@@ -74,9 +74,11 @@ export default function ProfilePage() {
 				const [friendRows, tournamentRows] = await Promise.all([listFriends(user.id), listClosedTournaments()]);
 				setFriends(friendRows.map((item) => ({ id: item.id, username: item.username })));
 				setClosedTournaments(tournamentRows);
-				if (tournamentRows.length > 0) {
-					setSelectedTournamentId((current) => current || tournamentRows[0].id);
-				}
+				setSelectedTournamentId((current) => {
+					if (tournamentRows.length === 0) return "";
+					if (!current) return tournamentRows[0].id;
+					return tournamentRows.some((item) => item.id === current) ? current : tournamentRows[0].id;
+				});
 			} catch (error) {
 				toast.error((error as Error).message);
 			}
@@ -158,7 +160,8 @@ export default function ProfilePage() {
 			<div className="space-y-2">
 				<h1 className="text-2xl font-semibold">Statistics</h1>
 				<p className="text-sm text-muted-foreground">
-					Performance by team across all tournaments and within selected closed tournaments with saved match results.
+					Closed tournaments are final, read-only records. You can open any closed tournament to view its results, and
+					the tournament tab shows aggregated stats for the selected closed tournament.
 				</p>
 			</div>
 

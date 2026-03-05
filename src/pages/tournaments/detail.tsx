@@ -157,11 +157,11 @@ export default function TournamentDetailPage() {
 	const ensuringPlayoffBracketRef = useRef(false);
 
 	const isAdmin = profile?.role === "admin";
-	const hostMembership = useMemo(
-		() => members.find((member) => member.user_id === user?.id && member.role === "host"),
+	const managerMembership = useMemo(
+		() => members.find((member) => member.user_id === user?.id && (member.role === "host" || member.role === "admin")),
 		[members, user?.id],
 	);
-	const isHostOrAdmin = isAdmin || Boolean(hostMembership);
+	const isHostOrAdmin = isAdmin || Boolean(managerMembership);
 
 	useEffect(() => {
 		if (!user?.id || !isHostOrAdmin) return;

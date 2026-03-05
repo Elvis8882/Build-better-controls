@@ -638,11 +638,14 @@ export async function getProfileOverview(profileId: string): Promise<ProfileOver
 }
 
 export async function inviteMember(tournamentId: string, userId: string): Promise<void> {
-	const { error } = await supabase.from("tournament_members").insert({
-		tournament_id: tournamentId,
-		user_id: userId,
-		role: "player",
-	});
+	const { error } = await supabase.from("tournament_members").upsert(
+		{
+			tournament_id: tournamentId,
+			user_id: userId,
+			role: "player",
+		},
+		{ onConflict: "tournament_id,user_id" },
+	);
 	throwOnError(error, "Unable to invite member");
 }
 
@@ -820,18 +823,70 @@ export async function createParticipant(
 		display_name: payload.displayName,
 	};
 
-	const upsertOnConflict = payload.userId ? "tournament_id,user_id" : payload.guestId ? "tournament_id,guest_id" : null;
-
-	if (upsertOnConflict) {
-		const { error } = await supabase
+	if (payload.userId) {
+		const { data: existing, error: existingError } = await supabase
 			.from("tournament_participants")
-			.upsert(insertPayload, { onConflict: upsertOnConflict, ignoreDuplicates: false });
-		throwOnError(error, "Unable to create participant");
-		return;
+			.select("id")
+			.eq("tournament_id", tournamentId)
+			.eq("user_id", payload.userId)
+			.maybeSingle();
+		throwOnError(existingError, "Unable to create participant");
+
+		if (existing?.id) {
+			const { error: updateError } = await supabase
+				.from("tournament_participants")
+				.update({ display_name: payload.displayName })
+				.eq("id", existing.id as string);
+			throwOnError(updateError, "Unable to create participant");
+			return;
+		}
 	}
 
-	const { error } = await supabase.from("tournament_participants").insert(insertPayload);
-	throwOnError(error, "Unable to create participant");
+	if (payload.guestId) {
+		const { data: existing, error: existingError } = await supabase
+			.from("tournament_participants")
+			.select("id")
+			.eq("tournament_id", tournamentId)
+			.eq("guest_id", payload.guestId)
+			.maybeSingle();
+		throwOnError(existingError, "Unable to create participant");
+
+		if (existing?.id) {
+			const { error: updateError } = await supabase
+				.from("tournament_participants")
+				.update({ display_name: payload.displayName })
+				.eq("id", existing.id as string);
+			throwOnError(updateError, "Unable to create participant");
+			return;
+		}
+	}
+
+	const { error: insertError } = await supabase.from("tournament_participants").insert(insertPayload);
+	if (!insertError) return;
+
+	if (insertError.code === "23505" && payload.userId) {
+		const { data: existing, error: existingError } = await supabase
+			.from("tournament_participants")
+			.select("id")
+			.eq("tournament_id", tournamentId)
+			.eq("user_id", payload.userId)
+			.maybeSingle();
+		throwOnError(existingError, "Unable to create participant");
+		if (existing?.id) return;
+	}
+
+	if (insertError.code === "23505" && payload.guestId) {
+		const { data: existing, error: existingError } = await supabase
+			.from("tournament_participants")
+			.select("id")
+			.eq("tournament_id", tournamentId)
+			.eq("guest_id", payload.guestId)
+			.maybeSingle();
+		throwOnError(existingError, "Unable to create participant");
+		if (existing?.id) return;
+	}
+
+	throwOnError(insertError, "Unable to create participant");
 }
 
 export async function updateParticipant(participantId: string, teamId: string | null): Promise<void> {
@@ -1078,6 +1133,19 @@ export async function listTournamentGuests(tournamentId: string): Promise<Tourna
 }
 
 export async function addTournamentGuest(tournamentId: string, displayName: string): Promise<TournamentGuest> {
+	const normalizedDisplayName = displayName.trim().toLocaleLowerCase();
+	const { data: existingGuests, error: existingGuestError } = await supabase
+		.from("tournament_guests")
+		.select("id, tournament_id, display_name")
+		.eq("tournament_id", tournamentId);
+	throwOnError(existingGuestError, "Unable to add guest");
+	const existingGuest = (existingGuests ?? []).find(
+		(guest) => ((guest.display_name as string | null) ?? "").trim().toLocaleLowerCase() === normalizedDisplayName,
+	);
+	if (existingGuest) {
+		return existingGuest as TournamentGuest;
+	}
+
 	const { data, error } = await supabase
 		.from("tournament_guests")
 		.insert({
@@ -1086,8 +1154,27 @@ export async function addTournamentGuest(tournamentId: string, displayName: stri
 		})
 		.select("id, tournament_id, display_name")
 		.single();
+
+	if (!error) {
+		return data as TournamentGuest;
+	}
+
+	if (error.code === "23505") {
+		const { data: duplicateGuests, error: duplicateGuestError } = await supabase
+			.from("tournament_guests")
+			.select("id, tournament_id, display_name")
+			.eq("tournament_id", tournamentId);
+		throwOnError(duplicateGuestError, "Unable to add guest");
+		const duplicateGuest = (duplicateGuests ?? []).find(
+			(guest) => ((guest.display_name as string | null) ?? "").trim().toLocaleLowerCase() === normalizedDisplayName,
+		);
+		if (duplicateGuest) {
+			return duplicateGuest as TournamentGuest;
+		}
+	}
+
 	throwOnError(error, "Unable to add guest");
-	return data as TournamentGuest;
+	throw new Error("Unable to add guest");
 }
 
 export async function removeTournamentGuest(tournamentId: string, guestId: string): Promise<void> {

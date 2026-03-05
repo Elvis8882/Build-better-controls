@@ -35,76 +35,53 @@ export default function UserProfilePage() {
 	useEffect(() => {
 		if (!targetUserId) return;
 		setLoading(true);
-<<<<<<< codex/enhance-member-profile-section
 
 		void (async () => {
 			try {
-				const profileData = await getProfileOverview(targetUserId);
-=======
-		void Promise.all([getProfileOverview(targetUserId), listUserTeamStats(targetUserId)])
-			.then(([profileData, stats]) => {
->>>>>>> main
-				setProfile(profileData);
+				const [profileData, statsResult] = await Promise.allSettled([
+					getProfileOverview(targetUserId),
+					listUserTeamStats(targetUserId),
+				]);
+
+				if (profileData.status !== "fulfilled") {
+					throw profileData.reason;
+				}
+
+				const resolvedProfile = profileData.value;
+				setProfile(resolvedProfile);
 				setForm({
-					bio: profileData?.bio ?? "",
-					favorite_team: profileData?.favorite_team ?? "",
-					club_preference: profileData?.club_preference ?? "",
+					bio: resolvedProfile?.bio ?? "",
+					favorite_team: resolvedProfile?.favorite_team ?? "",
+					club_preference: resolvedProfile?.club_preference ?? "",
 				});
 
-<<<<<<< codex/enhance-member-profile-section
-				try {
-					const stats = await listUserTeamStats(targetUserId);
-					if (stats.length === 0) {
-						setPerformanceCategories(["Career"]);
-						setPerformanceSeries([
-							{ name: "Goals", data: [0] },
-							{ name: "Shots on goal", data: [0] },
-							{ name: "Goals let in", data: [0] },
-						]);
-						return;
-					}
-
-					setPerformanceCategories(stats.map((item) => item.team_code));
-					setPerformanceSeries([
-						{ name: "Goals", data: stats.map((item) => item.goals_made) },
-						{ name: "Shots on goal", data: stats.map((item) => item.shots_made) },
-						{ name: "Goals let in", data: stats.map((item) => item.goals_received) },
-					]);
-				} catch (error) {
-=======
-				if (stats.length === 0) {
->>>>>>> main
+				if (statsResult.status !== "fulfilled" || statsResult.value.length === 0) {
 					setPerformanceCategories(["Career"]);
 					setPerformanceSeries([
 						{ name: "Goals", data: [0] },
 						{ name: "Shots on goal", data: [0] },
 						{ name: "Goals let in", data: [0] },
 					]);
-<<<<<<< codex/enhance-member-profile-section
-					toast.error((error as Error).message);
-				}
-			} catch {
-				setProfile(null);
-			} finally {
-				setLoading(false);
-			}
-		})();
-=======
+
+					if (statsResult.status === "rejected") {
+						toast.error((statsResult.reason as Error).message);
+					}
 					return;
 				}
 
+				const stats = statsResult.value;
 				setPerformanceCategories(stats.map((item) => item.team_code));
 				setPerformanceSeries([
 					{ name: "Goals", data: stats.map((item) => item.goals_made) },
 					{ name: "Shots on goal", data: stats.map((item) => item.shots_made) },
 					{ name: "Goals let in", data: stats.map((item) => item.goals_received) },
 				]);
-			})
-			.catch(() => {
+			} catch {
 				setProfile(null);
-			})
-			.finally(() => setLoading(false));
->>>>>>> main
+			} finally {
+				setLoading(false);
+			}
+		})();
 	}, [targetUserId]);
 
 	if (loading) {

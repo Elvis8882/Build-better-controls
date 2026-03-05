@@ -1457,7 +1457,6 @@ export async function listClosedTournaments(): Promise<Array<{ id: string; name:
 		.from("tournaments")
 		.select("id, name, status, preset_id")
 		.ilike("status", "closed")
-		.neq("preset_id", "round_robin_tiers")
 		.order("created_at", { ascending: false });
 	throwOnError(error, "Unable to load closed tournaments");
 
@@ -1679,6 +1678,57 @@ export async function listTournamentTeamStats(tournamentId: string): Promise<Tou
 		const row = aggregates.get(teamId);
 		if (!row || row.placement === 1) continue;
 		if (row.placement === null || placement < row.placement) row.placement = placement;
+	}
+
+	if (placementByParticipantId.size === 0) {
+		const { data: groupStandingsData, error: groupStandingsError } = await supabase
+			.from("v_group_standings")
+			.select("participant_id, rank_in_group, points, goal_diff, goals_for, goals_against")
+			.eq("tournament_id", tournamentId)
+			.order("rank_in_group", { ascending: true })
+			.order("points", { ascending: false })
+			.order("goal_diff", { ascending: false })
+			.order("goals_for", { ascending: false })
+			.order("goals_against", { ascending: true });
+		throwOnError(groupStandingsError, "Unable to load group standings for placements");
+
+		const rankedParticipants = [...(groupStandingsData ?? [])]
+			.map((row) => {
+				const participantId = row.participant_id as string | null;
+				const rankInGroup = row.rank_in_group as number | null;
+				const points = row.points as number | null;
+				const goalDiff = row.goal_diff as number | null;
+				const goalsFor = row.goals_for as number | null;
+				const goalsAgainst = row.goals_against as number | null;
+				if (!participantId || rankInGroup === null) return null;
+				return {
+					participantId,
+					rankInGroup,
+					points: points ?? 0,
+					goalDiff: goalDiff ?? 0,
+					goalsFor: goalsFor ?? 0,
+					goalsAgainst: goalsAgainst ?? 0,
+				};
+			})
+			.filter((row): row is NonNullable<typeof row> => Boolean(row))
+			.sort((a, b) => {
+				if (a.rankInGroup !== b.rankInGroup) return a.rankInGroup - b.rankInGroup;
+				if (a.points !== b.points) return b.points - a.points;
+				if (a.goalDiff !== b.goalDiff) return b.goalDiff - a.goalDiff;
+				if (a.goalsFor !== b.goalsFor) return b.goalsFor - a.goalsFor;
+				if (a.goalsAgainst !== b.goalsAgainst) return a.goalsAgainst - b.goalsAgainst;
+				return a.participantId.localeCompare(b.participantId);
+			});
+
+		rankedParticipants.forEach((row, index) => {
+			const teamId = participantTeamMeta.get(row.participantId)?.team_id;
+			if (!teamId) return;
+			const aggregateRow = aggregates.get(teamId);
+			if (!aggregateRow) return;
+			if (aggregateRow.placement === null || index + 1 < aggregateRow.placement) {
+				aggregateRow.placement = index + 1;
+			}
+		});
 	}
 
 	return [...aggregates.values()]

@@ -646,7 +646,6 @@ export async function getProfileOverview(profileId: string): Promise<ProfileOver
 		.select("id, username, bio, favorite_team, club_preference")
 		.eq("id", profileId)
 		.maybeSingle();
-<<<<<<< codex/enhance-member-profile-section
 
 	if (error) {
 		const details = [error.message, error.details, error.hint].filter(Boolean).join(" ").toLowerCase();
@@ -668,9 +667,6 @@ export async function getProfileOverview(profileId: string): Promise<ProfileOver
 			};
 		}
 	}
-
-=======
->>>>>>> main
 	throwOnError(error, "Unable to load profile");
 	if (!data) return null;
 	return {

@@ -176,6 +176,7 @@ export type ProfileOverview = {
 	bio: string | null;
 	favorite_team: string | null;
 	club_preference: string | null;
+	avatar_url: string | null;
 };
 
 export type PlayerTournamentPerformance = {
@@ -653,14 +654,17 @@ export async function getPublicProfile(profileId: string): Promise<PublicProfile
 export async function getProfileOverview(profileId: string): Promise<ProfileOverview | null> {
 	const { data, error } = await supabase
 		.from("profiles")
-		.select("id, username, bio, favorite_team, club_preference")
+		.select("id, username, bio, favorite_team, club_preference, avatar_url")
 		.eq("id", profileId)
 		.maybeSingle();
 
 	if (error) {
 		const details = [error.message, error.details, error.hint].filter(Boolean).join(" ").toLowerCase();
 		const missingProfileFields =
-			details.includes("bio") || details.includes("favorite_team") || details.includes("club_preference");
+			details.includes("bio") ||
+			details.includes("favorite_team") ||
+			details.includes("club_preference") ||
+			details.includes("avatar_url");
 
 		if (missingProfileFields) {
 			const fallback = await runAuthAwareQuery(
@@ -674,6 +678,7 @@ export async function getProfileOverview(profileId: string): Promise<ProfileOver
 				bio: null,
 				favorite_team: null,
 				club_preference: null,
+				avatar_url: null,
 			};
 		}
 	}
@@ -685,12 +690,13 @@ export async function getProfileOverview(profileId: string): Promise<ProfileOver
 		bio: (data.bio as string | null) ?? null,
 		favorite_team: (data.favorite_team as string | null) ?? null,
 		club_preference: (data.club_preference as string | null) ?? null,
+		avatar_url: (data.avatar_url as string | null) ?? null,
 	};
 }
 
 export async function updateProfileOverview(
 	profileId: string,
-	updates: Pick<ProfileOverview, "bio" | "favorite_team" | "club_preference">,
+	updates: Pick<ProfileOverview, "bio" | "favorite_team" | "club_preference" | "avatar_url">,
 ): Promise<void> {
 	const { error } = await supabase
 		.from("profiles")
@@ -698,6 +704,7 @@ export async function updateProfileOverview(
 			bio: updates.bio,
 			favorite_team: updates.favorite_team,
 			club_preference: updates.club_preference,
+			avatar_url: updates.avatar_url,
 		})
 		.eq("id", profileId);
 	throwOnError(error, "Unable to update profile");

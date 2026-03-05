@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { type ChangeEvent, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { Chart } from "@/components/chart";
+import defaultAvatar from "@/assets/images/avatars/avatar-1.png";
 import { useAuth } from "@/auth/AuthProvider";
 import {
 	fetchTeamsByPool,
@@ -21,7 +22,40 @@ type ProfileFormState = {
 	bio: string;
 	favorite_team: string;
 	club_preference: string;
+	avatar_url: string;
 };
+
+const AVATAR_PREVIEW_SIZE = 120;
+
+async function resizeAvatar(file: File): Promise<string> {
+	const dataUrl = await new Promise<string>((resolve, reject) => {
+		const reader = new FileReader();
+		reader.onload = () => resolve(reader.result as string);
+		reader.onerror = () => reject(new Error("Unable to read image."));
+		reader.readAsDataURL(file);
+	});
+
+	const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+		const element = new Image();
+		element.onload = () => resolve(element);
+		element.onerror = () => reject(new Error("Invalid image file."));
+		element.src = dataUrl;
+	});
+
+	const canvas = document.createElement("canvas");
+	canvas.width = AVATAR_PREVIEW_SIZE;
+	canvas.height = AVATAR_PREVIEW_SIZE;
+	const context = canvas.getContext("2d");
+	if (!context) throw new Error("Unable to process avatar image.");
+
+	const scale = Math.max(AVATAR_PREVIEW_SIZE / image.width, AVATAR_PREVIEW_SIZE / image.height);
+	const drawWidth = image.width * scale;
+	const drawHeight = image.height * scale;
+	const offsetX = (AVATAR_PREVIEW_SIZE - drawWidth) / 2;
+	const offsetY = (AVATAR_PREVIEW_SIZE - drawHeight) / 2;
+	context.drawImage(image, offsetX, offsetY, drawWidth, drawHeight);
+	return canvas.toDataURL("image/jpeg", 0.9);
+}
 
 export default function UserProfilePage() {
 	const [searchParams] = useSearchParams();
@@ -29,6 +63,7 @@ export default function UserProfilePage() {
 	const [profile, setProfile] = useState<ProfileOverview | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [saving, setSaving] = useState(false);
+	const [isEditing, setIsEditing] = useState(true);
 	const [offenseSeries, setOffenseSeries] = useState([
 		{ name: "Shots on goal", data: [0] },
 		{ name: "Goals", data: [0] },
@@ -39,15 +74,26 @@ export default function UserProfilePage() {
 	]);
 	const [performanceCategories, setPerformanceCategories] = useState(["Career"]);
 	const [nhlTeams, setNhlTeams] = useState<Array<Pick<Team, "code" | "name">>>([]);
-	const [form, setForm] = useState<ProfileFormState>({ bio: "", favorite_team: "", club_preference: "" });
+	const [form, setForm] = useState<ProfileFormState>({
+		bio: "",
+		favorite_team: "",
+		club_preference: "",
+		avatar_url: "",
+	});
 
 	const targetUserId = useMemo(() => searchParams.get("userId") ?? user?.id ?? null, [searchParams, user?.id]);
 	const canEdit = Boolean(user?.id && targetUserId && user.id === targetUserId);
+	const editLocked = !canEdit || !isEditing;
 
 	const favoriteTeamMeta = useMemo(
 		() => nhlTeams.find((team) => team.name.toLowerCase() === form.favorite_team.trim().toLowerCase()) ?? null,
 		[form.favorite_team, nhlTeams],
 	);
+	const teamSuggestions = useMemo(() => {
+		const query = form.favorite_team.trim().toLowerCase();
+		if (!query) return nhlTeams.slice(0, 8);
+		return nhlTeams.filter((team) => team.name.toLowerCase().includes(query)).slice(0, 8);
+	}, [form.favorite_team, nhlTeams]);
 
 	useEffect(() => {
 		void (async () => {
@@ -81,7 +127,16 @@ export default function UserProfilePage() {
 					bio: resolvedProfile?.bio ?? "",
 					favorite_team: resolvedProfile?.favorite_team ?? "",
 					club_preference: resolvedProfile?.club_preference ?? "",
+					avatar_url: resolvedProfile?.avatar_url ?? "",
 				});
+				setIsEditing(
+					!(
+						resolvedProfile?.bio ||
+						resolvedProfile?.favorite_team ||
+						resolvedProfile?.club_preference ||
+						resolvedProfile?.avatar_url
+					),
+				);
 
 				if (statsResult.status !== "fulfilled" || statsResult.value.length === 0) {
 					setPerformanceCategories(["Career"]);
@@ -126,6 +181,17 @@ export default function UserProfilePage() {
 		return <div className="p-6 text-sm text-muted-foreground">Profile not found.</div>;
 	}
 
+	const handleAvatarUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+		const file = event.target.files?.[0];
+		if (!file) return;
+		try {
+			const resized = await resizeAvatar(file);
+			setForm((current) => ({ ...current, avatar_url: resized }));
+		} catch (error) {
+			toast.error((error as Error).message);
+		}
+	};
+
 	const handleSave = async () => {
 		if (!canEdit) return;
 		if (!targetUserId) return;
@@ -144,6 +210,7 @@ export default function UserProfilePage() {
 				bio: form.bio.trim() || null,
 				favorite_team: normalizedFavoriteTeam || null,
 				club_preference: form.club_preference.trim() || null,
+				avatar_url: form.avatar_url.trim() || null,
 			});
 			setProfile((current) =>
 				current
@@ -152,9 +219,11 @@ export default function UserProfilePage() {
 							bio: form.bio.trim() || null,
 							favorite_team: form.favorite_team.trim() || null,
 							club_preference: form.club_preference.trim() || null,
+							avatar_url: form.avatar_url.trim() || null,
 						}
 					: current,
 			);
+			setIsEditing(false);
 			toast.success("Profile updated.");
 		} catch (error) {
 			toast.error((error as Error).message);
@@ -168,7 +237,7 @@ export default function UserProfilePage() {
 			<h1 className="text-2xl font-semibold">Player Card</h1>
 			<p className="text-sm text-muted-foreground">
 				{canEdit
-					? "You can edit your own player card details."
+					? "Save player card to lock it. Use Edit to update later."
 					: "Viewing another member profile. Only the profile owner can edit details."}
 			</p>
 			<div className="grid gap-4 md:grid-cols-2">
@@ -177,6 +246,22 @@ export default function UserProfilePage() {
 						<CardTitle>Locker room identity</CardTitle>
 					</CardHeader>
 					<CardContent className="space-y-3 text-sm">
+						<div className="space-y-2">
+							<p className="text-muted-foreground">Custom avatar</p>
+							<img
+								src={form.avatar_url || defaultAvatar}
+								alt="Profile avatar"
+								className="h-20 w-20 rounded-full border object-cover"
+							/>
+							{canEdit && (
+								<Input
+									type="file"
+									accept="image/*"
+									onChange={(event) => void handleAvatarUpload(event)}
+									disabled={editLocked}
+								/>
+							)}
+						</div>
 						<p>
 							<span className="text-muted-foreground">Username:</span> {profile.username ?? "Unknown user"}
 						</p>
@@ -184,9 +269,11 @@ export default function UserProfilePage() {
 							<p className="text-muted-foreground">Scouting report</p>
 							{canEdit ? (
 								<Textarea
+									className={editLocked ? "bg-muted text-muted-foreground" : undefined}
 									value={form.bio}
 									onChange={(event) => setForm((current) => ({ ...current, bio: event.target.value }))}
 									placeholder="Describe your style, strengths, and hockey mindset..."
+									disabled={editLocked}
 								/>
 							) : (
 								<p>{profile.bio ?? "No scouting report available."}</p>
@@ -202,19 +289,29 @@ export default function UserProfilePage() {
 						<div className="space-y-2">
 							<p className="text-muted-foreground">Favorite NHL team</p>
 							{canEdit ? (
-								<>
+								<div className="space-y-2">
 									<Input
+										className={editLocked ? "bg-muted text-muted-foreground" : undefined}
 										value={form.favorite_team}
 										onChange={(event) => setForm((current) => ({ ...current, favorite_team: event.target.value }))}
-										list="nhl-team-options"
-										placeholder="e.g. Edmonton Oilers"
+										placeholder="Start typing NHL team name"
+										disabled={editLocked}
 									/>
-									<datalist id="nhl-team-options">
-										{nhlTeams.map((team) => (
-											<option key={team.code} value={team.name} />
-										))}
-									</datalist>
-								</>
+									{!editLocked && teamSuggestions.length > 0 && (
+										<div className="max-h-36 overflow-y-auto rounded-md border bg-background p-1">
+											{teamSuggestions.map((team) => (
+												<button
+													type="button"
+													className="w-full rounded-sm px-2 py-1 text-left text-sm hover:bg-muted"
+													onClick={() => setForm((current) => ({ ...current, favorite_team: team.name }))}
+													key={team.code}
+												>
+													{team.name}
+												</button>
+											))}
+										</div>
+									)}
+								</div>
 							) : (
 								<p>{profile.favorite_team ?? "No favorite NHL team selected."}</p>
 							)}
@@ -226,7 +323,6 @@ export default function UserProfilePage() {
 										className="h-10 w-10 object-contain"
 										onError={handleTeamLogoImageError}
 									/>
-									<span>{favoriteTeamMeta.name}</span>
 								</div>
 							)}
 						</div>
@@ -234,18 +330,25 @@ export default function UserProfilePage() {
 							<p className="text-muted-foreground">Signature game plan</p>
 							{canEdit ? (
 								<Input
+									className={editLocked ? "bg-muted text-muted-foreground" : undefined}
 									value={form.club_preference}
 									onChange={(event) => setForm((current) => ({ ...current, club_preference: event.target.value }))}
 									placeholder="e.g. High-cycle offense + aggressive forecheck"
+									disabled={editLocked}
 								/>
 							) : (
 								<p>{profile.club_preference ?? "No game plan shared."}</p>
 							)}
 						</div>
 						{canEdit && (
-							<Button type="button" onClick={() => void handleSave()} disabled={saving}>
-								{saving ? "Saving..." : "Save player card"}
-							</Button>
+							<div className="flex gap-2">
+								<Button type="button" onClick={() => void handleSave()} disabled={saving || !isEditing}>
+									{saving ? "Saving..." : "Save player card"}
+								</Button>
+								<Button type="button" variant="outline" onClick={() => setIsEditing(true)} disabled={isEditing}>
+									Edit
+								</Button>
+							</div>
 						)}
 					</CardContent>
 				</Card>
@@ -265,7 +368,6 @@ export default function UserProfilePage() {
 							yaxis: { title: { text: "Total" } },
 							legend: { position: "top" },
 							stroke: { curve: "smooth", width: 3 },
-							title: { text: "Offense by tournament", align: "left" },
 						}}
 					/>
 					<Chart
@@ -278,7 +380,6 @@ export default function UserProfilePage() {
 							yaxis: { title: { text: "Total" } },
 							legend: { position: "top" },
 							stroke: { curve: "smooth", width: 3 },
-							title: { text: "Defense by tournament", align: "left" },
 						}}
 					/>
 				</CardContent>

@@ -813,12 +813,24 @@ export async function createParticipant(
 	tournamentId: string,
 	payload: { userId?: string; guestId?: string; displayName: string },
 ): Promise<void> {
-	const { error } = await supabase.from("tournament_participants").insert({
+	const insertPayload = {
 		tournament_id: tournamentId,
 		user_id: payload.userId ?? null,
 		guest_id: payload.guestId ?? null,
 		display_name: payload.displayName,
-	});
+	};
+
+	const upsertOnConflict = payload.userId ? "tournament_id,user_id" : payload.guestId ? "tournament_id,guest_id" : null;
+
+	if (upsertOnConflict) {
+		const { error } = await supabase
+			.from("tournament_participants")
+			.upsert(insertPayload, { onConflict: upsertOnConflict, ignoreDuplicates: false });
+		throwOnError(error, "Unable to create participant");
+		return;
+	}
+
+	const { error } = await supabase.from("tournament_participants").insert(insertPayload);
 	throwOnError(error, "Unable to create participant");
 }
 

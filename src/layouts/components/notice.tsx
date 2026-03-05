@@ -2,7 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/auth/AuthProvider";
 import { Icon } from "@/components/icon";
-import { acceptFriendRequest, listPendingFriendRequests, type FriendRequest } from "@/lib/db";
+import {
+	acceptFriendRequest,
+	listPendingFriendRequests,
+	listTournamentNotifications,
+	type FriendRequest,
+	type TournamentNotification,
+} from "@/lib/db";
 import { Avatar, AvatarFallback } from "@/ui/avatar";
 import { Badge } from "@/ui/badge";
 import { Button } from "@/ui/button";
@@ -10,38 +16,19 @@ import { ScrollArea } from "@/ui/scroll-area";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/ui/tabs";
 
-type NoticeItem = {
-	id: string;
-	title: string;
-	description: string;
-	time: string;
-};
+function formatRelativeTime(value: string): string {
+	const seconds = Math.floor((Date.now() - new Date(value).getTime()) / 1000);
+	if (seconds < 60) return "just now";
+	if (seconds < 3600) return `${Math.floor(seconds / 60)} mins ago`;
+	if (seconds < 86400) return `${Math.floor(seconds / 3600)} hours ago`;
+	return `${Math.floor(seconds / 86400)} days ago`;
+}
 
-const SITE_NOTIFICATIONS: NoticeItem[] = [
-	{
-		id: "notice-1",
-		title: "Tournament registration confirmed",
-		description: "Your slot in the Spring Open tournament is now confirmed.",
-		time: "5 mins ago",
-	},
-	{
-		id: "notice-2",
-		title: "Match result updated",
-		description: "Round 2 results are now available in your tournament dashboard.",
-		time: "32 mins ago",
-	},
-	{
-		id: "notice-3",
-		title: "Profile reminder",
-		description: "Add your preferred team and bio to complete your profile.",
-		time: "2 hours ago",
-	},
-];
-
-function NoticeList({ items }: { items: NoticeItem[] }) {
+function NoticeList({ items }: { items: TournamentNotification[] }) {
 	return (
 		<ScrollArea className="h-[420px] pr-2">
 			<div className="space-y-3 pb-4">
+				{items.length === 0 && <p className="text-xs text-muted-foreground">No tournament notifications yet.</p>}
 				{items.map((item) => (
 					<div key={item.id} className="rounded-xl border bg-card/80 p-3">
 						<div className="flex items-start gap-3">
@@ -51,7 +38,7 @@ function NoticeList({ items }: { items: NoticeItem[] }) {
 							<div className="min-w-0 flex-1">
 								<p className="text-sm font-medium">{item.title}</p>
 								<p className="text-xs text-muted-foreground">{item.description}</p>
-								<p className="mt-1 text-xs text-muted-foreground">{item.time}</p>
+								<p className="mt-1 text-xs text-muted-foreground">{formatRelativeTime(item.created_at)}</p>
 							</div>
 						</div>
 					</div>
@@ -63,7 +50,7 @@ function NoticeList({ items }: { items: NoticeItem[] }) {
 
 export default function NoticeButton() {
 	const [drawerOpen, setDrawerOpen] = useState(false);
-	const [notificationItems, setNotificationItems] = useState(SITE_NOTIFICATIONS);
+	const [notificationItems, setNotificationItems] = useState<TournamentNotification[]>([]);
 	const [friendRequestItems, setFriendRequestItems] = useState<FriendRequest[]>([]);
 	const [loadingRequests, setLoadingRequests] = useState(false);
 	const { user } = useAuth();
@@ -81,10 +68,21 @@ export default function NoticeButton() {
 		}
 	}, [user?.id]);
 
+	const refreshTournamentNotifications = useCallback(async () => {
+		if (!user?.id) return;
+		try {
+			const data = await listTournamentNotifications(user.id);
+			setNotificationItems(data);
+		} catch (error) {
+			toast.error((error as Error).message);
+		}
+	}, [user?.id]);
+
 	useEffect(() => {
 		if (!drawerOpen) return;
 		void refreshFriendRequests();
-	}, [drawerOpen, refreshFriendRequests]);
+		void refreshTournamentNotifications();
+	}, [drawerOpen, refreshFriendRequests, refreshTournamentNotifications]);
 	const totalCount = useMemo(
 		() => notificationItems.length + friendRequestItems.length,
 		[friendRequestItems.length, notificationItems.length],

@@ -468,6 +468,7 @@ export default function TournamentDetailPage() {
 				tournamentData = await retrySectionQuery(() => getTournament(id));
 				setTournament(tournamentData);
 			} catch (error) {
+				setTournament(null);
 				toast.error(`Tournament data failed to refresh: ${(error as Error).message}`);
 			}
 
@@ -475,6 +476,7 @@ export default function TournamentDetailPage() {
 				const participantData = await retrySectionQuery(() => listParticipants(id));
 				setParticipants(participantData);
 			} catch (error) {
+				setParticipants([]);
 				toast.error(`Participant data failed to refresh: ${(error as Error).message}`);
 			}
 
@@ -495,6 +497,7 @@ export default function TournamentDetailPage() {
 			if (memberResult.status === "fulfilled") {
 				setMembers(memberResult.value);
 			} else {
+				setMembers([]);
 				toast.error(
 					`Member data failed to refresh: ${memberResult.reason instanceof Error ? memberResult.reason.message : "Unknown error"}`,
 				);
@@ -503,6 +506,7 @@ export default function TournamentDetailPage() {
 			if (groupResult.status === "fulfilled") {
 				setGroups(groupResult.value);
 			} else {
+				setGroups([]);
 				toast.error(
 					`Group data failed to refresh: ${groupResult.reason instanceof Error ? groupResult.reason.message : "Unknown error"}`,
 				);
@@ -511,6 +515,7 @@ export default function TournamentDetailPage() {
 			if (standingResult.status === "fulfilled") {
 				setStandings(standingResult.value);
 			} else {
+				setStandings([]);
 				toast.error(
 					`Group standings failed to refresh: ${standingResult.reason instanceof Error ? standingResult.reason.message : "Unknown error"}`,
 				);
@@ -520,6 +525,7 @@ export default function TournamentDetailPage() {
 				setGroupMatches(groupMatchesResult.value);
 				mergeResultDrafts(groupMatchesResult.value);
 			} else {
+				setGroupMatches([]);
 				toast.error(
 					`Group match data failed to refresh: ${groupMatchesResult.reason instanceof Error ? groupMatchesResult.reason.message : "Unknown error"}`,
 				);
@@ -529,6 +535,7 @@ export default function TournamentDetailPage() {
 				setPlayoffMatches(playoffMatchesResult.value);
 				mergeResultDrafts(playoffMatchesResult.value);
 			} else {
+				setPlayoffMatches([]);
 				toast.error(
 					`Playoff data failed to refresh: ${playoffMatchesResult.reason instanceof Error ? playoffMatchesResult.reason.message : "Unknown error"}`,
 				);
@@ -537,6 +544,7 @@ export default function TournamentDetailPage() {
 			if (teamsResult.status === "fulfilled") {
 				setTeams(teamsResult.value);
 			} else {
+				setTeams([]);
 				toast.error(
 					`Team pool data failed to refresh: ${teamsResult.reason instanceof Error ? teamsResult.reason.message : "Unknown error"}`,
 				);
@@ -544,7 +552,7 @@ export default function TournamentDetailPage() {
 		} finally {
 			setLoading(false);
 		}
-	}, [id, isSessionReady, mergeResultDrafts]);
+	}, [id, isSessionReady, mergeResultDrafts, retrySectionQuery]);
 
 	useEffect(() => {
 		if (!isSessionReady) return;

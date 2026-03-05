@@ -646,6 +646,31 @@ export async function getProfileOverview(profileId: string): Promise<ProfileOver
 		.select("id, username, bio, favorite_team, club_preference")
 		.eq("id", profileId)
 		.maybeSingle();
+<<<<<<< codex/enhance-member-profile-section
+
+	if (error) {
+		const details = [error.message, error.details, error.hint].filter(Boolean).join(" ").toLowerCase();
+		const missingProfileFields =
+			details.includes("bio") || details.includes("favorite_team") || details.includes("club_preference");
+
+		if (missingProfileFields) {
+			const fallback = await runAuthAwareQuery(
+				() => supabase.from("profiles").select("id, username").eq("id", profileId).maybeSingle(),
+				"Unable to load profile",
+			);
+			if (!fallback) return null;
+			return {
+				id: fallback.id as string,
+				username: (fallback.username as string | null) ?? null,
+				bio: null,
+				favorite_team: null,
+				club_preference: null,
+			};
+		}
+	}
+
+=======
+>>>>>>> main
 	throwOnError(error, "Unable to load profile");
 	if (!data) return null;
 	return {

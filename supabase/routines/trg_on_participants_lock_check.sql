@@ -3,6 +3,7 @@ declare
   v_locked int;
   v_preset text;
   v_team_entrants int;
+  v_tournament_status text;
 begin
   if tg_op = 'UPDATE' and new.locked = true and (old.locked is distinct from true) then
     select count(*), count(*) filter (where locked) into v_total, v_locked
@@ -10,7 +11,11 @@ begin
     where tournament_id = new.tournament_id;
 
     if v_total = v_locked then
-      select preset_id into v_preset from public.tournaments where id = new.tournament_id;
+      select preset_id, status into v_preset, v_tournament_status from public.tournaments where id = new.tournament_id;
+
+      if lower(coalesce(v_tournament_status, '')) = 'closed' then
+        return new;
+      end if;
 
       if v_preset in ('2v2_tournament', '2v2_playoffs') then
         select count(*) into v_team_entrants

@@ -8,6 +8,7 @@ type AuthContextValue = {
 	profile: Profile | null;
 	isAdmin: boolean;
 	loading: boolean;
+	isSessionReady: boolean;
 	signUp: (username: string, password: string) => Promise<void>;
 	signIn: (username: string, password: string) => Promise<void>;
 	signOut: () => Promise<void>;
@@ -141,6 +142,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
 	}, []);
 
 	const isAdmin = profile?.role === "admin";
+	const isSessionReady = !loading;
 
 	const value = useMemo(
 		() => ({
@@ -148,11 +150,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
 			profile,
 			isAdmin,
 			loading,
+			isSessionReady,
 			signUp,
 			signIn,
 			signOut,
 		}),
-		[user, profile, isAdmin, loading, signUp, signIn, signOut],
+		[user, profile, isAdmin, loading, isSessionReady, signUp, signIn, signOut],
 	);
 
 	return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

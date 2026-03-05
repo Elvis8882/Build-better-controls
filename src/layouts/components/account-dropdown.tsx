@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { NavLink } from "react-router";
 import { useAuth } from "@/auth/AuthProvider";
+import defaultAvatar from "@/assets/images/avatars/avatar-1.png";
 import { useRouter } from "@/routes/hooks";
 import { useUserInfo } from "@/store/userStore";
 import { Button } from "@/ui/button";
@@ -22,6 +23,7 @@ export default function AccountDropdown() {
 	const { t } = useTranslation();
 	const displayUsername = profile?.username || storedUsername || "Guest";
 	const displayRole = profile?.role || "user";
+	const displayAvatar = profile?.avatar_url || avatar || defaultAvatar;
 
 	const logout = async () => {
 		try {
@@ -37,12 +39,12 @@ export default function AccountDropdown() {
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
 				<Button variant="ghost" size="icon" className="rounded-full">
-					<img className="h-6 w-6 rounded-full" src={avatar} alt="" />
+					<img className="h-6 w-6 rounded-full" src={displayAvatar} alt="" />
 				</Button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent className="w-56">
 				<div className="flex items-center gap-2 p-2">
-					<img className="h-10 w-10 rounded-full" src={avatar} alt="" />
+					<img className="h-10 w-10 rounded-full" src={displayAvatar} alt="" />
 					<div className="flex flex-col items-start">
 						<div className="text-text-primary text-sm font-medium">{displayUsername}</div>
 						<div className="text-xs text-muted-foreground lowercase">{displayRole}</div>

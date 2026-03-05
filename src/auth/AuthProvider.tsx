@@ -17,6 +17,7 @@ type AuthContextValue = {
 type Profile = {
 	username: string | null;
 	role: string | null;
+	avatar_url: string | null;
 };
 
 const AUTH_EMAIL_DOMAIN = (import.meta.env.VITE_AUTH_EMAIL_DOMAIN as string | undefined) || "nhl.local";
@@ -39,7 +40,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
 		const { data, error } = await supabase
 			.from("profiles")
-			.select("username, role")
+			.select("username, role, avatar_url")
 			.eq("id", authUser.id)
 			.maybeSingle();
 
@@ -52,6 +53,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
 			? {
 					username: data.username,
 					role: data.role,
+					avatar_url: data.avatar_url,
 				}
 			: null;
 	}, []);

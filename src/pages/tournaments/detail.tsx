@@ -612,12 +612,12 @@ export default function TournamentDetailPage() {
 	]);
 
 	useEffect(() => {
-		if (!id || activeTab !== "playoff" || anyPlayoffLocked || !playoffStageAvailable) return;
+		if (!id || activeTab !== "playoff" || tournamentClosed || anyPlayoffLocked || !playoffStageAvailable) return;
 		setSaving(true);
 		void ensurePlayoffBracketSafe()
 			.catch((error) => toast.error((error as Error).message))
 			.finally(() => setSaving(false));
-	}, [id, activeTab, anyPlayoffLocked, playoffStageAvailable, ensurePlayoffBracketSafe]);
+	}, [id, activeTab, tournamentClosed, anyPlayoffLocked, playoffStageAvailable, ensurePlayoffBracketSafe]);
 
 	useEffect(() => {
 		if (!id) return;
@@ -961,11 +961,11 @@ export default function TournamentDetailPage() {
 				}
 				if (activeTab === "group") {
 					await refreshGroupStageSections();
-				} else if (activeTab === "playoff" && !anyPlayoffLocked && id) {
+				} else if (activeTab === "playoff" && !tournamentClosed && !anyPlayoffLocked && id) {
 					await ensurePlayoffBracketSafe();
 				}
 			}
-			if (isPlayoffMatch) {
+			if (isPlayoffMatch && !tournamentClosed) {
 				await ensurePlayoffBracketSafe();
 			}
 			toast.success("Result locked.");

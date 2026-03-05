@@ -349,25 +349,6 @@ export default function TournamentDetailPage() {
 		setActiveTab("participants");
 	}, [id, isSessionReady, location.pathname, groupStageAvailable, playoffStageAvailable, navigate]);
 
-	const onTabChange = (nextTab: "participants" | "group" | "playoff") => {
-		if (nextTab === "group" && !groupStageAvailable) return;
-		if (nextTab === "playoff" && !playoffStageAvailable) return;
-		setActiveTab(nextTab);
-		if (!id) return;
-		if (nextTab === "participants") {
-			navigate(`/dashboard/tournaments/${id}/participants`);
-			void refreshParticipantsSection();
-			return;
-		}
-		if (nextTab === "group") {
-			navigate(`/dashboard/tournaments/${id}/group-stage`);
-			void refreshGroupStageSections();
-			return;
-		}
-		navigate(`/dashboard/tournaments/${id}/playoff-bracket`);
-		void refreshPlayoffSection();
-	};
-
 	const mergeResultDrafts = useCallback((matches: MatchWithResult[]) => {
 		setResultDrafts((previous) => {
 			const next = { ...previous };
@@ -408,6 +389,56 @@ export default function TournamentDetailPage() {
 		mergeResultDrafts(playoffMatchData);
 	}, [id, isSessionReady, mergeResultDrafts]);
 
+	const isRetryableRefreshError = useCallback((error: unknown) => {
+		if (typeof error !== "object" || error === null) return false;
+		const status = (error as { status?: number }).status;
+		if (typeof status === "number") return status === 408 || status === 429 || status >= 500;
+		const message = (error as { message?: string }).message?.toLowerCase() ?? "";
+		return ["network", "timeout", "timed out", "temporar", "rate limit"].some((needle) => message.includes(needle));
+	}, []);
+
+	const runSectionRefresh = useCallback(
+		async (name: "participants" | "group" | "playoff", fn: () => Promise<void>) => {
+			try {
+				await fn();
+			} catch (error) {
+				const retryable = isRetryableRefreshError(error);
+				console.debug(`[tournament-detail] ${name} refresh failed`, error);
+				if (!retryable) {
+					toast.error(`Failed to refresh ${name} section: ${(error as Error).message}`);
+					return;
+				}
+				console.debug(`[tournament-detail] ${name} refresh retrying once after retryable error`);
+				try {
+					await fn();
+				} catch (retryError) {
+					console.debug(`[tournament-detail] ${name} refresh retry failed`, retryError);
+					toast.error(`Failed to refresh ${name} section after retry: ${(retryError as Error).message}`);
+				}
+			}
+		},
+		[isRetryableRefreshError],
+	);
+
+	const onTabChange = (nextTab: "participants" | "group" | "playoff") => {
+		if (nextTab === "group" && !groupStageAvailable) return;
+		if (nextTab === "playoff" && !playoffStageAvailable) return;
+		setActiveTab(nextTab);
+		if (!id) return;
+		if (nextTab === "participants") {
+			navigate(`/dashboard/tournaments/${id}/participants`);
+			void runSectionRefresh("participants", refreshParticipantsSection);
+			return;
+		}
+		if (nextTab === "group") {
+			navigate(`/dashboard/tournaments/${id}/group-stage`);
+			void runSectionRefresh("group", refreshGroupStageSections);
+			return;
+		}
+		navigate(`/dashboard/tournaments/${id}/playoff-bracket`);
+		void runSectionRefresh("playoff", refreshPlayoffSection);
+	};
+
 	const ensurePlayoffBracketSafe = useCallback(async () => {
 		if (!id || ensuringPlayoffBracketRef.current) return false;
 		ensuringPlayoffBracketRef.current = true;
@@ -420,40 +451,96 @@ export default function TournamentDetailPage() {
 		}
 	}, [id, refreshPlayoffSection]);
 
+	const retrySectionQuery = useCallback(async <T,>(query: () => Promise<T>): Promise<T> => {
+		try {
+			return await query();
+		} catch {
+			await new Promise((resolve) => setTimeout(resolve, 250));
+			return query();
+		}
+	}, []);
+
 	const loadAll = useCallback(async () => {
 		if (!id || !isSessionReady) return;
 		try {
-			setLoading(true);
-			const [
-				tournamentData,
-				memberData,
-				participantData,
-				groupData,
-				standingData,
-				groupMatchData,
-				playoffMatchData,
-				teamData,
-			] = await Promise.all([
-				getTournament(id),
-				listTournamentMembers(id),
-				listParticipants(id),
-				listGroups(id),
-				listGroupStandings(id),
-				listMatchesWithResults(id, "GROUP"),
-				listMatchesWithResults(id, "PLAYOFF"),
-				getTournament(id).then((tournamentRow) => fetchTeamsByPool(tournamentRow?.team_pool ?? "NHL")),
+			let tournamentData: Tournament | null = null;
+			try {
+				tournamentData = await retrySectionQuery(() => getTournament(id));
+				setTournament(tournamentData);
+			} catch (error) {
+				toast.error(`Tournament data failed to refresh: ${(error as Error).message}`);
+			}
+
+			try {
+				const participantData = await retrySectionQuery(() => listParticipants(id));
+				setParticipants(participantData);
+			} catch (error) {
+				toast.error(`Participant data failed to refresh: ${(error as Error).message}`);
+			}
+
+			const optionalSectionResults = await Promise.allSettled([
+				retrySectionQuery(() => listTournamentMembers(id)),
+				retrySectionQuery(() => listGroups(id)),
+				retrySectionQuery(() => listGroupStandings(id)),
+				retrySectionQuery(() => listMatchesWithResults(id, "GROUP")),
+				retrySectionQuery(() => listMatchesWithResults(id, "PLAYOFF")),
+				tournamentData
+					? retrySectionQuery(() => fetchTeamsByPool(tournamentData?.team_pool ?? "NHL"))
+					: Promise.reject(new Error("Tournament data unavailable for team refresh.")),
 			]);
-			setTournament(tournamentData);
-			setMembers(memberData);
-			setParticipants(participantData);
-			setGroups(groupData);
-			setStandings(standingData);
-			setGroupMatches(groupMatchData);
-			setPlayoffMatches(playoffMatchData);
-			setTeams(teamData);
-			mergeResultDrafts([...groupMatchData, ...playoffMatchData]);
-		} catch (error) {
-			toast.error((error as Error).message);
+
+			const [memberResult, groupResult, standingResult, groupMatchesResult, playoffMatchesResult, teamsResult] =
+				optionalSectionResults;
+
+			if (memberResult.status === "fulfilled") {
+				setMembers(memberResult.value);
+			} else {
+				toast.error(
+					`Member data failed to refresh: ${memberResult.reason instanceof Error ? memberResult.reason.message : "Unknown error"}`,
+				);
+			}
+
+			if (groupResult.status === "fulfilled") {
+				setGroups(groupResult.value);
+			} else {
+				toast.error(
+					`Group data failed to refresh: ${groupResult.reason instanceof Error ? groupResult.reason.message : "Unknown error"}`,
+				);
+			}
+
+			if (standingResult.status === "fulfilled") {
+				setStandings(standingResult.value);
+			} else {
+				toast.error(
+					`Group standings failed to refresh: ${standingResult.reason instanceof Error ? standingResult.reason.message : "Unknown error"}`,
+				);
+			}
+
+			if (groupMatchesResult.status === "fulfilled") {
+				setGroupMatches(groupMatchesResult.value);
+				mergeResultDrafts(groupMatchesResult.value);
+			} else {
+				toast.error(
+					`Group match data failed to refresh: ${groupMatchesResult.reason instanceof Error ? groupMatchesResult.reason.message : "Unknown error"}`,
+				);
+			}
+
+			if (playoffMatchesResult.status === "fulfilled") {
+				setPlayoffMatches(playoffMatchesResult.value);
+				mergeResultDrafts(playoffMatchesResult.value);
+			} else {
+				toast.error(
+					`Playoff data failed to refresh: ${playoffMatchesResult.reason instanceof Error ? playoffMatchesResult.reason.message : "Unknown error"}`,
+				);
+			}
+
+			if (teamsResult.status === "fulfilled") {
+				setTeams(teamsResult.value);
+			} else {
+				toast.error(
+					`Team pool data failed to refresh: ${teamsResult.reason instanceof Error ? teamsResult.reason.message : "Unknown error"}`,
+				);
+			}
 		} finally {
 			setLoading(false);
 		}
@@ -532,14 +619,14 @@ export default function TournamentDetailPage() {
 		const refreshActiveTabData = () => {
 			if (document.visibilityState !== "visible") return;
 			if (activeTab === "participants") {
-				void refreshParticipantsSection();
+				void runSectionRefresh("participants", refreshParticipantsSection);
 				return;
 			}
 			if (activeTab === "group") {
-				void refreshGroupStageSections();
+				void runSectionRefresh("group", refreshGroupStageSections);
 				return;
 			}
-			void refreshPlayoffSection();
+			void runSectionRefresh("playoff", refreshPlayoffSection);
 		};
 
 		document.addEventListener("visibilitychange", refreshActiveTabData);
@@ -549,7 +636,7 @@ export default function TournamentDetailPage() {
 			document.removeEventListener("visibilitychange", refreshActiveTabData);
 			window.removeEventListener("focus", refreshActiveTabData);
 		};
-	}, [id, activeTab, refreshParticipantsSection, refreshGroupStageSections, refreshPlayoffSection]);
+	}, [id, activeTab, refreshParticipantsSection, refreshGroupStageSections, refreshPlayoffSection, runSectionRefresh]);
 
 	useEffect(() => {
 		if (!user?.id) return;

@@ -50,6 +50,12 @@ begin
       and bracket_type = 'WINNERS';
 
     v_semifinal_round := greatest(v_max_round - 1, 1);
+    -- 4-entrant full_with_losers has only the third-place game on LOSERS side;
+    -- do not propagate winners/losers from that game into additional rounds.
+    if v_max_round = 2 then
+      return new;
+    end if;
+
     if m.round <> v_semifinal_round then
       return new;
     end if;

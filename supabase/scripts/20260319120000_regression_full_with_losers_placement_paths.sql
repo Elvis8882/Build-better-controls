@@ -36,6 +36,7 @@ where tournament_id = :'tournament_id_4'
 --   losers_r1s1_count = 1
 --   both home_participant_id and away_participant_id are non-null and distinct.
 --   placement_entrants_count = 0 (4-entrant direct semifinal-loser placement path).
+--   losers_round_gt_1_count = 0 (no extra LOSERS rounds after 3rd/4th game).
 
 
 select
@@ -43,6 +44,13 @@ select
 from public.playoff_placement_entrants
 where tournament_id = :'tournament_id_4';
 
+select
+  count(*) as losers_round_gt_1_count
+from public.matches
+where tournament_id = :'tournament_id_4'
+  and stage = 'PLAYOFF'
+  and bracket_type = 'LOSERS'
+  and round > 1;
 
 -- Scenario B checks (replace :tournament_id_6 with your 6-entrant fixture UUID)
 select

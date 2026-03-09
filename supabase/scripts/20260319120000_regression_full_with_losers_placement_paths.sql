@@ -35,6 +35,14 @@ where tournament_id = :'tournament_id_4'
 -- Expectation:
 --   losers_r1s1_count = 1
 --   both home_participant_id and away_participant_id are non-null and distinct.
+--   placement_entrants_count = 0 (4-entrant direct semifinal-loser placement path).
+
+
+select
+  count(*) as placement_entrants_count
+from public.playoff_placement_entrants
+where tournament_id = :'tournament_id_4';
+
 
 -- Scenario B checks (replace :tournament_id_6 with your 6-entrant fixture UUID)
 select

@@ -1,4 +1,6 @@
 declare
+  v_actor_id uuid := auth.uid();
+  v_is_allowed boolean := false;
   v_participant_ids uuid[];
   v_slots uuid[];
   v_working uuid[];
@@ -20,30 +22,33 @@ declare
   v_actor uuid;
   v_is_authorized boolean := false;
 begin
-  v_actor := auth.uid();
-
-  if v_actor is null then
+  if v_actor_id is null then
     raise exception 'Authentication required';
   end if;
 
-  select (
-    exists (
-      select 1
-      from public.tournament_members tm
-      where tm.tournament_id = p_tournament_id
-        and tm.user_id = v_actor
-        and tm.role in ('host', 'admin')
-    )
-    or exists (
-      select 1
-      from public.profiles p
-      where p.id = v_actor
-        and p.role = 'admin'
-    )
-  ) into v_is_authorized;
+  select exists (
+    select 1
+    from public.tournaments t
+    where t.id = p_tournament_id
+      and (
+        exists (
+          select 1
+          from public.tournament_members tm
+          where tm.tournament_id = t.id
+            and tm.user_id = v_actor_id
+            and tm.role in ('host', 'admin')
+        )
+        or exists (
+          select 1
+          from public.profiles p
+          where p.id = v_actor_id
+            and p.role = 'admin'
+        )
+      )
+  ) into v_is_allowed;
 
-  if not v_is_authorized then
-    raise exception 'Only tournament host/admin can regenerate round-robin tiers';
+  if not v_is_allowed then
+    raise exception 'Not authorized to generate round-robin tiers for this tournament';
   end if;
 
   select t.status

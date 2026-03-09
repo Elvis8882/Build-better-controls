@@ -21,3 +21,6 @@ begin
 	end if;
 end
 $$;
+
+-- Prevent clients from escalating privileges by updating profile roles directly.
+revoke update (role) on table public.profiles from authenticated;

@@ -6,7 +6,7 @@ import { useSettings } from "@/store/settingStore";
 import { cn } from "@/utils";
 import { flattenTrees } from "@/utils/tree";
 import { clone, concat } from "ramda";
-import { Suspense } from "react";
+import { Suspense, type ReactNode } from "react";
 import { Outlet, ScrollRestoration, useLocation } from "react-router";
 import { backendNavData } from "./nav/nav-data/nav-data-backend";
 import { frontendNavData } from "./nav/nav-data/nav-data-frontend";
@@ -27,7 +27,11 @@ const allItems = navData.reduce((acc: any[], group) => {
 	return concat(acc, flattenedItems);
 }, []);
 
-const Main = () => {
+interface MainProps {
+	topSlot?: ReactNode;
+}
+
+const Main = ({ topSlot }: MainProps) => {
 	const { themeStretch } = useSettings();
 
 	const { pathname } = useLocation();
@@ -50,6 +54,7 @@ const Main = () => {
 					willChange: "max-width",
 				}}
 			>
+				{topSlot}
 				<Suspense fallback={<LineLoading />}>
 					<Outlet />
 					<ScrollRestoration />

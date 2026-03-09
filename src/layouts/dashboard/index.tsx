@@ -1,4 +1,8 @@
 import Logo from "@/components/logo";
+import AccountDropdown from "@/layouts/components/account-dropdown";
+import NoticeButton from "@/layouts/components/notice";
+import SearchCenter from "@/layouts/components/search-center";
+import { cn } from "@/utils";
 import { down, useMediaQuery } from "@/hooks";
 import { useSettings } from "@/store/settingStore";
 import { ThemeLayout } from "#/enum";
@@ -10,7 +14,11 @@ export default function DashboardLayout() {
 	const isMobile = useMediaQuery(down("md"));
 
 	return (
+<<<<<<< codex/enhance-mobile-layout-for-sidetab
+		<div data-slot="slash-layout-root" className="w-full min-h-screen bg-background overflow-x-clip">
+=======
 		<div data-slot="slash-layout-root" className="w-full min-h-screen bg-background overflow-x-hidden">
+>>>>>>> main
 			{isMobile ? <MobileLayout /> : <PcLayout />}
 		</div>
 	);
@@ -19,11 +27,24 @@ export default function DashboardLayout() {
 function MobileLayout() {
 	const navData = useFilteredNavData();
 	return (
-		<>
-			{/* Sticky Header */}
-			<Header leftSlot={<NavMobileLayout data={navData} />} />
-			<Main />
-		</>
+		<Main
+			topSlot={
+				<div
+					className={cn(
+						"sticky top-0 z-app-bar mb-3",
+						"flex items-center justify-between",
+						"rounded-xl border bg-background/80 px-2 py-1 backdrop-blur-xl",
+					)}
+				>
+					<NavMobileLayout data={navData} />
+					<div className="flex items-center gap-1">
+						<SearchCenter />
+						<NoticeButton />
+						<AccountDropdown />
+					</div>
+				</div>
+			}
+		/>
 	);
 }
 

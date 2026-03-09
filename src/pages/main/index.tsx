@@ -13,6 +13,7 @@ type TimelineItem = {
 	description: string;
 	time: string;
 	tournamentId?: string;
+	showTournamentLink?: boolean;
 };
 
 function relativeTime(value: string): string {
@@ -156,6 +157,7 @@ export default function MainPage() {
 					description: "Tournament completed. Final standings and playoffs are now locked.",
 					time: relativeTime(tournament.created_at),
 					tournamentId: tournament.id,
+					showTournamentLink: false,
 				});
 				continue;
 			}
@@ -166,13 +168,14 @@ export default function MainPage() {
 				description: participantSnippet,
 				time: relativeTime(tournament.created_at),
 				tournamentId: tournament.id,
+				showTournamentLink: true,
 			});
 		}
 		return items.slice(0, 6);
 	}, [myTournaments, participantsByTournamentId]);
 
 	return (
-		<div className="space-y-6 p-6">
+		<div className="space-y-6 p-4 sm:p-6 overflow-x-hidden">
 			<section className="rounded-2xl border bg-gradient-to-r from-sky-500/20 via-indigo-500/20 to-fuchsia-500/20 p-6">
 				<p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">Main</p>
 				<h1 className="mt-2 text-3xl font-bold">Your competition pulse</h1>
@@ -198,17 +201,17 @@ export default function MainPage() {
 							</p>
 						)}
 						{timeline.map((item) => (
-							<div key={item.id} className="rounded-xl border bg-muted/40 p-3">
+							<div key={item.id} className="rounded-xl border bg-muted/40 p-3 min-w-0">
 								<div className="flex items-center justify-between gap-3">
 									<p className="text-sm font-medium">{item.title}</p>
 									<span className="text-xs text-muted-foreground">{item.time}</span>
 								</div>
 								<p className="mt-1 text-xs text-muted-foreground">{item.description}</p>
-								{item.tournamentId && (
+								{item.tournamentId && item.showTournamentLink !== false && (
 									<div className="mt-2">
 										<button
 											type="button"
-											onClick={() => navigate(`/tournaments/${item.tournamentId}`)}
+											onClick={() => navigate(`/dashboard/tournaments/${item.tournamentId}`)}
 											className="text-xs font-medium text-primary underline-offset-2 hover:underline"
 										>
 											Open tournament

@@ -1,3 +1,9 @@
+create or replace function public.generate_round_robin_tiers_stage(p_tournament_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
 declare
   v_participant_ids uuid[];
   v_slots uuid[];
@@ -68,6 +74,7 @@ begin
   if v_has_locked_results then
     raise exception 'Cannot regenerate round-robin tiers after match results are locked';
   end if;
+
   delete from public.tournament_group_members where group_id in (select id from public.tournament_groups where tournament_id = p_tournament_id);
   delete from public.tournament_groups where tournament_id = p_tournament_id;
   delete from public.matches where tournament_id = p_tournament_id and stage = 'GROUP';
@@ -174,3 +181,4 @@ begin
     v_wave := v_wave + 1;
   end loop;
 end;
+$$;

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { useAuth } from "@/auth/AuthProvider";
 import { listMatchesWithResults, type MatchWithResult, type Tournament } from "@/lib/db";
@@ -11,6 +12,7 @@ type TimelineItem = {
 	title: string;
 	description: string;
 	time: string;
+	tournamentId?: string;
 };
 
 function relativeTime(value: string): string {
@@ -23,14 +25,17 @@ function relativeTime(value: string): string {
 
 export default function MainPage() {
 	const { user } = useAuth();
+	const navigate = useNavigate();
 	const [myTournaments, setMyTournaments] = useState<Tournament[]>([]);
 	const [featuredMatches, setFeaturedMatches] = useState<MatchWithResult[]>([]);
+	const [participantsByTournamentId, setParticipantsByTournamentId] = useState<Record<string, string[]>>({});
 	const [loading, setLoading] = useState(true);
 
 	useEffect(() => {
 		if (!user?.id) {
 			setMyTournaments([]);
 			setFeaturedMatches([]);
+			setParticipantsByTournamentId({});
 			return;
 		}
 
@@ -72,6 +77,29 @@ export default function MainPage() {
 				);
 				setMyTournaments(tournaments);
 
+				const participantResult =
+					tournaments.length > 0
+						? await supabase
+								.from("tournament_participants")
+								.select("tournament_id, display_name")
+								.in(
+									"tournament_id",
+									tournaments.map((tournament) => tournament.id),
+								)
+						: { data: [], error: null };
+				if (participantResult.error) throw participantResult.error;
+
+				const nextParticipantsByTournamentId: Record<string, string[]> = {};
+				for (const row of participantResult.data ?? []) {
+					const tournamentId = row.tournament_id as string;
+					const displayName = (row.display_name as string | null) ?? "Unknown participant";
+					nextParticipantsByTournamentId[tournamentId] = [
+						...(nextParticipantsByTournamentId[tournamentId] ?? []),
+						displayName,
+					];
+				}
+				setParticipantsByTournamentId(nextParticipantsByTournamentId);
+
 				const matchBuckets = await Promise.all(
 					tournaments.slice(0, 6).map(async (tournament) => {
 						const matches = await listMatchesWithResults(tournament.id);
@@ -97,28 +125,51 @@ export default function MainPage() {
 
 	const timeline = useMemo<TimelineItem[]>(() => {
 		const items: TimelineItem[] = [];
-		for (const tournament of myTournaments.slice(0, 4)) {
-			const status = tournament.status ?? "Open";
+		const activeTournaments = myTournaments
+			.filter((tournament) => (tournament.status ?? "Open").toLowerCase() !== "closed")
+			.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+		for (const tournament of activeTournaments.slice(0, 2)) {
 			items.push({
-				id: `tour-${tournament.id}`,
-				title: `${tournament.name} • ${status}`,
-				description: status === "Closed" ? "Tournament season wrapped up." : "Roster and match flow are active.",
+				id: `active-${tournament.id}`,
+				title: `${tournament.name} is live`,
+				description: "Your bracket is active — open it to check upcoming rounds and standings.",
 				time: relativeTime(tournament.created_at),
+				tournamentId: tournament.id,
 			});
 		}
 
-		for (const match of featuredMatches.slice(0, 2)) {
-			const result = match.result;
-			if (!result) continue;
+		for (const tournament of myTournaments.slice(0, 4)) {
+			const status = tournament.status ?? "Open";
+			const lowerStatus = status.toLowerCase();
+			const participantNames = participantsByTournamentId[tournament.id] ?? [];
+			const participantSnippet =
+				participantNames.length === 0
+					? "Registration is live and the competition board is being prepared."
+					: participantNames.length <= 3
+						? `Participants: ${participantNames.join(", ")}.`
+						: `Participants: ${participantNames.slice(0, 3).join(", ")} +${participantNames.length - 3} more.`;
+			if (lowerStatus === "closed") {
+				items.push({
+					id: `closed-${tournament.id}`,
+					title: `${tournament.name} is closed`,
+					description: "Tournament completed. Final standings and playoffs are now locked.",
+					time: relativeTime(tournament.created_at),
+					tournamentId: tournament.id,
+				});
+				continue;
+			}
+
 			items.push({
-				id: `match-${match.id}`,
-				title: `${match.home_participant_name} ${result.home_score}-${result.away_score} ${match.away_participant_name}`,
-				description: "Featured result has been locked in.",
-				time: relativeTime(match.created_at),
+				id: `tour-${tournament.id}`,
+				title: `Tournament opened: ${tournament.name}`,
+				description: participantSnippet,
+				time: relativeTime(tournament.created_at),
+				tournamentId: tournament.id,
 			});
 		}
 		return items.slice(0, 6);
-	}, [featuredMatches, myTournaments]);
+	}, [myTournaments, participantsByTournamentId]);
 
 	return (
 		<div className="space-y-6 p-6">
@@ -153,6 +204,17 @@ export default function MainPage() {
 									<span className="text-xs text-muted-foreground">{item.time}</span>
 								</div>
 								<p className="mt-1 text-xs text-muted-foreground">{item.description}</p>
+								{item.tournamentId && (
+									<div className="mt-2">
+										<button
+											type="button"
+											onClick={() => navigate(`/tournaments/${item.tournamentId}`)}
+											className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+										>
+											Open tournament
+										</button>
+									</div>
+								)}
 							</div>
 						))}
 					</CardContent>

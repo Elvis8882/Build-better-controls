@@ -360,6 +360,8 @@ $$;
 create or replace function public.trg_place_losers_into_losers_bracket()
 returns trigger
 language plpgsql
+security definer
+set search_path = public
 as $$
 declare
   m record;
@@ -413,6 +415,12 @@ begin
       and bracket_type = 'WINNERS';
 
     v_semifinal_round := greatest(v_max_round - 1, 1);
+    -- 4-entrant full_with_losers has only the third-place game on LOSERS side;
+    -- do not propagate winners/losers from that game into additional rounds.
+    if v_max_round = 2 then
+      return new;
+    end if;
+
     if m.round <> v_semifinal_round then
       return new;
     end if;
@@ -533,6 +541,47 @@ begin
     v_group_slot := ceil(greatest(coalesce(m.bracket_slot, 1), 1) / 2.0)::int;
   end if;
 
+  if public.preset_is_full_with_losers(v_preset)
+     and v_max_round = 2
+     and m.round = v_semifinal_round then
+    insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot)
+    select m.tournament_id, 'PLAYOFF', 'LOSERS', 1, 1
+    where not exists (
+      select 1 from public.matches mx
+      where mx.tournament_id = m.tournament_id
+        and mx.stage = 'PLAYOFF'
+        and mx.bracket_type = 'LOSERS'
+        and mx.round = 1
+        and mx.bracket_slot = 1
+    );
+
+    select id into target
+    from public.matches
+    where tournament_id = m.tournament_id
+      and stage = 'PLAYOFF'
+      and bracket_type = 'LOSERS'
+      and round = 1
+      and bracket_slot = 1;
+
+    if target is not null then
+      update public.matches
+      set home_participant_id = coalesce(home_participant_id, loser),
+          away_participant_id = case
+            when coalesce(home_participant_id, loser) is not null
+             and away_participant_id is null
+             and coalesce(home_participant_id, loser) is distinct from loser
+            then loser
+            else away_participant_id
+          end
+      where id = target;
+
+      perform public.sync_match_identities_from_participants(target);
+      perform public.balance_match_home_away(target);
+    end if;
+
+    return new;
+  end if;
+
   -- Idempotent ingestion keyed by winners source match.
   insert into public.playoff_placement_entrants(
     tournament_id,
@@ -558,6 +607,47 @@ begin
       source_slot = excluded.source_slot,
       source_stage = excluded.source_stage,
       source_group_slot = excluded.source_group_slot;
+
+  if public.preset_is_full_with_losers(v_preset)
+     and v_max_round = 2
+     and m.round = v_semifinal_round then
+    insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot)
+    select m.tournament_id, 'PLAYOFF', 'LOSERS', 1, 1
+    where not exists (
+      select 1 from public.matches mx
+      where mx.tournament_id = m.tournament_id
+        and mx.stage = 'PLAYOFF'
+        and mx.bracket_type = 'LOSERS'
+        and mx.round = 1
+        and mx.bracket_slot = 1
+    );
+
+    select id into target
+    from public.matches
+    where tournament_id = m.tournament_id
+      and stage = 'PLAYOFF'
+      and bracket_type = 'LOSERS'
+      and round = 1
+      and bracket_slot = 1;
+
+    if target is not null then
+      update public.matches
+      set home_participant_id = coalesce(home_participant_id, loser),
+          away_participant_id = case
+            when coalesce(home_participant_id, loser) is not null
+             and away_participant_id is null
+             and coalesce(home_participant_id, loser) is distinct from loser
+            then loser
+            else away_participant_id
+          end
+      where id = target;
+
+      perform public.sync_match_identities_from_participants(target);
+      perform public.balance_match_home_away(target);
+    end if;
+
+    return new;
+  end if;
 
   if public.preset_is_full_with_losers(v_preset) and v_max_round >= 3 then
     -- Build placement levels from actual winners-loser buckets by source round/slot group.

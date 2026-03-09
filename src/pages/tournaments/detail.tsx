@@ -1494,18 +1494,18 @@ export default function TournamentDetailPage() {
 											<table className="w-auto min-w-[460px] text-sm">
 												<thead>
 													<tr className="border-b">
-														<th className="py-1 text-left">Participant</th>
-														<th className="py-1 text-right">GP</th>
-														<th className="py-1 text-right">W</th>
-														<th className="py-1 text-right">L</th>
-														<th className="py-1 text-right">GF:GA</th>
-														<th className="py-1 text-right">Pts</th>
-														{showRoundRobinPlacement && <th className="py-1 text-right">Placement</th>}
+														<th className="py-1 text-center">Participant</th>
+														<th className="py-1 text-center">GP</th>
+														<th className="py-1 text-center">W</th>
+														<th className="py-1 text-center">L</th>
+														<th className="py-1 text-center">GF:GA</th>
+														<th className="py-1 text-center">Pts</th>
+														{showRoundRobinPlacement && <th className="py-1 text-center">Placement</th>}
 													</tr>
 												</thead>
 												<tbody>
 													{roundRobinStandings.map((row, index) => {
-														const placementRowClass =
+														const placementCellClass =
 															index === 0
 																? "bg-amber-400/20"
 																: index === 1
@@ -1515,7 +1515,7 @@ export default function TournamentDetailPage() {
 																		: "";
 
 														return (
-															<tr key={row.id} className={`border-b ${placementRowClass}`}>
+															<tr key={row.id} className="border-b">
 																<td className="py-1">{row.name}</td>
 																<td className="py-1 text-right">{row.gp}</td>
 																<td className="py-1 text-right">{row.w}</td>
@@ -1525,7 +1525,9 @@ export default function TournamentDetailPage() {
 																</td>
 																<td className="py-1 text-right font-semibold">{row.pts}</td>
 																{showRoundRobinPlacement && (
-																	<td className="py-1 text-right font-semibold">#{index + 1}</td>
+																	<td className={`py-1 text-right font-semibold ${placementCellClass}`}>
+																		#{index + 1}
+																	</td>
 																)}
 															</tr>
 														);

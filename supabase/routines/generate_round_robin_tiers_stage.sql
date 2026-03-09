@@ -1,3 +1,6 @@
+-- Canonical generator body; supersedes earlier auth-patch migrations
+-- 20260319110000_authorize_round_robin_tiers_stage.sql and
+-- 20260321110000_authorize_round_robin_tiers_generator.sql.
 declare
   v_participant_ids uuid[];
   v_slots uuid[];

@@ -196,6 +196,47 @@ begin
       source_stage = excluded.source_stage,
       source_group_slot = excluded.source_group_slot;
 
+  if public.preset_is_full_with_losers(v_preset)
+     and v_max_round = 2
+     and m.round = v_semifinal_round then
+    insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot)
+    select m.tournament_id, 'PLAYOFF', 'LOSERS', 1, 1
+    where not exists (
+      select 1 from public.matches mx
+      where mx.tournament_id = m.tournament_id
+        and mx.stage = 'PLAYOFF'
+        and mx.bracket_type = 'LOSERS'
+        and mx.round = 1
+        and mx.bracket_slot = 1
+    );
+
+    select id into target
+    from public.matches
+    where tournament_id = m.tournament_id
+      and stage = 'PLAYOFF'
+      and bracket_type = 'LOSERS'
+      and round = 1
+      and bracket_slot = 1;
+
+    if target is not null then
+      update public.matches
+      set home_participant_id = coalesce(home_participant_id, loser),
+          away_participant_id = case
+            when coalesce(home_participant_id, loser) is not null
+             and away_participant_id is null
+             and coalesce(home_participant_id, loser) is distinct from loser
+            then loser
+            else away_participant_id
+          end
+      where id = target;
+
+      perform public.sync_match_identities_from_participants(target);
+      perform public.balance_match_home_away(target);
+    end if;
+
+    return new;
+  end if;
+
   if public.preset_is_full_with_losers(v_preset) and v_max_round >= 3 then
     -- Build placement levels from actual winners-loser buckets by source round/slot group.
     insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot)

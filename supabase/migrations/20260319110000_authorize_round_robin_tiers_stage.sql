@@ -1,6 +1,10 @@
+create or replace function public.generate_round_robin_tiers_stage(p_tournament_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
 declare
-  v_actor_id uuid := auth.uid();
-  v_is_allowed boolean := false;
   v_participant_ids uuid[];
   v_slots uuid[];
   v_working uuid[];
@@ -19,29 +23,32 @@ declare
   v_cycle_count int := 1;
   v_tournament_status text;
   v_has_locked_results boolean := false;
-  v_actor_id uuid := auth.uid();
-  v_can_manage boolean := false;
+  v_actor uuid;
+  v_is_authorized boolean := false;
 begin
-  if v_actor_id is null then
-    raise exception 'Authentication required to regenerate round-robin tiers';
+  v_actor := auth.uid();
+
+  if v_actor is null then
+    raise exception 'Authentication required';
   end if;
 
-  select exists (
-    select 1
-    from public.tournament_members tm
-    where tm.tournament_id = p_tournament_id
-      and tm.user_id = v_actor_id
-      and tm.role in ('host', 'admin')
-  )
-  or exists (
-    select 1
-    from public.profiles p
-    where p.id = v_actor_id
-      and p.role = 'admin'
-  )
-  into v_can_manage;
+  select (
+    exists (
+      select 1
+      from public.tournament_members tm
+      where tm.tournament_id = p_tournament_id
+        and tm.user_id = v_actor
+        and tm.role in ('host', 'admin')
+    )
+    or exists (
+      select 1
+      from public.profiles p
+      where p.id = v_actor
+        and p.role = 'admin'
+    )
+  ) into v_is_authorized;
 
-  if not v_can_manage then
+  if not v_is_authorized then
     raise exception 'Only tournament host/admin can regenerate round-robin tiers';
   end if;
 
@@ -70,6 +77,7 @@ begin
   if v_has_locked_results then
     raise exception 'Cannot regenerate round-robin tiers after match results are locked';
   end if;
+
   delete from public.tournament_group_members where group_id in (select id from public.tournament_groups where tournament_id = p_tournament_id);
   delete from public.tournament_groups where tournament_id = p_tournament_id;
   delete from public.matches where tournament_id = p_tournament_id and stage = 'GROUP';
@@ -176,3 +184,4 @@ begin
     v_wave := v_wave + 1;
   end loop;
 end;
+$$;

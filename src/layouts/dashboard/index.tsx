@@ -14,7 +14,11 @@ export default function DashboardLayout() {
 	const isMobile = useMediaQuery(down("md"));
 
 	return (
+<<<<<<< codex/enhance-mobile-layout-for-sidetab
 		<div data-slot="slash-layout-root" className="w-full min-h-screen bg-background overflow-x-clip">
+=======
+		<div data-slot="slash-layout-root" className="w-full min-h-screen bg-background overflow-x-hidden">
+>>>>>>> main
 			{isMobile ? <MobileLayout /> : <PcLayout />}
 		</div>
 	);

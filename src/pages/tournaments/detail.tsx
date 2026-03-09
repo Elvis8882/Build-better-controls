@@ -1504,21 +1504,32 @@ export default function TournamentDetailPage() {
 													</tr>
 												</thead>
 												<tbody>
-													{roundRobinStandings.map((row, index) => (
-														<tr key={row.id} className="border-b">
-															<td className="py-1">{row.name}</td>
-															<td className="py-1 text-right">{row.gp}</td>
-															<td className="py-1 text-right">{row.w}</td>
-															<td className="py-1 text-right">{row.l}</td>
-															<td className="py-1 text-right">
-																{row.gf}:{row.ga}
-															</td>
-															<td className="py-1 text-right font-semibold">{row.pts}</td>
-															{showRoundRobinPlacement && (
-																<td className="py-1 text-right font-semibold">#{index + 1}</td>
-															)}
-														</tr>
-													))}
+													{roundRobinStandings.map((row, index) => {
+														const placementClass =
+															index === 0
+																? "text-amber-500"
+																: index === 1
+																	? "text-slate-400"
+																	: index === 2
+																		? "text-orange-600"
+																		: "";
+
+														return (
+															<tr key={row.id} className="border-b">
+																<td className="py-1">{row.name}</td>
+																<td className="py-1 text-right">{row.gp}</td>
+																<td className="py-1 text-right">{row.w}</td>
+																<td className="py-1 text-right">{row.l}</td>
+																<td className="py-1 text-right">
+																	{row.gf}:{row.ga}
+																</td>
+																<td className="py-1 text-right font-semibold">{row.pts}</td>
+																{showRoundRobinPlacement && (
+																	<td className={`py-1 text-right font-semibold ${placementClass}`}>#{index + 1}</td>
+																)}
+															</tr>
+														);
+													})}
 												</tbody>
 											</table>
 										</div>

@@ -26,6 +26,8 @@ security definer
 set search_path = public
 as $$
 declare
+  v_actor_id uuid := auth.uid();
+  v_is_allowed boolean := false;
   v_participant_ids uuid[];
   v_slots uuid[];
   v_working uuid[];
@@ -41,6 +43,35 @@ declare
   v_middle_team_ids uuid[];
   v_pick uuid;
 begin
+  if v_actor_id is null then
+    raise exception 'Authentication required';
+  end if;
+
+  select exists (
+    select 1
+    from public.tournaments t
+    where t.id = p_tournament_id
+      and (
+        exists (
+          select 1
+          from public.tournament_members tm
+          where tm.tournament_id = t.id
+            and tm.user_id = v_actor_id
+            and tm.role in ('host', 'admin')
+        )
+        or exists (
+          select 1
+          from public.profiles p
+          where p.id = v_actor_id
+            and p.role = 'admin'
+        )
+      )
+  ) into v_is_allowed;
+
+  if not v_is_allowed then
+    raise exception 'Not authorized to generate round-robin tiers for this tournament';
+  end if;
+
   delete from public.tournament_group_members where group_id in (select id from public.tournament_groups where tournament_id = p_tournament_id);
   delete from public.tournament_groups where tournament_id = p_tournament_id;
   delete from public.matches where tournament_id = p_tournament_id and stage = 'GROUP';

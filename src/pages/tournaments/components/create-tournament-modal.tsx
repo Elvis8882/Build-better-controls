@@ -36,10 +36,21 @@ export function CreateTournamentModal({ open, onOpenChange, onCreated }: Props) 
 	const [goalDifferenceTarget, setGoalDifferenceTarget] = useState(5);
 
 	useEffect(() => {
-		if (isGoalDifferenceDuelPreset && defaultParticipants !== 2) {
+		if (presetId === "goal_difference_duel") {
 			setDefaultParticipants(2);
+			return;
 		}
-	}, [defaultParticipants, isGoalDifferenceDuelPreset]);
+
+		if (presetId === "2v2_playoffs" || presetId === "2v2_tournament") {
+			setDefaultParticipants(6);
+			return;
+		}
+
+		setDefaultParticipants(4);
+	}, [presetId]);
+
+	const twoVTwoMinParticipantsError =
+		isTwoVTwoPreset && defaultParticipants < 6 ? "Participants must be at least 6" : null;
 
 	const groupResolution = useMemo(
 		() => resolvePresetGroupCount(presetId, defaultParticipants, groupCountInput),
@@ -143,6 +154,7 @@ export function CreateTournamentModal({ open, onOpenChange, onCreated }: Props) 
 							onChange={(event) => setDefaultParticipants(Number(event.target.value))}
 							disabled={isGoalDifferenceDuelPreset}
 						/>
+						{twoVTwoMinParticipantsError && <p className="text-xs text-red-600">{twoVTwoMinParticipantsError}</p>}
 					</div>
 					<div className="space-y-1">
 						<p className="text-sm">Team pool</p>

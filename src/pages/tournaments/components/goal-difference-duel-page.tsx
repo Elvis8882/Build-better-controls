@@ -26,14 +26,16 @@ function TeamBadge({
 	teamId,
 	teamById,
 	compact = false,
+	label,
 }: {
 	teamId: string | null;
 	teamById: Map<string, Team>;
 	compact?: boolean;
+	label?: string;
 }) {
-	if (!teamId) return <span className="text-xs text-muted-foreground">TBD</span>;
+	if (!teamId) return <span className="text-xs text-muted-foreground">{label ?? "TBD"}</span>;
 	const team = teamById.get(teamId);
-	if (!team) return <span className="text-xs text-muted-foreground">Unknown</span>;
+	if (!team) return <span className="text-xs text-muted-foreground">{label ?? "Unknown"}</span>;
 	return (
 		<div className="flex items-center gap-2">
 			<img
@@ -42,7 +44,7 @@ function TeamBadge({
 				alt={`${team.name} logo`}
 				onError={handleTeamLogoImageError}
 			/>
-			<span className="text-xs">{team.name}</span>
+			<span className="text-xs">{label ?? team.name}</span>
 		</div>
 	);
 }
@@ -100,12 +102,22 @@ export function GoalDifferenceDuelPage(props: Props) {
 									<td className="py-2">{row.round}</td>
 									<td className="py-2">
 										<div className="flex items-center gap-2">
-											<TeamBadge teamId={row.homeTeamId} teamById={props.teamById} compact />
+											<TeamBadge
+												teamId={row.homeTeamId}
+												teamById={props.teamById}
+												label={stripHostTag(row.homeParticipantName)}
+												compact
+											/>
 										</div>
 									</td>
 									<td className="py-2">
 										<div className="flex items-center gap-2">
-											<TeamBadge teamId={row.awayTeamId} teamById={props.teamById} compact />
+											<TeamBadge
+												teamId={row.awayTeamId}
+												teamById={props.teamById}
+												label={stripHostTag(row.awayParticipantName)}
+												compact
+											/>
 										</div>
 									</td>
 									<td className="py-2">

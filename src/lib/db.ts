@@ -1475,6 +1475,13 @@ export async function lockMatchResult(
 	throwOnError(error, "Unable to lock result");
 }
 
+export async function advanceGoalDifferenceDuelAfterLock(matchId: string): Promise<void> {
+	const { error } = await supabase.rpc("advance_goal_difference_duel_after_lock", {
+		p_match_id: matchId,
+	});
+	throwOnError(error, "Unable to advance goal difference duel");
+}
+
 export async function upsertMatchResult(
 	matchId: string,
 	homeScore: number,

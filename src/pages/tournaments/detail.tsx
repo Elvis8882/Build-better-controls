@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/auth/AuthProvider";
 import {
 	addTournamentGuest,
+	advanceGoalDifferenceDuelAfterLock,
 	createGroupStageMatch,
 	createParticipant,
 	ensurePlayoffBracket,
@@ -48,12 +49,7 @@ import {
 	PlayoffBracketPage,
 	PlayoffMatchesTable,
 } from "@/pages/tournaments/components/playoff-bracket-page";
-import {
-	buildGoalDifferenceHistory,
-	computeTierShift,
-	nextTierByDelta,
-	rerollDuelTeams,
-} from "@/pages/tournaments/goal-difference-duel";
+import { buildGoalDifferenceHistory } from "@/pages/tournaments/goal-difference-duel";
 import {
 	hasLosersProgressionFlow,
 	isGoalDifferenceDuelFlow,
@@ -980,69 +976,6 @@ export default function TournamentDetailPage() {
 		}
 	};
 
-	const advanceGoalDifferenceDuelIfNeeded = async (lockedMatchId: string, parsed: ParsedResult) => {
-		if (!goalDifferenceDuelPreset || !id) return;
-		const duelParticipants = [...participants].sort((a, b) => a.created_at.localeCompare(b.created_at));
-		const first = duelParticipants[0];
-		const second = duelParticipants[1];
-		if (!first || !second) return;
-		const target = tournament?.group_count ?? 5;
-		const history = buildGoalDifferenceHistory(
-			groupMatches.map((match) =>
-				match.id === lockedMatchId
-					? {
-							...match,
-							result: {
-								...(match.result ?? {
-									match_id: match.id,
-									home_score: 0,
-									away_score: 0,
-									home_shots: 0,
-									away_shots: 0,
-									decision: parsed.decision,
-									locked: false,
-									home_team_id: match.home_team_id,
-									away_team_id: match.away_team_id,
-								}),
-								home_score: parsed.homeScore,
-								away_score: parsed.awayScore,
-								locked: true,
-							},
-						}
-					: match,
-			),
-			first.id,
-		);
-		const cumulative = history.at(-1)?.cumulativeAfter ?? 0;
-		if (Math.abs(cumulative) >= target) return;
-
-		const match = groupMatches.find((row) => row.id === lockedMatchId);
-		if (!match?.home_participant_id || !match.away_participant_id) return;
-		const winnerId = parsed.homeScore > parsed.awayScore ? match.home_participant_id : match.away_participant_id;
-		const loserId = winnerId === match.home_participant_id ? match.away_participant_id : match.home_participant_id;
-		const shift = computeTierShift(parsed.homeScore, parsed.awayScore);
-
-		const targetTierByParticipantId = new Map<string, (typeof TIER_ORDER)[number]>();
-		for (const participant of duelParticipants) {
-			const currentTier = resolveTierFromTeam(participant.team_id, teams);
-			if (participant.id === winnerId) {
-				targetTierByParticipantId.set(participant.id, nextTierByDelta(currentTier, shift));
-			} else if (participant.id === loserId) {
-				targetTierByParticipantId.set(participant.id, nextTierByDelta(currentTier, -shift));
-			}
-		}
-
-		const nextTeams = rerollDuelTeams({ participants: duelParticipants, teams, targetTierByParticipantId });
-		for (const participant of duelParticipants) {
-			await updateParticipant(participant.id, nextTeams.get(participant.id) ?? null);
-		}
-
-		const nextRound = Math.max(...groupMatches.map((item) => item.round), 0) + 1;
-		const homeParticipantId = nextRound % 2 === 1 ? first.id : second.id;
-		const awayParticipantId = nextRound % 2 === 1 ? second.id : first.id;
-		await createGroupStageMatch({ tournamentId: id, homeParticipantId, awayParticipantId, round: nextRound });
-	};
-
 	const onLockResult = async (matchId: string) => {
 		const parsed = parseResultDraft(matchId);
 		if (!parsed) return;
@@ -1071,7 +1004,9 @@ export default function TournamentDetailPage() {
 				null;
 			await lockMatchResult(matchId, homeTeamIdForResult, awayTeamIdForResult);
 			await rerollRoundRobinWaveIfNeeded(matchId, parsed);
-			await advanceGoalDifferenceDuelIfNeeded(matchId, parsed);
+			if (goalDifferenceDuelPreset) {
+				await advanceGoalDifferenceDuelAfterLock(matchId);
+			}
 			setEditingMatchIds((previous) => {
 				const next = new Set(previous);
 				next.delete(matchId);

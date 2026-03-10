@@ -1,10 +1,11 @@
 import { sanitizeGroupCount } from "@/lib/db";
 import {
 	hasLosersProgressionPreset,
+	isGoalDifferenceDuelPreset,
 	isGroupThenPlayoffPreset,
 	isPlayoffOnlyPreset,
-	isTwoVTwoPreset,
 	isRoundRobinTiersPreset,
+	isTwoVTwoPreset,
 	type TournamentPreset,
 } from "@/lib/tournament-preset-contract";
 
@@ -83,3 +84,6 @@ export const resolvePresetGroupCount = (
 };
 
 export const isRoundRobinTiersFlow = (preset: TournamentPresetFlowInput): boolean => isRoundRobinTiersPreset(preset);
+
+export const isGoalDifferenceDuelFlow = (preset: TournamentPresetFlowInput): boolean =>
+	isGoalDifferenceDuelPreset(preset);

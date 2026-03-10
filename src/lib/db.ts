@@ -1932,6 +1932,7 @@ export async function listClosedTournaments(): Promise<Array<{ id: string; name:
 		.select("id, name, status, preset_id")
 		.ilike("status", "closed")
 		.neq("preset_id", "round_robin_tiers")
+		.neq("preset_id", "goal_difference_duel")
 		.order("created_at", { ascending: false });
 	throwOnError(error, "Unable to load closed tournaments");
 

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { createTournament, type TeamPool, type TournamentPresetUi } from "@/lib/db";
 import { isGroupThenPlayoffFlow, resolvePresetGroupCount } from "@/pages/tournaments/preset-flow";
@@ -34,6 +34,12 @@ export function CreateTournamentModal({ open, onOpenChange, onCreated }: Props) 
 	const [groupCountInput, setGroupCountInput] = useState(1);
 	const [roundRobinMode, setRoundRobinMode] = useState<"single" | "double">("single");
 	const [goalDifferenceTarget, setGoalDifferenceTarget] = useState(5);
+
+	useEffect(() => {
+		if (isGoalDifferenceDuelPreset && defaultParticipants !== 2) {
+			setDefaultParticipants(2);
+		}
+	}, [defaultParticipants, isGoalDifferenceDuelPreset]);
 
 	const groupResolution = useMemo(
 		() => resolvePresetGroupCount(presetId, defaultParticipants, groupCountInput),
@@ -135,6 +141,7 @@ export function CreateTournamentModal({ open, onOpenChange, onCreated }: Props) 
 							max={isGoalDifferenceDuelPreset ? 2 : isRoundRobinTiersPreset ? 8 : 16}
 							value={defaultParticipants}
 							onChange={(event) => setDefaultParticipants(Number(event.target.value))}
+							disabled={isGoalDifferenceDuelPreset}
 						/>
 					</div>
 					<div className="space-y-1">

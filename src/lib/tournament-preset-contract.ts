@@ -9,6 +9,7 @@ export const TOURNAMENT_PRESET_VALUES = [
 	"2v2_tournament",
 	"2v2_playoffs",
 	"round_robin_tiers",
+	"goal_difference_duel",
 ] as const;
 
 export type TournamentPreset = (typeof TOURNAMENT_PRESET_VALUES)[number];
@@ -42,3 +43,6 @@ export function normalizeTournamentPreset(preset: string | null, context: string
 
 export const isRoundRobinTiersPreset = (preset: TournamentPreset | null | undefined): boolean =>
 	preset === "round_robin_tiers";
+
+export const isGoalDifferenceDuelPreset = (preset: TournamentPreset | null | undefined): boolean =>
+	preset === "goal_difference_duel";

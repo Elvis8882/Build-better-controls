@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/auth/AuthProvider";
 import {
 	addTournamentGuest,
+	createGroupStageMatch,
 	createParticipant,
 	ensurePlayoffBracket,
 	type FriendProfile,
@@ -35,6 +36,7 @@ import {
 	updateTournamentStatus,
 	upsertMatchResult,
 } from "@/lib/db";
+import { GoalDifferenceDuelPage } from "@/pages/tournaments/components/goal-difference-duel-page";
 import {
 	GroupMatchesTable,
 	GroupStagePage,
@@ -47,7 +49,14 @@ import {
 	PlayoffMatchesTable,
 } from "@/pages/tournaments/components/playoff-bracket-page";
 import {
+	buildGoalDifferenceHistory,
+	computeTierShift,
+	nextTierByDelta,
+	rerollDuelTeams,
+} from "@/pages/tournaments/goal-difference-duel";
+import {
 	hasLosersProgressionFlow,
+	isGoalDifferenceDuelFlow,
 	isGroupThenPlayoffFlow,
 	isRoundRobinTiersFlow,
 	isTwoVTwoFlow,
@@ -94,6 +103,7 @@ const getPresetTypeLabel = (presetId: Tournament["preset_id"]): string => {
 	if (presetId === "full_no_losers") return "Full tournament (without loser bracket)";
 	if (presetId === "2v2_tournament") return "2v2 Tournament";
 	if (presetId === "round_robin_tiers") return "Round-Robin Tiers";
+	if (presetId === "goal_difference_duel") return "Goal Difference Duel";
 	return "Tournament";
 };
 
@@ -206,6 +216,7 @@ export default function TournamentDetailPage() {
 	const teamById = useMemo(() => new Map(teams.map((team) => [team.id, team])), [teams]);
 	const twoVTwoPreset = isTwoVTwoFlow(tournament?.preset_id ?? null);
 	const roundRobinTiersPreset = isRoundRobinTiersFlow(tournament?.preset_id ?? null);
+	const goalDifferenceDuelPreset = isGoalDifferenceDuelFlow(tournament?.preset_id ?? null);
 	const assignedTeamCounts = useMemo(() => {
 		const counts = new Map<string, number>();
 		for (const participant of displayParticipants) {
@@ -225,7 +236,9 @@ export default function TournamentDetailPage() {
 	);
 	const allLockedWithTeams =
 		displayParticipants.length === slots &&
-		displayParticipants.every((participant) => participant.locked && (roundRobinTiersPreset || participant.team_id));
+		displayParticipants.every(
+			(participant) => participant.locked && (roundRobinTiersPreset || goalDifferenceDuelPreset || participant.team_id),
+		);
 	const teamsValidForPreset = useMemo(() => {
 		if (!twoVTwoPreset) return true;
 		if (!allLockedWithTeams) return false;
@@ -259,12 +272,14 @@ export default function TournamentDetailPage() {
 		tournament?.status !== "Closed" &&
 		!anyGroupLocked &&
 		!anyPlayoffLocked;
-	const groupStageAvailable = (fullPreset || roundRobinTiersPreset) && (groups.length > 0 || groupMatches.length > 0);
-	const playoffStageAvailable = roundRobinTiersPreset
-		? false
-		: fullPreset
-			? allGroupMatchesLocked
-			: allLockedWithTeams && teamsValidForPreset;
+	const groupStageAvailable =
+		(fullPreset || roundRobinTiersPreset || goalDifferenceDuelPreset) && (groups.length > 0 || groupMatches.length > 0);
+	const playoffStageAvailable =
+		roundRobinTiersPreset || goalDifferenceDuelPreset
+			? false
+			: fullPreset
+				? allGroupMatchesLocked
+				: allLockedWithTeams && teamsValidForPreset;
 	const lockedPlayoffMatchIds = useMemo(
 		() => new Set(playoffMatches.filter((match) => Boolean(match.result?.locked)).map((match) => match.id)),
 		[playoffMatches],
@@ -327,13 +342,18 @@ export default function TournamentDetailPage() {
 		playoffMatches.length > 0 &&
 		playoffMatches.filter(isMatchDisplayable).every((match) => Boolean(match.result?.locked));
 	const tournamentStarted =
-		allLockedWithTeams && (fullPreset || roundRobinTiersPreset ? groupMatches.length > 0 : playoffMatches.length > 0);
-	const tournamentCanClose = roundRobinTiersPreset
-		? allGroupMatchesLocked
-		: allPlayoffMatchesLockedByStage && (fullPreset ? allGroupMatchesLocked : true);
+		allLockedWithTeams &&
+		(fullPreset || roundRobinTiersPreset || goalDifferenceDuelPreset
+			? groupMatches.length > 0
+			: playoffMatches.length > 0);
+	const tournamentCanClose =
+		roundRobinTiersPreset || goalDifferenceDuelPreset
+			? allGroupMatchesLocked
+			: allPlayoffMatchesLockedByStage && (fullPreset ? allGroupMatchesLocked : true);
 	const tournamentClosed = tournament?.status === "Closed";
 	const participantFieldsLocked =
-		tournamentClosed || (fullPreset || roundRobinTiersPreset ? groupStageAvailable : playoffMatches.length > 0);
+		tournamentClosed ||
+		(fullPreset || roundRobinTiersPreset || goalDifferenceDuelPreset ? groupStageAvailable : playoffMatches.length > 0);
 	const groupStageEditingLocked = tournamentClosed || (!roundRobinTiersPreset && anyPlayoffLocked);
 
 	useEffect(() => {
@@ -778,15 +798,7 @@ export default function TournamentDetailPage() {
 			await lockParticipant(participantId);
 			await refreshParticipantsSection();
 
-			if (!id || !roundRobinTiersPreset) return;
-			if (tournamentClosed) {
-				toast.error("Cannot regenerate round-robin tiers for a closed tournament.");
-				return;
-			}
-			if (anyGroupLocked || anyPlayoffLocked) {
-				toast.error("Cannot regenerate round-robin tiers after match results are locked.");
-				return;
-			}
+			if (!id) return;
 			const latestParticipants = await listParticipants(id);
 			const allSlotsLocked =
 				latestParticipants.length === slots && latestParticipants.every((participant) => participant.locked);
@@ -795,6 +807,44 @@ export default function TournamentDetailPage() {
 			const existingGroupMatches = await listMatchesWithResults(id, "GROUP");
 			if (existingGroupMatches.length > 0) return;
 
+			if (goalDifferenceDuelPreset) {
+				const [first, second] = latestParticipants.sort((a, b) => a.created_at.localeCompare(b.created_at));
+				if (!first || !second) return;
+				const targetTier = "Middle Tier";
+				const firstTeamId = pickRerolledTeam({
+					teams,
+					targetTier,
+					previousTeamId: first.team_id,
+					excludedTeamIds: new Set(),
+				});
+				const secondTeamId = pickRerolledTeam({
+					teams,
+					targetTier,
+					previousTeamId: second.team_id,
+					excludedTeamIds: firstTeamId ? new Set([firstTeamId]) : new Set(),
+				});
+				await updateParticipant(first.id, firstTeamId);
+				await updateParticipant(second.id, secondTeamId);
+				await createGroupStageMatch({
+					tournamentId: id,
+					homeParticipantId: first.id,
+					awayParticipantId: second.id,
+					round: 1,
+				});
+				await loadAll();
+				toast.success("Goal difference duel started.");
+				return;
+			}
+
+			if (!roundRobinTiersPreset) return;
+			if (tournamentClosed) {
+				toast.error("Cannot regenerate round-robin tiers for a closed tournament.");
+				return;
+			}
+			if (anyGroupLocked || anyPlayoffLocked) {
+				toast.error("Cannot regenerate round-robin tiers after match results are locked.");
+				return;
+			}
 			await generateRoundRobinTiersStage(id);
 			await refreshGroupStageSections();
 			toast.success("Round-robin schedule generated.");
@@ -924,6 +974,69 @@ export default function TournamentDetailPage() {
 		}
 	};
 
+	const advanceGoalDifferenceDuelIfNeeded = async (lockedMatchId: string, parsed: ParsedResult) => {
+		if (!goalDifferenceDuelPreset || !id) return;
+		const duelParticipants = [...participants].sort((a, b) => a.created_at.localeCompare(b.created_at));
+		const first = duelParticipants[0];
+		const second = duelParticipants[1];
+		if (!first || !second) return;
+		const target = tournament?.group_count ?? 5;
+		const history = buildGoalDifferenceHistory(
+			groupMatches.map((match) =>
+				match.id === lockedMatchId
+					? {
+							...match,
+							result: {
+								...(match.result ?? {
+									match_id: match.id,
+									home_score: 0,
+									away_score: 0,
+									home_shots: 0,
+									away_shots: 0,
+									decision: parsed.decision,
+									locked: false,
+									home_team_id: match.home_team_id,
+									away_team_id: match.away_team_id,
+								}),
+								home_score: parsed.homeScore,
+								away_score: parsed.awayScore,
+								locked: true,
+							},
+						}
+					: match,
+			),
+			first.id,
+		);
+		const cumulative = history.at(-1)?.cumulativeAfter ?? 0;
+		if (Math.abs(cumulative) >= target) return;
+
+		const match = groupMatches.find((row) => row.id === lockedMatchId);
+		if (!match?.home_participant_id || !match.away_participant_id) return;
+		const winnerId = parsed.homeScore > parsed.awayScore ? match.home_participant_id : match.away_participant_id;
+		const loserId = winnerId === match.home_participant_id ? match.away_participant_id : match.home_participant_id;
+		const shift = computeTierShift(parsed.homeScore, parsed.awayScore);
+
+		const targetTierByParticipantId = new Map<string, (typeof TIER_ORDER)[number]>();
+		for (const participant of duelParticipants) {
+			const currentTier = resolveTierFromTeam(participant.team_id, teams);
+			if (participant.id === winnerId) {
+				targetTierByParticipantId.set(participant.id, nextTierByDelta(currentTier, shift));
+			} else if (participant.id === loserId) {
+				targetTierByParticipantId.set(participant.id, nextTierByDelta(currentTier, -shift));
+			}
+		}
+
+		const nextTeams = rerollDuelTeams({ participants: duelParticipants, teams, targetTierByParticipantId });
+		for (const participant of duelParticipants) {
+			await updateParticipant(participant.id, nextTeams.get(participant.id) ?? null);
+		}
+
+		const nextRound = Math.max(...groupMatches.map((item) => item.round), 0) + 1;
+		const homeParticipantId = nextRound % 2 === 1 ? first.id : second.id;
+		const awayParticipantId = nextRound % 2 === 1 ? second.id : first.id;
+		await createGroupStageMatch({ tournamentId: id, homeParticipantId, awayParticipantId, round: nextRound });
+	};
+
 	const onLockResult = async (matchId: string) => {
 		const parsed = parseResultDraft(matchId);
 		if (!parsed) return;
@@ -952,6 +1065,7 @@ export default function TournamentDetailPage() {
 				null;
 			await lockMatchResult(matchId, homeTeamIdForResult, awayTeamIdForResult);
 			await rerollRoundRobinWaveIfNeeded(matchId, parsed);
+			await advanceGoalDifferenceDuelIfNeeded(matchId, parsed);
 			setEditingMatchIds((previous) => {
 				const next = new Set(previous);
 				next.delete(matchId);
@@ -1127,6 +1241,28 @@ export default function TournamentDetailPage() {
 	);
 	const showRoundRobinPlacement =
 		roundRobinTiersPreset && groupMatches.length > 0 && groupMatches.every((match) => Boolean(match.result?.locked));
+	const duelParticipants = useMemo(
+		() => [...participants].sort((a, b) => a.created_at.localeCompare(b.created_at)).slice(0, 2),
+		[participants],
+	);
+	const duelHistory = useMemo(
+		() => buildGoalDifferenceHistory(groupMatches, duelParticipants[0]?.id ?? null),
+		[groupMatches, duelParticipants],
+	);
+	const duelCumulative = duelHistory.at(-1)?.cumulativeAfter ?? 0;
+	const duelTarget = tournament?.group_count ?? 5;
+	const duelWinnerLabel =
+		duelCumulative >= duelTarget
+			? (duelParticipants[0]?.display_name ?? null)
+			: duelCumulative <= -duelTarget
+				? (duelParticipants[1]?.display_name ?? null)
+				: null;
+	const duelLeaderLabel =
+		duelCumulative === 0
+			? "Tied"
+			: duelCumulative > 0
+				? `${duelParticipants[0]?.display_name ?? "Player A"} leads`
+				: `${duelParticipants[1]?.display_name ?? "Player B"} leads`;
 
 	if (loading) return <div className="p-6 text-sm text-muted-foreground">Loading tournament...</div>;
 	if (!tournament) return <div className="p-6 text-sm text-muted-foreground">Tournament not found.</div>;
@@ -1306,12 +1442,12 @@ export default function TournamentDetailPage() {
 			<Tabs value={activeTab} onValueChange={(value) => onTabChange(value as "participants" | "group" | "playoff")}>
 				<TabsList>
 					<TabsTrigger value="participants">Participants</TabsTrigger>
-					{(fullPreset || roundRobinTiersPreset) && (
+					{(fullPreset || roundRobinTiersPreset || goalDifferenceDuelPreset) && (
 						<TabsTrigger value="group" disabled={!groupStageAvailable}>
-							{roundRobinTiersPreset ? "Round-robin" : "Group Stage"}
+							{goalDifferenceDuelPreset ? "Duel" : roundRobinTiersPreset ? "Round-robin" : "Group Stage"}
 						</TabsTrigger>
 					)}
-					{!roundRobinTiersPreset && (
+					{!roundRobinTiersPreset && !goalDifferenceDuelPreset && (
 						<TabsTrigger value="playoff" disabled={!playoffStageAvailable}>
 							Playoff sheet
 						</TabsTrigger>
@@ -1483,11 +1619,32 @@ export default function TournamentDetailPage() {
 					)}
 				</TabsContent>
 
-				{(fullPreset || roundRobinTiersPreset) && (
+				{(fullPreset || roundRobinTiersPreset || goalDifferenceDuelPreset) && (
 					<TabsContent value="group" className="space-y-4">
 						<GroupStagePage
 							standingsTable={
-								roundRobinTiersPreset ? (
+								goalDifferenceDuelPreset ? (
+									<GoalDifferenceDuelPage
+										target={duelTarget}
+										cumulative={duelCumulative}
+										leaderLabel={duelLeaderLabel}
+										winnerLabel={duelWinnerLabel}
+										participantA={{
+											id: duelParticipants[0]?.id ?? "a",
+											name: duelParticipants[0]?.display_name ?? "Player A",
+											teamId: duelParticipants[0]?.team_id ?? null,
+											tier: resolveTierFromTeam(duelParticipants[0]?.team_id ?? null, teams),
+										}}
+										participantB={{
+											id: duelParticipants[1]?.id ?? "b",
+											name: duelParticipants[1]?.display_name ?? "Player B",
+											teamId: duelParticipants[1]?.team_id ?? null,
+											tier: resolveTierFromTeam(duelParticipants[1]?.team_id ?? null, teams),
+										}}
+										teamById={teamById}
+										history={duelHistory}
+									/>
+								) : roundRobinTiersPreset ? (
 									<section className="space-y-3 rounded-lg border p-4">
 										<h2 className="text-lg font-semibold">Standings</h2>
 										<div className="overflow-x-auto">
@@ -1547,7 +1704,26 @@ export default function TournamentDetailPage() {
 								)
 							}
 							matchesTable={
-								roundRobinTiersPreset ? (
+								goalDifferenceDuelPreset ? (
+									<GroupMatchesTable
+										matches={groupMatches}
+										teamById={teamById}
+										resultDrafts={resultDrafts}
+										saving={saving}
+										canEditMatch={canEditGroupMatch}
+										onResultDraftChange={(matchId, next) =>
+											setResultDrafts((previous) => ({ ...previous, [matchId]: next }))
+										}
+										onLockResult={onLockResult}
+										onEditResult={
+											isHostOrAdmin
+												? (matchId) => setEditingMatchIds((previous) => new Set(previous).add(matchId))
+												: undefined
+										}
+										useParticipantNames
+										limitUpcomingMatches
+									/>
+								) : roundRobinTiersPreset ? (
 									<GroupMatchesTable
 										matches={groupMatches}
 										teamById={teamById}
@@ -1589,7 +1765,7 @@ export default function TournamentDetailPage() {
 					</TabsContent>
 				)}
 
-				{!roundRobinTiersPreset && (
+				{!roundRobinTiersPreset && !goalDifferenceDuelPreset && (
 					<TabsContent value="playoff" className="space-y-4">
 						<PlayoffBracketPage
 							banner={

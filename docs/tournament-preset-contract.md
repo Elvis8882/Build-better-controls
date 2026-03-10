@@ -9,6 +9,8 @@ This file is the contract source-of-truth for tournament preset behavior across 
 - `full_no_losers`
 - `2v2_tournament`
 - `2v2_playoffs`
+- `round_robin_tiers`
+- `goal_difference_duel`
 
 ## Legacy value policy
 

@@ -396,6 +396,10 @@ export async function createTournament(payload: {
 
 	const isTwoVTwoPreset = payload.presetId === "2v2_tournament" || payload.presetId === "2v2_playoffs";
 	const isRoundRobinTiersPreset = payload.presetId === "round_robin_tiers";
+	const isGoalDifferenceDuelPreset = payload.presetId === "goal_difference_duel";
+	if (isGoalDifferenceDuelPreset && payload.defaultParticipants !== 2) {
+		throw new Error("Goal difference duel requires exactly 2 participants.");
+	}
 	if (isRoundRobinTiersPreset && (payload.defaultParticipants < 4 || payload.defaultParticipants > 8)) {
 		throw new Error("Round-robin tiers mode requires between 4 and 8 participants.");
 	}
@@ -405,6 +409,7 @@ export async function createTournament(payload: {
 	if (
 		!isTwoVTwoPreset &&
 		!isRoundRobinTiersPreset &&
+		!isGoalDifferenceDuelPreset &&
 		(payload.defaultParticipants < 3 || payload.defaultParticipants > 16)
 	) {
 		throw new Error("Participants must be between 3 and 16.");
@@ -419,7 +424,12 @@ export async function createTournament(payload: {
 		payload.presetId === "2v2_tournament";
 
 	let resolvedGroupCount: number | null = null;
-	if (isRoundRobinTiersPreset) {
+	if (isGoalDifferenceDuelPreset) {
+		if (payload.groupCount === null || ![5, 10, 15, 20].includes(payload.groupCount)) {
+			throw new Error("Goal difference duel supports target values 5, 10, 15, or 20.");
+		}
+		resolvedGroupCount = payload.groupCount;
+	} else if (isRoundRobinTiersPreset) {
 		if (payload.groupCount === null) {
 			resolvedGroupCount = 1;
 		} else if (payload.groupCount === 1 || payload.groupCount === 2) {
@@ -1297,6 +1307,48 @@ export async function generateRoundRobinTiersStage(tournamentId: string): Promis
 export async function generatePlayoffs(tournamentId: string): Promise<void> {
 	const { error } = await supabase.rpc("generate_playoff_bracket", { p_tournament_id: tournamentId });
 	throwOnError(error, "Unable to generate playoff bracket");
+}
+
+export async function createGroupStageMatch(payload: {
+	tournamentId: string;
+	homeParticipantId: string;
+	awayParticipantId: string;
+	round: number;
+}): Promise<void> {
+	const participantIds = [payload.homeParticipantId, payload.awayParticipantId];
+	const participants = await runAuthAwareQuery(
+		() =>
+			supabase
+				.from("tournament_participants")
+				.select("id, user_id, guest_id")
+				.eq("tournament_id", payload.tournamentId)
+				.in("id", participantIds),
+		"Unable to load participant identities for match creation",
+	);
+	const participantById = new Map(
+		(participants ?? []).map((participant) => [
+			participant.id as string,
+			participant as { id: string; user_id: string | null; guest_id: string | null },
+		]),
+	);
+	const home = participantById.get(payload.homeParticipantId);
+	const away = participantById.get(payload.awayParticipantId);
+	if (!home || !away) {
+		throw new Error("Unable to create duel match: participants not found.");
+	}
+
+	const { error } = await supabase.from("matches").insert({
+		tournament_id: payload.tournamentId,
+		home_participant_id: payload.homeParticipantId,
+		away_participant_id: payload.awayParticipantId,
+		home_user_id: home.user_id,
+		away_user_id: away.user_id,
+		home_guest_id: home.guest_id,
+		away_guest_id: away.guest_id,
+		round: payload.round,
+		stage: "GROUP",
+	});
+	throwOnError(error, "Unable to create duel match");
 }
 
 export async function updateTournamentStatus(tournamentId: string, status: string): Promise<void> {

@@ -13,6 +13,7 @@ const PRESET_OPTIONS: Array<{ label: string; value: TournamentPresetUi }> = [
 	{ label: "Full tournament (no losers bracket)", value: "full_no_losers" },
 	{ label: "2v2 Tournament", value: "2v2_tournament" },
 	{ label: "Round-Robin Tiers", value: "round_robin_tiers" },
+	{ label: "Goal Difference Duel (1v1)", value: "goal_difference_duel" },
 ];
 
 type Props = {
@@ -27,10 +28,12 @@ export function CreateTournamentModal({ open, onOpenChange, onCreated }: Props) 
 	const [presetId, setPresetId] = useState<TournamentPresetUi>("full_with_losers");
 	const isTwoVTwoPreset = presetId === "2v2_playoffs" || presetId === "2v2_tournament";
 	const isRoundRobinTiersPreset = presetId === "round_robin_tiers";
+	const isGoalDifferenceDuelPreset = presetId === "goal_difference_duel";
 	const [teamPool, setTeamPool] = useState<TeamPool>("NHL");
 	const [defaultParticipants, setDefaultParticipants] = useState(4);
 	const [groupCountInput, setGroupCountInput] = useState(1);
 	const [roundRobinMode, setRoundRobinMode] = useState<"single" | "double">("single");
+	const [goalDifferenceTarget, setGoalDifferenceTarget] = useState(5);
 
 	const groupResolution = useMemo(
 		() => resolvePresetGroupCount(presetId, defaultParticipants, groupCountInput),
@@ -46,11 +49,20 @@ export function CreateTournamentModal({ open, onOpenChange, onCreated }: Props) 
 			toast.warning("2v2 tournaments require between 6 and 16 default participants (minimum 3 teams).");
 			return;
 		}
+		if (isGoalDifferenceDuelPreset && defaultParticipants !== 2) {
+			toast.warning("Goal difference duel requires exactly 2 participants.");
+			return;
+		}
 		if (isRoundRobinTiersPreset && (defaultParticipants < 4 || defaultParticipants > 8)) {
 			toast.warning("Round-robin tiers mode requires between 4 and 8 participants.");
 			return;
 		}
-		if (!isTwoVTwoPreset && !isRoundRobinTiersPreset && (defaultParticipants < 3 || defaultParticipants > 16)) {
+		if (
+			!isTwoVTwoPreset &&
+			!isRoundRobinTiersPreset &&
+			!isGoalDifferenceDuelPreset &&
+			(defaultParticipants < 3 || defaultParticipants > 16)
+		) {
 			toast.warning("Participants must be between 3 and 16.");
 			return;
 		}
@@ -75,7 +87,9 @@ export function CreateTournamentModal({ open, onOpenChange, onCreated }: Props) 
 						? roundRobinMode === "double"
 							? 2
 							: 1
-						: null,
+						: isGoalDifferenceDuelPreset
+							? goalDifferenceTarget
+							: null,
 			});
 			toast.success("Tournament created.");
 			onOpenChange(false);
@@ -117,8 +131,8 @@ export function CreateTournamentModal({ open, onOpenChange, onCreated }: Props) 
 						<p className="text-sm">Default participants</p>
 						<Input
 							type="number"
-							min={isTwoVTwoPreset ? 6 : isRoundRobinTiersPreset ? 4 : 3}
-							max={isRoundRobinTiersPreset ? 8 : 16}
+							min={isGoalDifferenceDuelPreset ? 2 : isTwoVTwoPreset ? 6 : isRoundRobinTiersPreset ? 4 : 3}
+							max={isGoalDifferenceDuelPreset ? 2 : isRoundRobinTiersPreset ? 8 : 16}
 							value={defaultParticipants}
 							onChange={(event) => setDefaultParticipants(Number(event.target.value))}
 						/>
@@ -134,6 +148,23 @@ export function CreateTournamentModal({ open, onOpenChange, onCreated }: Props) 
 							<option value="INTL">International</option>
 						</select>
 					</div>
+
+					{isGoalDifferenceDuelPreset && (
+						<div className="space-y-1">
+							<p className="text-sm">Goal difference target</p>
+							<select
+								className="h-10 w-full rounded-md border bg-transparent px-3 text-sm"
+								value={goalDifferenceTarget}
+								onChange={(event) => setGoalDifferenceTarget(Number(event.target.value))}
+							>
+								{[5, 10, 15, 20].map((target) => (
+									<option key={target} value={target}>
+										{target}
+									</option>
+								))}
+							</select>
+						</div>
+					)}
 
 					{isRoundRobinTiersPreset && (
 						<div className="space-y-1">

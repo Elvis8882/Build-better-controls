@@ -99,7 +99,9 @@ export default function TournamentsPage() {
 													? "2v2 Tournament"
 													: tournament.preset_id === "round_robin_tiers"
 														? "Round-Robin Tiers"
-														: "Full tournament"}
+														: tournament.preset_id === "goal_difference_duel"
+															? "Goal Difference Duel"
+															: "Full tournament"}
 									</td>
 									<td className="px-4 py-3">{tournament.hosted_by}</td>
 									<td className="px-4 py-3">{tournament.status ?? "active"}</td>

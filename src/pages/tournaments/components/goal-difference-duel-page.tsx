@@ -9,6 +9,8 @@ type DuelParticipantView = {
 	tier: string;
 };
 
+const stripHostTag = (value: string): string => value.replace(/\s*\(host\)$/i, "").trim();
+
 type Props = {
 	target: number;
 	cumulative: number;
@@ -20,19 +22,27 @@ type Props = {
 	history: DuelHistoryRow[];
 };
 
-function TeamBadge({ teamId, teamById }: { teamId: string | null; teamById: Map<string, Team> }) {
+function TeamBadge({
+	teamId,
+	teamById,
+	compact = false,
+}: {
+	teamId: string | null;
+	teamById: Map<string, Team>;
+	compact?: boolean;
+}) {
 	if (!teamId) return <span className="text-xs text-muted-foreground">TBD</span>;
 	const team = teamById.get(teamId);
 	if (!team) return <span className="text-xs text-muted-foreground">Unknown</span>;
 	return (
 		<div className="flex items-center gap-2">
 			<img
-				className="h-5 w-5 rounded-sm border bg-background p-0.5"
+				className={compact ? "h-7 w-7 rounded-sm object-contain" : "h-14 w-14 object-contain"}
 				src={getTeamLogoUrl(team.code, team.team_pool)}
 				alt={`${team.name} logo`}
 				onError={handleTeamLogoImageError}
 			/>
-			<span className="text-xs">{team.short_name}</span>
+			<span className="text-xs">{team.name}</span>
 		</div>
 	);
 }
@@ -61,10 +71,10 @@ export function GoalDifferenceDuelPage(props: Props) {
 			<section className="grid gap-3 md:grid-cols-2">
 				{[props.participantA, props.participantB].map((participant) => (
 					<div key={participant.id} className="rounded-lg border p-3 text-sm">
-						<p className="font-medium">{participant.name}</p>
+						<p className="font-medium">{stripHostTag(participant.name)}</p>
 						<p className="text-muted-foreground">Tier: {participant.tier}</p>
 						<div className="mt-2">
-							<TeamBadge teamId={participant.teamId} teamById={props.teamById} />
+							<TeamBadge teamId={participant.teamId} teamById={props.teamById} compact />
 						</div>
 					</div>
 				))}
@@ -90,13 +100,13 @@ export function GoalDifferenceDuelPage(props: Props) {
 									<td className="py-2">{row.round}</td>
 									<td className="py-2">
 										<div className="flex items-center gap-2">
-											<span>{row.homeParticipantName}</span>
+											<span>{stripHostTag(row.homeParticipantName)}</span>
 											<TeamBadge teamId={row.homeTeamId} teamById={props.teamById} />
 										</div>
 									</td>
 									<td className="py-2">
 										<div className="flex items-center gap-2">
-											<span>{row.awayParticipantName}</span>
+											<span>{stripHostTag(row.awayParticipantName)}</span>
 											<TeamBadge teamId={row.awayTeamId} teamById={props.teamById} />
 										</div>
 									</td>

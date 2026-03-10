@@ -1,3 +1,7 @@
+create or replace function public.trg_tournaments_enforce_even_2v2_default_participants()
+returns trigger
+language plpgsql
+as $$
 begin
   if new.preset_id = 'goal_difference_duel' then
     if new.default_participants <> 2 then
@@ -23,3 +27,4 @@ begin
 
   return new;
 end;
+$$;

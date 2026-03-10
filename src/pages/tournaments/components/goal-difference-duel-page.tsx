@@ -100,14 +100,12 @@ export function GoalDifferenceDuelPage(props: Props) {
 									<td className="py-2">{row.round}</td>
 									<td className="py-2">
 										<div className="flex items-center gap-2">
-											<span>{stripHostTag(row.homeParticipantName)}</span>
-											<TeamBadge teamId={row.homeTeamId} teamById={props.teamById} />
+											<TeamBadge teamId={row.homeTeamId} teamById={props.teamById} compact />
 										</div>
 									</td>
 									<td className="py-2">
 										<div className="flex items-center gap-2">
-											<span>{stripHostTag(row.awayParticipantName)}</span>
-											<TeamBadge teamId={row.awayTeamId} teamById={props.teamById} />
+											<TeamBadge teamId={row.awayTeamId} teamById={props.teamById} compact />
 										</div>
 									</td>
 									<td className="py-2">

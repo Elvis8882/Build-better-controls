@@ -131,6 +131,11 @@ const resolveWinner = (match: MatchWithResult): string | null => {
 	return null;
 };
 
+const stripHostTag = (value: string | null | undefined): string => {
+	if (!value) return "";
+	return value.replace(/\s*\(host\)$/i, "").trim();
+};
+
 const resolveLoser = (match: MatchWithResult): string | null => {
 	if (!match.result?.locked || !match.home_participant_id || !match.away_participant_id) return null;
 	if ((match.result.home_score ?? 0) > (match.result.away_score ?? 0)) return match.away_participant_id;
@@ -217,6 +222,7 @@ export default function TournamentDetailPage() {
 	const twoVTwoPreset = isTwoVTwoFlow(tournament?.preset_id ?? null);
 	const roundRobinTiersPreset = isRoundRobinTiersFlow(tournament?.preset_id ?? null);
 	const goalDifferenceDuelPreset = isGoalDifferenceDuelFlow(tournament?.preset_id ?? null);
+	const participantRows = goalDifferenceDuelPreset ? displayParticipants : participantsWithHostLabel;
 	const assignedTeamCounts = useMemo(() => {
 		const counts = new Map<string, number>();
 		for (const participant of displayParticipants) {
@@ -1072,7 +1078,7 @@ export default function TournamentDetailPage() {
 				return next;
 			});
 			if (isGroupMatch) {
-				if (roundRobinTiersPreset) {
+				if (roundRobinTiersPreset || goalDifferenceDuelPreset) {
 					await refreshParticipantsSection();
 				}
 				if (activeTab === "group") {
@@ -1253,16 +1259,16 @@ export default function TournamentDetailPage() {
 	const duelTarget = tournament?.group_count ?? 5;
 	const duelWinnerLabel =
 		duelCumulative >= duelTarget
-			? (duelParticipants[0]?.display_name ?? null)
+			? stripHostTag(duelParticipants[0]?.display_name) || null
 			: duelCumulative <= -duelTarget
-				? (duelParticipants[1]?.display_name ?? null)
+				? stripHostTag(duelParticipants[1]?.display_name) || null
 				: null;
 	const duelLeaderLabel =
 		duelCumulative === 0
 			? "Tied"
 			: duelCumulative > 0
-				? `${duelParticipants[0]?.display_name ?? "Player A"} leads`
-				: `${duelParticipants[1]?.display_name ?? "Player B"} leads`;
+				? `${stripHostTag(duelParticipants[0]?.display_name) || "Player A"} leads`
+				: `${stripHostTag(duelParticipants[1]?.display_name) || "Player B"} leads`;
 
 	if (loading) return <div className="p-6 text-sm text-muted-foreground">Loading tournament...</div>;
 	if (!tournament) return <div className="p-6 text-sm text-muted-foreground">Tournament not found.</div>;
@@ -1460,7 +1466,7 @@ export default function TournamentDetailPage() {
 							2v2 preset enabled: each team must have exactly 2 participants before the tournament can start.
 						</p>
 					)}
-					{roundRobinTiersPreset ? (
+					{roundRobinTiersPreset || goalDifferenceDuelPreset ? (
 						<section className="space-y-3 rounded-lg border p-3 md:p-4">
 							<h2 className="text-lg font-semibold">Participants</h2>
 							{displayParticipants.length < tournament.default_participants && !participantFieldsLocked && (
@@ -1537,7 +1543,7 @@ export default function TournamentDetailPage() {
 								</div>
 							)}
 							<div className="space-y-2">
-								{participantsWithHostLabel.map((participant) => (
+								{participantRows.map((participant) => (
 									<div key={participant.id} className="flex items-center justify-between gap-2 rounded border p-2">
 										<span className="truncate text-sm">{participant.display_name}</span>
 										<div className="flex items-center gap-2">

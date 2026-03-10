@@ -1505,13 +1505,13 @@ export default function TournamentDetailPage() {
 												</thead>
 												<tbody>
 													{roundRobinStandings.map((row, index) => {
-														const placementCellClass =
+														const placementTextClass =
 															index === 0
-																? "bg-amber-400/20"
+																? "text-amber-500"
 																: index === 1
-																	? "bg-slate-300/30"
+																	? "text-slate-500"
 																	: index === 2
-																		? "bg-orange-500/20"
+																		? "text-orange-500"
 																		: "";
 
 														return (
@@ -1525,7 +1525,7 @@ export default function TournamentDetailPage() {
 																</td>
 																<td className="py-1 text-right font-semibold">{row.pts}</td>
 																{showRoundRobinPlacement && (
-																	<td className={`py-1 text-right font-semibold ${placementCellClass}`}>
+																	<td className={`py-1 text-right font-semibold ${placementTextClass}`}>
 																		#{index + 1}
 																	</td>
 																)}

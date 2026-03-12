@@ -1,3 +1,216 @@
+create or replace function public.reconcile_placement_round(
+  p_tournament_id uuid,
+  p_round int
+)
+returns void
+language plpgsql
+as $$
+declare
+  v_semifinal_round int;
+  v_parent_id uuid;
+  v_n int;
+  v_ids uuid[];
+  v_slot1_id uuid;
+  v_slot2_id uuid;
+begin
+  if p_round is null or p_round < 1 then
+    return;
+  end if;
+
+  select greatest(coalesce(max(round), 1) - 1, 1)
+  into v_semifinal_round
+  from public.matches
+  where tournament_id = p_tournament_id
+    and stage = 'PLAYOFF'
+    and bracket_type = 'WINNERS';
+
+  with contenders as (
+    select distinct pid
+    from (
+      select e.participant_id as pid
+      from public.playoff_placement_entrants e
+      where e.tournament_id = p_tournament_id
+        and e.source_round = p_round
+      union all
+      select lm.home_participant_id as pid
+      from public.matches lm
+      where lm.tournament_id = p_tournament_id
+        and lm.stage = 'PLAYOFF'
+        and lm.bracket_type = 'LOSERS'
+        and lm.round = p_round
+      union all
+      select lm.away_participant_id as pid
+      from public.matches lm
+      where lm.tournament_id = p_tournament_id
+        and lm.stage = 'PLAYOFF'
+        and lm.bracket_type = 'LOSERS'
+        and lm.round = p_round
+    ) x
+    where pid is not null
+  ), ranked as (
+    select
+      c.pid,
+      coalesce(max(e.source_round), 0) as elimination_round,
+      coalesce(min(s.seed), 2147483647) as seed_order,
+      coalesce(sum(case
+        when pm.home_participant_id = c.pid then coalesce(pr.home_score, 0) - coalesce(pr.away_score, 0)
+        when pm.away_participant_id = c.pid then coalesce(pr.away_score, 0) - coalesce(pr.home_score, 0)
+        else 0
+      end), 0)::int as tie_goal_diff,
+      coalesce(sum(case
+        when pm.home_participant_id = c.pid then coalesce(pr.home_shots, 0) - coalesce(pr.away_shots, 0)
+        when pm.away_participant_id = c.pid then coalesce(pr.away_shots, 0) - coalesce(pr.home_shots, 0)
+        else 0
+      end), 0)::int as tie_shots_diff
+    from contenders c
+    left join public.playoff_placement_entrants e
+      on e.tournament_id = p_tournament_id
+     and e.participant_id = c.pid
+    left join public.tournament_playoff_seeds s
+      on s.tournament_id = p_tournament_id
+     and s.participant_id = c.pid
+    left join public.matches pm
+      on pm.tournament_id = p_tournament_id
+     and pm.stage = 'PLAYOFF'
+     and (pm.home_participant_id = c.pid or pm.away_participant_id = c.pid)
+    left join public.match_results pr
+      on pr.match_id = pm.id
+     and pr.locked = true
+    group by c.pid
+  )
+  select count(*),
+         array_agg(pid order by elimination_round desc, seed_order asc, tie_goal_diff desc, tie_shots_diff desc, pid asc)
+  into v_n, v_ids
+  from ranked;
+
+  if p_round < v_semifinal_round then
+    insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot)
+    select p_tournament_id, 'PLAYOFF', 'LOSERS', p_round + 1, 1
+    where not exists (
+      select 1 from public.matches mx
+      where mx.tournament_id = p_tournament_id
+        and mx.stage = 'PLAYOFF'
+        and mx.bracket_type = 'LOSERS'
+        and mx.round = p_round + 1
+        and mx.bracket_slot = 1
+    );
+
+    select id into v_parent_id
+    from public.matches
+    where tournament_id = p_tournament_id
+      and stage = 'PLAYOFF'
+      and bracket_type = 'LOSERS'
+      and round = p_round + 1
+      and bracket_slot = 1;
+  end if;
+
+  if v_n >= 1 then
+    insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot)
+    select p_tournament_id, 'PLAYOFF', 'LOSERS', p_round, 1
+    where not exists (
+      select 1 from public.matches mx
+      where mx.tournament_id = p_tournament_id
+        and mx.stage = 'PLAYOFF'
+        and mx.bracket_type = 'LOSERS'
+        and mx.round = p_round
+        and mx.bracket_slot = 1
+    );
+
+    select id into v_slot1_id
+    from public.matches
+    where tournament_id = p_tournament_id
+      and stage = 'PLAYOFF'
+      and bracket_type = 'LOSERS'
+      and round = p_round
+      and bracket_slot = 1;
+  end if;
+
+  if v_n >= 4 then
+    insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot)
+    select p_tournament_id, 'PLAYOFF', 'LOSERS', p_round, 2
+    where not exists (
+      select 1 from public.matches mx
+      where mx.tournament_id = p_tournament_id
+        and mx.stage = 'PLAYOFF'
+        and mx.bracket_type = 'LOSERS'
+        and mx.round = p_round
+        and mx.bracket_slot = 2
+    );
+
+    select id into v_slot2_id
+    from public.matches
+    where tournament_id = p_tournament_id
+      and stage = 'PLAYOFF'
+      and bracket_type = 'LOSERS'
+      and round = p_round
+      and bracket_slot = 2;
+  end if;
+
+  if v_slot1_id is not null then
+    update public.matches
+    set home_participant_id = case when v_n = 1 then v_ids[1] when v_n >= 2 then v_ids[2] else null end,
+        away_participant_id = case when v_n >= 3 then v_ids[3] else null end,
+        next_match_id = case when v_parent_id is not null and v_n >= 2 then v_parent_id else null end,
+        next_match_side = case
+          when v_parent_id is null or v_n < 2 then null
+          when v_n = 2 then 'HOME'
+          else 'AWAY'
+        end
+    where id = v_slot1_id;
+
+    perform public.sync_match_identities_from_participants(v_slot1_id);
+    perform public.balance_match_home_away(v_slot1_id);
+  end if;
+
+  if v_slot2_id is not null then
+    update public.matches
+    set home_participant_id = v_ids[3],
+        away_participant_id = v_ids[4],
+        next_match_id = v_parent_id,
+        next_match_side = 'AWAY'
+    where id = v_slot2_id;
+
+    perform public.sync_match_identities_from_participants(v_slot2_id);
+    perform public.balance_match_home_away(v_slot2_id);
+  end if;
+
+  if v_parent_id is not null and v_n in (1, 3) then
+    update public.matches
+    set home_participant_id = v_ids[1]
+    where id = v_parent_id;
+    perform public.sync_match_identities_from_participants(v_parent_id);
+    perform public.balance_match_home_away(v_parent_id);
+  end if;
+
+  if v_n < 1 then
+    update public.matches
+    set home_participant_id = null,
+        away_participant_id = null,
+        next_match_id = null,
+        next_match_side = null
+    where tournament_id = p_tournament_id
+      and stage = 'PLAYOFF'
+      and bracket_type = 'LOSERS'
+      and round = p_round;
+  end if;
+
+  delete from public.matches mx
+  where mx.tournament_id = p_tournament_id
+    and mx.stage = 'PLAYOFF'
+    and mx.bracket_type = 'LOSERS'
+    and mx.round = p_round
+    and mx.bracket_slot > case when v_n >= 4 then 2 when v_n >= 1 then 1 else 0 end
+    and mx.home_participant_id is null
+    and mx.away_participant_id is null
+    and not exists (
+      select 1
+      from public.match_results mr
+      where mr.match_id = mx.id
+        and mr.locked = true
+    );
+end;
+$$;
+
 create or replace function public.trg_place_losers_into_losers_bracket()
 returns trigger
 language plpgsql
@@ -18,15 +231,6 @@ declare
   v_next_side text;
   v_home uuid;
   v_away uuid;
-  v_singleton uuid;
-  v_pair_slot int;
-  v_pair_home uuid;
-  v_pair_away uuid;
-  v_round_locked_count int;
-  v_candidate_count int;
-  v_bye uuid;
-  v_p1 uuid;
-  v_p2 uuid;
   v_final_id uuid;
   v_class_id uuid;
   v_target_home uuid;
@@ -131,6 +335,7 @@ begin
     perform public.balance_match_home_away(v_final_id);
     perform public.sync_match_identities_from_participants(v_class_id);
     perform public.balance_match_home_away(v_class_id);
+    perform public.reconcile_placement_round(m.tournament_id, m.round + 1);
 
     return new;
   end if;
@@ -391,217 +596,11 @@ begin
       set next_match_id = v_parent_id,
           next_match_side = v_next_side
       where id = target;
-
-      -- Odd-size fix: if round-1 has a real loser but its paired winners match is a BYE,
-      -- carry that singleton into the next placement level as a waiting side.
-      if m.round = 1 then
-        v_singleton := coalesce(v_home, v_away);
-        v_pair_slot := case when mod(greatest(coalesce(m.bracket_slot, 1), 1), 2) = 1
-                        then greatest(coalesce(m.bracket_slot, 1), 1) + 1
-                        else greatest(coalesce(m.bracket_slot, 1), 1) - 1
-                      end;
-
-        select home_participant_id, away_participant_id
-        into v_pair_home, v_pair_away
-        from public.matches
-        where tournament_id = m.tournament_id
-          and stage = 'PLAYOFF'
-          and bracket_type = 'WINNERS'
-          and round = 1
-          and bracket_slot = v_pair_slot;
-
-        if v_singleton is not null and (v_pair_home is null or v_pair_away is null) and v_parent_id is not null then
-          if v_next_side = 'HOME' then
-            update public.matches
-            set home_participant_id = coalesce(home_participant_id, v_singleton)
-            where id = v_parent_id
-              and (away_participant_id is distinct from v_singleton or home_participant_id is not null);
-          else
-            update public.matches
-            set away_participant_id = coalesce(away_participant_id, v_singleton)
-            where id = v_parent_id
-              and (home_participant_id is distinct from v_singleton or away_participant_id is not null);
-          end if;
-          perform public.sync_match_identities_from_participants(v_parent_id);
-          perform public.balance_match_home_away(v_parent_id);
-        end if;
-      end if;
-
     end if;
 
-    -- When odd counts create exactly 3 contenders at the semifinal-placement level,
-    -- keep the bracket playable by giving the best goals-for:goals-against contender
-    -- a bye to the next round and pairing the remaining two in a single match.
-    if m.round = v_semifinal_round then
-      select count(*) into v_round_locked_count
-      from public.matches lm
-      join public.match_results lr on lr.match_id = lm.id
-      where lm.tournament_id = m.tournament_id
-        and lm.stage = 'PLAYOFF'
-        and lm.bracket_type = 'LOSERS'
-        and lm.round = m.round
-        and lr.locked = true;
-
-      if v_round_locked_count = 0 then
-        select count(*) into v_candidate_count
-        from (
-          select distinct pid
-          from (
-            select lm.home_participant_id as pid
-            from public.matches lm
-            where lm.tournament_id = m.tournament_id
-              and lm.stage = 'PLAYOFF'
-              and lm.bracket_type = 'LOSERS'
-              and lm.round = m.round
-            union all
-            select lm.away_participant_id as pid
-            from public.matches lm
-            where lm.tournament_id = m.tournament_id
-              and lm.stage = 'PLAYOFF'
-              and lm.bracket_type = 'LOSERS'
-              and lm.round = m.round
-            union all
-            select e.participant_id as pid
-            from public.playoff_placement_entrants e
-            where e.tournament_id = m.tournament_id
-              and e.source_round = m.round
-          ) src
-          where pid is not null
-        ) ranked;
-
-        if v_candidate_count = 3 then
-          with ranked as (
-            select
-              p.pid,
-              coalesce(sum(case
-                when pm.home_participant_id = p.pid then coalesce(pr.home_score, 0) - coalesce(pr.away_score, 0)
-                when pm.away_participant_id = p.pid then coalesce(pr.away_score, 0) - coalesce(pr.home_score, 0)
-                else 0
-              end), 0)::int as goal_diff,
-              coalesce(sum(case
-                when pm.home_participant_id = p.pid then coalesce(pr.home_shots, 0) - coalesce(pr.away_shots, 0)
-                when pm.away_participant_id = p.pid then coalesce(pr.away_shots, 0) - coalesce(pr.home_shots, 0)
-                else 0
-              end), 0)::int as shots_diff,
-              row_number() over (
-                order by
-                  coalesce(sum(case
-                    when pm.home_participant_id = p.pid then coalesce(pr.home_score, 0) - coalesce(pr.away_score, 0)
-                    when pm.away_participant_id = p.pid then coalesce(pr.away_score, 0) - coalesce(pr.home_score, 0)
-                    else 0
-                  end), 0) desc,
-                  coalesce(sum(case
-                    when pm.home_participant_id = p.pid then coalesce(pr.home_shots, 0) - coalesce(pr.away_shots, 0)
-                    when pm.away_participant_id = p.pid then coalesce(pr.away_shots, 0) - coalesce(pr.home_shots, 0)
-                    else 0
-                  end), 0) desc,
-                  p.pid asc
-              ) as rn
-            from (
-              select distinct pid
-              from (
-                select lm.home_participant_id as pid
-                from public.matches lm
-                where lm.tournament_id = m.tournament_id
-                  and lm.stage = 'PLAYOFF'
-                  and lm.bracket_type = 'LOSERS'
-                  and lm.round = m.round
-                union all
-                select lm.away_participant_id as pid
-                from public.matches lm
-                where lm.tournament_id = m.tournament_id
-                  and lm.stage = 'PLAYOFF'
-                  and lm.bracket_type = 'LOSERS'
-                  and lm.round = m.round
-                union all
-                select e.participant_id as pid
-                from public.playoff_placement_entrants e
-                where e.tournament_id = m.tournament_id
-                  and e.source_round = m.round
-              ) src
-              where pid is not null
-            ) p
-            left join public.matches pm
-              on pm.tournament_id = m.tournament_id
-             and pm.stage = 'PLAYOFF'
-             and (pm.home_participant_id = p.pid or pm.away_participant_id = p.pid)
-            left join public.match_results pr
-              on pr.match_id = pm.id
-             and pr.locked = true
-            group by p.pid
-          )
-          select
-            (array_agg(pid order by rn) filter (where rn = 1))[1],
-            (array_agg(pid order by rn) filter (where rn = 2))[1],
-            (array_agg(pid order by rn) filter (where rn = 3))[1]
-          into v_bye, v_p1, v_p2
-          from ranked;
-
-            if v_p1 is not null and v_p1 = v_p2 then
-              v_p2 := null;
-            end if;
-
-            if v_bye is not null and (v_bye = v_p1 or v_bye = v_p2) then
-              v_bye := null;
-            end if;
-
-            select id into target
-            from public.matches
-            where tournament_id = m.tournament_id
-              and stage = 'PLAYOFF'
-              and bracket_type = 'LOSERS'
-              and round = m.round
-              and bracket_slot = 1;
-
-            if target is null then
-              insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot)
-              values (m.tournament_id, 'PLAYOFF', 'LOSERS', m.round, 1)
-              returning id into target;
-            end if;
-
-            select id into v_parent_id
-            from public.matches
-            where tournament_id = m.tournament_id
-              and stage = 'PLAYOFF'
-              and bracket_type = 'LOSERS'
-              and round = (m.round + 1)
-              and bracket_slot = 1;
-
-            if v_parent_id is null then
-              insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot)
-              values (m.tournament_id, 'PLAYOFF', 'LOSERS', m.round + 1, 1)
-              returning id into v_parent_id;
-            end if;
-
-            update public.matches
-            set home_participant_id = v_p1,
-                away_participant_id = v_p2,
-                next_match_id = v_parent_id,
-                next_match_side = 'AWAY'
-            where id = target;
-
-            update public.matches
-            set home_participant_id = null,
-                away_participant_id = null,
-                next_match_id = null,
-                next_match_side = null
-            where tournament_id = m.tournament_id
-              and stage = 'PLAYOFF'
-              and bracket_type = 'LOSERS'
-              and round = m.round
-              and bracket_slot > 1;
-
-            update public.matches
-            set home_participant_id = coalesce(home_participant_id, v_bye)
-            where id = v_parent_id
-              and (away_participant_id is distinct from v_bye or home_participant_id is not null);
-
-            perform public.sync_match_identities_from_participants(target);
-            perform public.balance_match_home_away(target);
-            perform public.sync_match_identities_from_participants(v_parent_id);
-            perform public.balance_match_home_away(v_parent_id);
-        end if;
-      end if;
+    perform public.reconcile_placement_round(m.tournament_id, m.round);
+    if m.round < v_semifinal_round then
+      perform public.reconcile_placement_round(m.tournament_id, m.round + 1);
     end if;
 
     return new;

@@ -4,10 +4,18 @@
 -- Expected: exactly one LOSERS round=1 slot=1 placement match containing both semifinal losers.
 --
 -- Scenario B: full_with_losers + 6 entrants (v_max_round >= 3)
--- Expected: existing dynamic losers flow remains unchanged (multiple LOSERS matches by source group/round).
+-- Expected: dynamic losers flow remains grouped by winners source rounds/slots.
+--
+-- Scenario C: full_with_losers + 5 entrants
+-- Expected: once winners dependencies are known, LOSERS round shells are reconciled and no row
+-- with both participants null remains in dependent placement rounds.
+--
+-- Scenario D: full_with_losers + 7 entrants
+-- Expected: once winners dependencies are known, LOSERS round shells are reconciled and no row
+-- with both participants null remains in dependent placement rounds.
 --
 -- Usage:
---  1) Create two tournaments with preset_id='full_with_losers': one with 4 entrants, one with 6 entrants.
+--  1) Create fixtures with preset_id='full_with_losers' for 4, 5, 6, and 7 entrants.
 --  2) Generate playoff winners brackets.
 --  3) Lock winners match results to fire trg_place_losers_into_losers_bracket.
 --  4) Run the checks below.
@@ -37,7 +45,6 @@ where tournament_id = :'tournament_id_4'
 --   both home_participant_id and away_participant_id are non-null and distinct.
 --   placement_entrants_count = 0 (4-entrant direct semifinal-loser placement path).
 --   losers_round_gt_1_count = 0 (no extra LOSERS rounds after 3rd/4th game).
-
 
 select
   count(*) as placement_entrants_count
@@ -76,4 +83,66 @@ group by source_round, source_group_slot
 order by source_round, source_group_slot;
 
 -- Expectation:
---   LOSERS flow remains dynamically grouped by winners source rounds/slots (no forced single r1s1 collapse).
+--   LOSERS flow remains dynamically grouped by winners source rounds/slots.
+
+-- Scenario C checks (replace :tournament_id_5 with your 5-entrant fixture UUID)
+select
+  round,
+  bracket_slot,
+  home_participant_id,
+  away_participant_id,
+  next_match_id,
+  next_match_side
+from public.matches
+where tournament_id = :'tournament_id_5'
+  and stage = 'PLAYOFF'
+  and bracket_type = 'LOSERS'
+order by round, bracket_slot;
+
+select
+  count(*) as null_shell_matches_after_resolution
+from public.matches lm
+where lm.tournament_id = :'tournament_id_5'
+  and lm.stage = 'PLAYOFF'
+  and lm.bracket_type = 'LOSERS'
+  and lm.home_participant_id is null
+  and lm.away_participant_id is null
+  and not exists (
+    select 1
+    from public.playoff_placement_entrants e
+    where e.tournament_id = lm.tournament_id
+      and e.source_round = lm.round
+  );
+
+-- Scenario D checks (replace :tournament_id_7 with your 7-entrant fixture UUID)
+select
+  round,
+  bracket_slot,
+  home_participant_id,
+  away_participant_id,
+  next_match_id,
+  next_match_side
+from public.matches
+where tournament_id = :'tournament_id_7'
+  and stage = 'PLAYOFF'
+  and bracket_type = 'LOSERS'
+order by round, bracket_slot;
+
+select
+  count(*) as null_shell_matches_after_resolution
+from public.matches lm
+where lm.tournament_id = :'tournament_id_7'
+  and lm.stage = 'PLAYOFF'
+  and lm.bracket_type = 'LOSERS'
+  and lm.home_participant_id is null
+  and lm.away_participant_id is null
+  and not exists (
+    select 1
+    from public.playoff_placement_entrants e
+    where e.tournament_id = lm.tournament_id
+      and e.source_round = lm.round
+  );
+
+-- Expectation for scenarios C and D:
+--   null_shell_matches_after_resolution = 0 once all upstream winners dependencies for that
+--   placement round are known and locked.

@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/auth/AuthProvider";
 import { deleteTournament, listTournaments, type Tournament } from "@/lib/db";
 import { Button } from "@/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/ui/dialog";
 import { CreateTournamentModal } from "./components/create-tournament-modal";
 
 export default function TournamentsPage() {
@@ -11,6 +12,7 @@ export default function TournamentsPage() {
 	const { isAdmin } = useAuth();
 	const [loading, setLoading] = useState(true);
 	const [deletingTournamentId, setDeletingTournamentId] = useState<string | null>(null);
+	const [openModes, setOpenModes] = useState(false);
 	const [openCreate, setOpenCreate] = useState(false);
 	const [tournaments, setTournaments] = useState<Tournament[]>([]);
 
@@ -58,7 +60,12 @@ export default function TournamentsPage() {
 					<h1 className="text-2xl font-semibold">Tournaments</h1>
 					<p className="text-sm text-muted-foreground">All tournaments are visible to any authenticated user.</p>
 				</div>
-				<Button onClick={() => setOpenCreate(true)}>Create tournament</Button>
+				<div className="flex items-center gap-2">
+					<Button variant="outline" onClick={() => setOpenModes(true)}>
+						Tournament modes
+					</Button>
+					<Button onClick={() => setOpenCreate(true)}>Create tournament</Button>
+				</div>
 			</div>
 
 			<div className="overflow-x-auto rounded-lg border">
@@ -139,6 +146,64 @@ export default function TournamentsPage() {
 				onOpenChange={setOpenCreate}
 				onCreated={(tournamentId) => navigate(`/dashboard/tournaments/${tournamentId}`)}
 			/>
+
+			<Dialog open={openModes} onOpenChange={setOpenModes}>
+				<DialogContent className="sm:max-w-2xl">
+					<DialogHeader>
+						<DialogTitle>Tournament modes</DialogTitle>
+					</DialogHeader>
+					<div className="space-y-4 text-sm leading-6 text-muted-foreground">
+						<section>
+							<h3 className="font-medium text-foreground">Full tournament</h3>
+							<p>
+								Teams first play a group stage where everyone in a group faces each other and earns points for wins and
+								results. The top teams from each group advance into a seeded playoff bracket, where each knockout match
+								determines who stays alive and who is eliminated until a champion is crowned.
+							</p>
+						</section>
+						<section>
+							<h3 className="font-medium text-foreground">Playoff only</h3>
+							<p>
+								There is no group phase in this mode; teams are placed straight into a knockout bracket from round one.
+								Each match is win-or-go-home, so a single loss ends the run while winners continue through
+								quarterfinals, semifinals, and final.
+							</p>
+						</section>
+						<section>
+							<h3 className="font-medium text-foreground">2v2 Tournament</h3>
+							<p>
+								Players register in pairs and compete as fixed two-player teams throughout the entire event. The format
+								uses a group stage to rank teams before moving top pairs into playoffs, so chemistry across multiple
+								rounds matters as much as single-match execution.
+							</p>
+						</section>
+						<section>
+							<h3 className="font-medium text-foreground">2v2 Playoffs</h3>
+							<p>
+								This is the short, high-pressure version for two-player teams with immediate elimination rounds only.
+								Pairs are seeded into a bracket, and every result directly advances one team and removes the other until
+								the final matchup decides the title.
+							</p>
+						</section>
+						<section>
+							<h3 className="font-medium text-foreground">Round-Robin Tiers</h3>
+							<p>
+								Teams are split into tiers and play repeated round-robin matches inside their assigned tier to build a
+								league-style table. After each game cycle, teams are rerolled into different tiers based on win/loss
+								results, so strong runs move teams upward while losses can drop teams into lower tiers.
+							</p>
+						</section>
+						<section>
+							<h3 className="font-medium text-foreground">Goal Difference Duel</h3>
+							<p>
+								Matches are scored with extra emphasis on goal difference, so winning by larger margins improves your
+								position more than narrow victories. Teams are also rerolled between tiers after each game window based
+								on win/loss form, which keeps movement between brackets active and every goal meaningful.
+							</p>
+						</section>
+					</div>
+				</DialogContent>
+			</Dialog>
 		</div>
 	);
 }

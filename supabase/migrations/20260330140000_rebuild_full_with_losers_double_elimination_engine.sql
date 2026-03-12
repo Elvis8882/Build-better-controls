@@ -1,3 +1,69 @@
+create or replace function public.advance_playoff_byes(p_tournament_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_changed boolean := true;
+  r record;
+  v_advancer uuid;
+begin
+  while v_changed loop
+    v_changed := false;
+
+    for r in
+      select id, home_participant_id, away_participant_id, next_match_id, next_match_side
+      from public.matches
+      where tournament_id = p_tournament_id
+        and stage = 'PLAYOFF'
+      order by case bracket_type when 'WINNERS' then 1 else 2 end, round asc, bracket_slot asc
+    loop
+      if r.next_match_id is null or r.next_match_side is null then
+        continue;
+      end if;
+
+      v_advancer := null;
+      if r.home_participant_id is not null and r.away_participant_id is null then
+        v_advancer := r.home_participant_id;
+      elsif r.away_participant_id is not null and r.home_participant_id is null then
+        v_advancer := r.away_participant_id;
+      end if;
+
+      if v_advancer is null then
+        continue;
+      end if;
+
+      if r.next_match_side = 'HOME' then
+        update public.matches
+        set home_participant_id = coalesce(home_participant_id, v_advancer)
+        where id = r.next_match_id
+          and away_participant_id is distinct from v_advancer;
+      else
+        update public.matches
+        set away_participant_id = coalesce(away_participant_id, v_advancer)
+        where id = r.next_match_id
+          and home_participant_id is distinct from v_advancer;
+      end if;
+
+      if found then
+        perform public.sync_match_identities_from_participants(r.next_match_id);
+        perform public.balance_match_home_away(r.next_match_id);
+        v_changed := true;
+      end if;
+    end loop;
+  end loop;
+end;
+$$;
+
+grant execute on function public.advance_playoff_byes(uuid) to authenticated;
+
+create or replace function public.ensure_playoff_bracket(p_tournament_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
 declare
 	r record;
   v_preset text;
@@ -359,3 +425,195 @@ begin
     perform public.sync_match_identities_from_participants(r.id);
   end loop;
 end;
+$$;
+
+create or replace function public.trg_place_losers_into_losers_bracket()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  m record;
+  loser uuid;
+  winner uuid;
+  target uuid;
+  v_preset text;
+  v_max_round int;
+  v_drop_round int;
+  v_target_slot int;
+  v_target_side text;
+  v_gf1_round int;
+  v_gf2_id uuid;
+  v_is_full_with_losers boolean := false;
+begin
+  if new.locked is distinct from true then
+    return new;
+  end if;
+
+  select * into m from public.matches where id = new.match_id;
+  if m.stage <> 'PLAYOFF' then
+    return new;
+  end if;
+
+  select preset_id, public.preset_is_full_with_losers(preset_id)
+  into v_preset, v_is_full_with_losers
+  from public.tournaments
+  where id = m.tournament_id;
+
+  if m.bracket_type = 'LOSERS' then
+    if not v_is_full_with_losers then
+      return new;
+    end if;
+
+    if new.home_score > new.away_score then
+      winner := m.home_participant_id;
+      loser := m.away_participant_id;
+    elsif new.away_score > new.home_score then
+      winner := m.away_participant_id;
+      loser := m.home_participant_id;
+    else
+      return new;
+    end if;
+
+    if winner is null then
+      return new;
+    end if;
+
+    -- Grand Final reset support: GF1 is the first LOSERS round after LB rounds.
+    select coalesce(max(round), 1) into v_max_round
+    from public.matches
+    where tournament_id = m.tournament_id
+      and stage = 'PLAYOFF'
+      and bracket_type = 'WINNERS';
+
+    v_gf1_round := ((v_max_round - 1) * 2) + 1;
+
+    if m.round = v_gf1_round then
+      -- If LB side wins GF1, both finalists now have one loss -> activate GF2.
+      if winner = m.away_participant_id and loser is not null then
+        select id into v_gf2_id
+        from public.matches
+        where tournament_id = m.tournament_id
+          and stage = 'PLAYOFF'
+          and bracket_type = 'LOSERS'
+          and round = v_gf1_round + 1
+          and bracket_slot = 1;
+
+        if v_gf2_id is not null then
+          update public.matches
+          set home_participant_id = m.home_participant_id,
+              away_participant_id = m.away_participant_id
+          where id = v_gf2_id;
+
+          perform public.sync_match_identities_from_participants(v_gf2_id);
+          perform public.balance_match_home_away(v_gf2_id);
+        end if;
+      end if;
+    end if;
+
+    perform public.advance_playoff_byes(m.tournament_id);
+    return new;
+  end if;
+
+  if m.bracket_type <> 'WINNERS' then
+    return new;
+  end if;
+
+  if m.home_participant_id is null or m.away_participant_id is null then
+    return new;
+  end if;
+
+  if new.home_score > new.away_score then
+    loser := m.away_participant_id;
+  elsif new.away_score > new.home_score then
+    loser := m.home_participant_id;
+  else
+    return new;
+  end if;
+
+  if loser is null then
+    return new;
+  end if;
+
+  select coalesce(max(round), 1) into v_max_round
+  from public.matches
+  where tournament_id = m.tournament_id
+    and stage = 'PLAYOFF'
+    and bracket_type = 'WINNERS';
+
+  if v_is_full_with_losers and v_max_round >= 2 then
+    if m.round = 1 then
+      v_drop_round := 1;
+      v_target_slot := ceil(greatest(coalesce(m.bracket_slot, 1), 1) / 2.0)::int;
+    else
+      v_drop_round := (m.round - 1) * 2;
+      v_target_slot := greatest(coalesce(m.bracket_slot, 1), 1);
+    end if;
+
+    v_target_side := case when mod(greatest(coalesce(m.bracket_slot, 1), 1), 2) = 1 then 'HOME' else 'AWAY' end;
+
+    select id into target
+    from public.matches
+    where tournament_id = m.tournament_id
+      and stage = 'PLAYOFF'
+      and bracket_type = 'LOSERS'
+      and round = v_drop_round
+      and bracket_slot = v_target_slot;
+
+    if target is not null then
+      if v_target_side = 'HOME' then
+        update public.matches
+        set home_participant_id = coalesce(home_participant_id, loser)
+        where id = target
+          and away_participant_id is distinct from loser;
+      else
+        update public.matches
+        set away_participant_id = coalesce(away_participant_id, loser)
+        where id = target
+          and home_participant_id is distinct from loser;
+      end if;
+
+      perform public.sync_match_identities_from_participants(target);
+      perform public.balance_match_home_away(target);
+    end if;
+
+    perform public.advance_playoff_byes(m.tournament_id);
+    return new;
+  end if;
+
+  -- Legacy/non-full-with-losers behavior: keep third-place feeder.
+  if public.preset_is_playoff_only(v_preset)
+     or not public.preset_is_full_with_losers(v_preset) then
+    perform public.ensure_losers_bracket(m.tournament_id);
+
+    if m.round = greatest(v_max_round - 1, 1) then
+      select id into target
+      from public.matches
+      where tournament_id = m.tournament_id
+        and stage = 'PLAYOFF'
+        and bracket_type = 'LOSERS'
+        and round = 1
+        and bracket_slot = 1;
+
+      if target is not null then
+        update public.matches
+        set home_participant_id = coalesce(home_participant_id, loser),
+            away_participant_id = case
+              when coalesce(home_participant_id, loser) is not null
+               and away_participant_id is null
+               and coalesce(home_participant_id, loser) is distinct from loser
+              then loser
+              else away_participant_id
+            end
+        where id = target;
+
+        perform public.sync_match_identities_from_participants(target);
+        perform public.balance_match_home_away(target);
+      end if;
+    end if;
+  end if;
+
+  return new;
+end;
+$$;

@@ -1,3 +1,11 @@
+-- Avoid statement timeouts while locking group matches in full_with_losers tournaments.
+-- Rebuild the playoff graph only once, after all group matches are locked.
+create or replace function public.trg_on_group_result_lock_reseed()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
 declare
   m record;
   v_is_full_with_losers boolean := false;
@@ -28,9 +36,6 @@ begin
 
   -- Full-with-losers rebuilds are expensive; defer until all group results are locked.
   if (not v_is_full_with_losers) or v_all_group_locked then
-    -- Final full-with-losers bracket generation can be heavier than normal lock operations.
-    -- Disable statement timeout only for this transaction scope before rebuilding.
-    perform set_config('statement_timeout', '0', true);
     perform public.ensure_playoff_bracket(m.tournament_id);
   end if;
 
@@ -41,3 +46,4 @@ begin
 
   return new;
 end;
+$$;

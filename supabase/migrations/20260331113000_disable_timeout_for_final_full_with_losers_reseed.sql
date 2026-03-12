@@ -1,3 +1,11 @@
+-- Prevent statement_timeout when generating final playoff bracket after the last group lock
+-- in full_with_losers tournaments.
+create or replace function public.trg_on_group_result_lock_reseed()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
 declare
   m record;
   v_is_full_with_losers boolean := false;
@@ -41,3 +49,4 @@ begin
 
   return new;
 end;
+$$;

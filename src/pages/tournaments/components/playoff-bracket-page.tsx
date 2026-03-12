@@ -115,12 +115,35 @@ function buildBracketSlots(
 	omitTbdOnlySlots = false,
 	hideUnplayableMatches = false,
 ): BracketSlot[][] {
+	if (matches.length === 0) return [];
+
 	const grouped = new Map<number, MatchWithResult[]>();
 	for (const match of matches) {
 		const items = grouped.get(match.round) ?? [];
 		items.push(match);
 		grouped.set(match.round, items);
 	}
+
+	const hasLosersMatches = matches.some((match) => match.bracket_type === "LOSERS");
+	if (hasLosersMatches) {
+		const rounds: BracketSlot[][] = [];
+		for (const [round, roundMatches] of [...grouped.entries()].sort((a, b) => a[0] - b[0])) {
+			const slots = roundMatches
+				.map((match, index) => ({
+					round,
+					slot: Math.max(1, match.bracket_slot ?? index + 1),
+					match,
+				}))
+				.sort((a, b) => a.slot - b.slot)
+				.filter((slotEntry) => !(hideUnplayableMatches && isUnplayableMatch(slotEntry.match)))
+				.filter((slotEntry) => !(omitTbdOnlySlots && isEmptySlotMatch(slotEntry.match)));
+
+			if (slots.length === 0) continue;
+			rounds.push(slots);
+		}
+		return rounds;
+	}
+
 	const maxRound = Math.max(...matches.map((match) => match.round), 1);
 	const firstRoundCount = grouped.get(1)?.length ?? 1;
 	const rounds: BracketSlot[][] = [];

@@ -12,6 +12,9 @@ declare
   v_parent_round int;
   v_parent_slot int;
   v_parent_id uuid;
+  v_round_slot_pos int;
+  v_round_slot_total int;
+  v_drop_preferred_side text;
 begin
   if new.locked is distinct from true then
     return new;
@@ -122,6 +125,31 @@ begin
     -- losers-bracket round/slot shell. Matches are created lazily as results lock.
     v_wb_drop_slot := greatest(coalesce(m.bracket_slot, 1), 1);
 
+    -- Avoid immediate rematches by crossing winners-drop mapping inside each winners round
+    -- (for rounds after the first), so drops land on the opposite placement branch.
+    if m.round > 1 then
+      select mapped.slot_pos, mapped.slot_total
+      into v_round_slot_pos, v_round_slot_total
+      from (
+        select wm.bracket_slot,
+               row_number() over (order by wm.bracket_slot asc) as slot_pos,
+               count(*) over () as slot_total
+        from public.matches wm
+        where wm.tournament_id = m.tournament_id
+          and wm.stage = 'PLAYOFF'
+          and wm.bracket_type = 'WINNERS'
+          and wm.round = m.round
+          and wm.home_participant_id is not null
+          and wm.away_participant_id is not null
+      ) mapped
+      where mapped.bracket_slot = greatest(coalesce(m.bracket_slot, 1), 1)
+      limit 1;
+
+      if coalesce(v_round_slot_total, 0) > 1 and coalesce(v_round_slot_pos, 0) > 0 then
+        v_wb_drop_slot := (v_round_slot_total - v_round_slot_pos + 1);
+      end if;
+    end if;
+
     insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot)
     select m.tournament_id, 'PLAYOFF', 'LOSERS', m.round, v_wb_drop_slot
     where not exists (
@@ -189,18 +217,23 @@ begin
       where id = target;
     end if;
 
+    v_drop_preferred_side := case when mod(v_wb_drop_slot, 2) = 1 then 'HOME' else 'AWAY' end;
     v_target_side := case
       when target is null then null
-      when exists (
-        select 1 from public.matches tm where tm.id = target and tm.home_participant_id is null
-      ) then 'HOME'
-      when exists (
-        select 1 from public.matches tm where tm.id = target and tm.away_participant_id is null
-      ) then 'AWAY'
-      else 'HOME'
+      when v_drop_preferred_side = 'HOME'
+        and exists (select 1 from public.matches tm where tm.id = target and tm.home_participant_id is null)
+      then 'HOME'
+      when v_drop_preferred_side = 'AWAY'
+        and exists (select 1 from public.matches tm where tm.id = target and tm.away_participant_id is null)
+      then 'AWAY'
+      when exists (select 1 from public.matches tm where tm.id = target and tm.home_participant_id is null)
+      then 'HOME'
+      when exists (select 1 from public.matches tm where tm.id = target and tm.away_participant_id is null)
+      then 'AWAY'
+      else v_drop_preferred_side
     end;
 
-    if target is not null then
+    if target is not null and v_target_side is not null then
       if v_target_side = 'HOME' then
         update public.matches
         set home_participant_id = coalesce(home_participant_id, loser)

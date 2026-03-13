@@ -798,6 +798,12 @@ export default function TournamentDetailPage() {
 		setSaving(true);
 		try {
 			await lockParticipant(participantId);
+			setEditingParticipantIds((previous) => {
+				if (!previous.has(participantId)) return previous;
+				const next = new Set(previous);
+				next.delete(participantId);
+				return next;
+			});
 			await refreshParticipantsSection();
 
 			if (!id) return;

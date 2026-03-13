@@ -9,6 +9,12 @@ declare
   v_gf2_id uuid;
   v_wb_drop_slot int;
   v_is_full_with_losers boolean := false;
+  v_parent_round int;
+  v_parent_slot int;
+  v_parent_id uuid;
+  v_round_slot_pos int;
+  v_round_slot_total int;
+  v_drop_preferred_side text;
 begin
   if new.locked is distinct from true then
     return new;
@@ -114,58 +120,120 @@ begin
     and bracket_type = 'WINNERS';
 
   if v_is_full_with_losers and v_max_round >= 2 then
-    -- Preferred mapping: side-specific drop metadata introduced by the generalized
-    -- full_with_losers generator.
-    select id,
-           case
-             when ((metadata->>'wb_drop_home_round')::int) = m.round
-              and ((metadata->>'wb_drop_home_slot')::int) = greatest(coalesce(m.bracket_slot, 1), 1)
-             then 'HOME'
-             when ((metadata->>'wb_drop_away_round')::int) = m.round
-              and ((metadata->>'wb_drop_away_slot')::int) = greatest(coalesce(m.bracket_slot, 1), 1)
-             then 'AWAY'
-             else null
-           end
-    into target, v_target_side
+    -- Full-with-losers placement flow follows winners-bracket round/slot drops:
+    -- each locked winners match emits exactly one loser into the corresponding
+    -- losers-bracket round/slot shell. Matches are created lazily as results lock.
+    v_wb_drop_slot := greatest(coalesce(m.bracket_slot, 1), 1);
+
+    -- Avoid immediate rematches by crossing winners-drop mapping inside each winners round
+    -- (for rounds after the first), so drops land on the opposite placement branch.
+    if m.round > 1 then
+      select mapped.slot_pos, mapped.slot_total
+      into v_round_slot_pos, v_round_slot_total
+      from (
+        select wm.bracket_slot,
+               row_number() over (order by wm.bracket_slot asc) as slot_pos,
+               count(*) over () as slot_total
+        from public.matches wm
+        where wm.tournament_id = m.tournament_id
+          and wm.stage = 'PLAYOFF'
+          and wm.bracket_type = 'WINNERS'
+          and wm.round = m.round
+          and wm.home_participant_id is not null
+          and wm.away_participant_id is not null
+      ) mapped
+      where mapped.bracket_slot = greatest(coalesce(m.bracket_slot, 1), 1)
+      limit 1;
+
+      if coalesce(v_round_slot_total, 0) > 1 and coalesce(v_round_slot_pos, 0) > 0 then
+        v_wb_drop_slot := (v_round_slot_total - v_round_slot_pos + 1);
+      end if;
+    end if;
+
+    insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot)
+    select m.tournament_id, 'PLAYOFF', 'LOSERS', m.round, v_wb_drop_slot
+    where not exists (
+      select 1
+      from public.matches mx
+      where mx.tournament_id = m.tournament_id
+        and mx.stage = 'PLAYOFF'
+        and mx.bracket_type = 'LOSERS'
+        and mx.round = m.round
+        and mx.bracket_slot = v_wb_drop_slot
+    );
+
+    select id into target
     from public.matches
     where tournament_id = m.tournament_id
       and stage = 'PLAYOFF'
       and bracket_type = 'LOSERS'
-      and (
-        (((metadata->>'wb_drop_home_round')::int) = m.round
-          and ((metadata->>'wb_drop_home_slot')::int) = greatest(coalesce(m.bracket_slot, 1), 1))
-        or
-        (((metadata->>'wb_drop_away_round')::int) = m.round
-          and ((metadata->>'wb_drop_away_slot')::int) = greatest(coalesce(m.bracket_slot, 1), 1))
-      )
+      and round = m.round
+      and bracket_slot = v_wb_drop_slot
     limit 1;
 
-    -- Compatibility fallback: legacy mapping shape.
-    if target is null then
-      v_target_side := case when mod(greatest(coalesce(m.bracket_slot, 1), 1), 2) = 1 then 'HOME' else 'AWAY' end;
-      if m.round = 1 then
-        v_wb_drop_slot := ceil(greatest(coalesce(m.bracket_slot, 1), 1) / 2.0)::int;
-        select id into target
-        from public.matches
-        where tournament_id = m.tournament_id
-          and stage = 'PLAYOFF'
-          and bracket_type = 'LOSERS'
-          and ((metadata->>'wb_drop_round')::int) = 1
-          and bracket_slot = v_wb_drop_slot
-        limit 1;
-      else
-        select id into target
-        from public.matches
-        where tournament_id = m.tournament_id
-          and stage = 'PLAYOFF'
-          and bracket_type = 'LOSERS'
-          and ((metadata->>'wb_drop_round')::int) = m.round
-          and ((metadata->>'wb_drop_slot')::int) = greatest(coalesce(m.bracket_slot, 1), 1)
-        limit 1;
-      end if;
+    if target is not null and m.round < greatest(v_max_round - 1, 1) then
+      v_parent_round := m.round + 1;
+      v_parent_slot := ceil(v_wb_drop_slot / 2.0)::int;
+
+      insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot)
+      select m.tournament_id, 'PLAYOFF', 'LOSERS', v_parent_round, v_parent_slot
+      where not exists (
+        select 1
+        from public.matches mx
+        where mx.tournament_id = m.tournament_id
+          and mx.stage = 'PLAYOFF'
+          and mx.bracket_type = 'LOSERS'
+          and mx.round = v_parent_round
+          and mx.bracket_slot = v_parent_slot
+      );
+
+      select id into v_parent_id
+      from public.matches
+      where tournament_id = m.tournament_id
+        and stage = 'PLAYOFF'
+        and bracket_type = 'LOSERS'
+        and round = v_parent_round
+        and bracket_slot = v_parent_slot
+      limit 1;
+
+      update public.matches
+      set next_match_id = v_parent_id,
+          next_match_side = case when mod(v_wb_drop_slot, 2) = 1 then 'HOME' else 'AWAY' end
+      where id = target;
+    elsif target is not null and m.round = greatest(v_max_round - 1, 1) then
+      select id into v_parent_id
+      from public.matches
+      where tournament_id = m.tournament_id
+        and stage = 'PLAYOFF'
+        and bracket_type = 'LOSERS'
+        and round = v_max_round
+        and bracket_slot = 1
+        and coalesce((metadata->>'is_gf1')::boolean, false) = true
+      limit 1;
+
+      update public.matches
+      set next_match_id = v_parent_id,
+          next_match_side = 'AWAY'
+      where id = target;
     end if;
 
-    if target is not null then
+    v_drop_preferred_side := case when mod(v_wb_drop_slot, 2) = 1 then 'HOME' else 'AWAY' end;
+    v_target_side := case
+      when target is null then null
+      when v_drop_preferred_side = 'HOME'
+        and exists (select 1 from public.matches tm where tm.id = target and tm.home_participant_id is null)
+      then 'HOME'
+      when v_drop_preferred_side = 'AWAY'
+        and exists (select 1 from public.matches tm where tm.id = target and tm.away_participant_id is null)
+      then 'AWAY'
+      when exists (select 1 from public.matches tm where tm.id = target and tm.home_participant_id is null)
+      then 'HOME'
+      when exists (select 1 from public.matches tm where tm.id = target and tm.away_participant_id is null)
+      then 'AWAY'
+      else v_drop_preferred_side
+    end;
+
+    if target is not null and v_target_side is not null then
       if v_target_side = 'HOME' then
         update public.matches
         set home_participant_id = coalesce(home_participant_id, loser)

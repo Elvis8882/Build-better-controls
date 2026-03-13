@@ -287,9 +287,10 @@ export function ParticipantsTable({
 											<Button
 												size="sm"
 												disabled={
+													saving ||
 													participantFieldsLocked ||
 													(!pairEditing && pairLocked) ||
-													(requireTeamBeforeLock && !pairTeamId)
+													(requireTeamBeforeLock && !pairTeamId && !pairEditing)
 												}
 												onClick={async () => {
 													await onLockParticipant(participant.id);

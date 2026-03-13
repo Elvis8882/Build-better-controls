@@ -112,11 +112,11 @@ const isSkippedPlayoffMatch = (match: MatchWithResult) => {
 
 const isMatchDisplayable = (match: MatchWithResult) => {
 	if (isSkippedPlayoffMatch(match)) return false;
-	const hasResult = Boolean(match.result);
+	const hasResult = Boolean(match.result?.locked);
 	const hasHome = Boolean(match.home_participant_id);
 	const hasAway = Boolean(match.away_participant_id);
 	if (hasResult) return true;
-	if (!hasHome && !hasAway) return true;
+	if (!hasHome && !hasAway) return false;
 	return hasHome && hasAway;
 };
 

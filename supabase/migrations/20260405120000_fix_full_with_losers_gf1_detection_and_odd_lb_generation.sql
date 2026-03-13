@@ -1,3 +1,9 @@
+create or replace function public.ensure_playoff_bracket(p_tournament_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
 declare
 	r record;
   v_preset text;
@@ -273,64 +279,28 @@ begin
     end loop;
 
     if array_length(v_drop_round_by_wb, 1) is not null then
-      -- Recompute alive tree and tag drops by *actual winners bracket slot*.
-      v_seed_positions := array[1, 2];
-      while array_length(v_seed_positions, 1) < v_s loop
-        v_next_positions := '{}'::int[];
-        foreach v_pos in array v_seed_positions loop
-          v_next_positions := array_append(v_next_positions, v_pos);
-          v_next_positions := array_append(v_next_positions, array_length(v_seed_positions, 1) * 2 + 1 - v_pos);
-        end loop;
-        v_seed_positions := v_next_positions;
-      end loop;
-
-      v_leaf_alive := '{}'::int[];
-      for v_pos in 1..v_s loop
-        if v_seed_positions[v_pos] <= v_n then
-          v_leaf_alive := array_append(v_leaf_alive, 1);
-        else
-          v_leaf_alive := array_append(v_leaf_alive, 0);
+      for v_from_round in 1..array_length(v_drop_round_by_wb, 1) loop
+        if coalesce(v_wb_drop_counts[v_from_round], 0) = 0 then
+          continue;
         end if;
-      end loop;
 
-      for v_round in 1..v_rounds loop
-        v_next_alive := '{}'::int[];
-        v_from_slot := 0;
+        for v_from_slot in 1..coalesce(v_wb_drop_counts[v_from_round], 0) loop
+          v_to_slot := case
+            when v_from_round = 1 then ceil(v_from_slot / 2.0)::int
+            else v_from_slot
+          end;
 
-        for v_slot in 1..(array_length(v_leaf_alive, 1) / 2) loop
-          v_child_a := v_leaf_alive[(v_slot * 2) - 1];
-          v_child_b := v_leaf_alive[v_slot * 2];
-
-          if v_child_a = 1 and v_child_b = 1 then
-            v_from_slot := v_from_slot + 1;
-
-            if array_length(v_drop_round_by_wb, 1) >= v_round then
-              v_to_slot := case
-                when v_round = 1 then ceil(v_from_slot / 2.0)::int
-                else v_from_slot
-              end;
-
-              update public.matches
-              set metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object(
-                'wb_drop_round', v_round,
-                'wb_drop_slot', v_slot
-              )
-              where tournament_id = p_tournament_id
-                and stage = 'PLAYOFF'
-                and bracket_type = 'LOSERS'
-                and round = v_drop_round_by_wb[v_round]
-                and bracket_slot = v_to_slot;
-            end if;
-
-            v_next_alive := array_append(v_next_alive, 1);
-          elsif v_child_a = 1 or v_child_b = 1 then
-            v_next_alive := array_append(v_next_alive, 1);
-          else
-            v_next_alive := array_append(v_next_alive, 0);
-          end if;
+          update public.matches
+          set metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object(
+            'wb_drop_round', v_from_round,
+            'wb_drop_slot', v_from_slot
+          )
+          where tournament_id = p_tournament_id
+            and stage = 'PLAYOFF'
+            and bracket_type = 'LOSERS'
+            and round = v_drop_round_by_wb[v_from_round]
+            and bracket_slot = v_to_slot;
         end loop;
-
-        v_leaf_alive := v_next_alive;
       end loop;
     end if;
 
@@ -531,3 +501,216 @@ begin
     perform public.sync_match_identities_from_participants(r.id);
   end loop;
 end;
+$$;
+
+grant execute on function public.ensure_playoff_bracket(uuid) to authenticated;
+
+drop trigger if exists trg_place_losers_into_losers_bracket on public.match_results;
+
+create or replace function public.trg_place_losers_into_losers_bracket()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  m record;
+  loser uuid;
+  winner uuid;
+  target uuid;
+  v_preset text;
+  v_max_round int;
+  v_target_side text;
+  v_gf2_id uuid;
+  v_wb_drop_slot int;
+  v_is_full_with_losers boolean := false;
+begin
+  if new.locked is distinct from true then
+    return new;
+  end if;
+
+  select * into m from public.matches where id = new.match_id;
+  if m.stage <> 'PLAYOFF' then
+    return new;
+  end if;
+
+  select preset_id, public.preset_is_full_with_losers(preset_id)
+  into v_preset, v_is_full_with_losers
+  from public.tournaments
+  where id = m.tournament_id;
+
+  if m.bracket_type = 'LOSERS' then
+    if not v_is_full_with_losers then
+      return new;
+    end if;
+
+    if new.home_score > new.away_score then
+      winner := m.home_participant_id;
+      loser := m.away_participant_id;
+    elsif new.away_score > new.home_score then
+      winner := m.away_participant_id;
+      loser := m.home_participant_id;
+    else
+      return new;
+    end if;
+
+    if winner is null then
+      return new;
+    end if;
+
+    -- Grand Final reset support: for full_with_losers, GF1 is explicitly tagged.
+    if coalesce((m.metadata->>'is_gf1')::boolean, false) then
+      -- If LB side wins GF1, both finalists now have one loss -> activate GF2.
+      if winner = m.away_participant_id and loser is not null then
+        select id into v_gf2_id
+        from public.matches
+        where tournament_id = m.tournament_id
+          and stage = 'PLAYOFF'
+          and bracket_type = 'LOSERS'
+          and round = m.round + 1
+          and bracket_slot = 1
+          and coalesce((metadata->>'is_gf2')::boolean, false) = true;
+
+        if v_gf2_id is null then
+          insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot, metadata)
+          values (m.tournament_id, 'PLAYOFF', 'LOSERS', m.round + 1, 1, jsonb_build_object('is_gf2', true))
+          returning id into v_gf2_id;
+        end if;
+
+        if v_gf2_id is null then
+          select id into v_gf2_id
+          from public.matches
+          where tournament_id = m.tournament_id
+            and stage = 'PLAYOFF'
+            and bracket_type = 'LOSERS'
+            and round = m.round + 1
+            and bracket_slot = 1
+          limit 1;
+        end if;
+
+        if v_gf2_id is not null then
+          update public.matches
+          set home_participant_id = m.home_participant_id,
+              away_participant_id = m.away_participant_id
+          where id = v_gf2_id;
+
+          perform public.sync_match_identities_from_participants(v_gf2_id);
+          perform public.balance_match_home_away(v_gf2_id);
+        end if;
+      end if;
+    end if;
+
+    perform public.advance_playoff_byes(m.tournament_id);
+    return new;
+  end if;
+
+  if m.bracket_type <> 'WINNERS' then
+    return new;
+  end if;
+
+  if m.home_participant_id is null or m.away_participant_id is null then
+    return new;
+  end if;
+
+  if new.home_score > new.away_score then
+    loser := m.away_participant_id;
+  elsif new.away_score > new.home_score then
+    loser := m.home_participant_id;
+  else
+    return new;
+  end if;
+
+  if loser is null then
+    return new;
+  end if;
+
+  select coalesce(max(round), 1) into v_max_round
+  from public.matches
+  where tournament_id = m.tournament_id
+    and stage = 'PLAYOFF'
+    and bracket_type = 'WINNERS';
+
+  if v_is_full_with_losers and v_max_round >= 2 then
+    select id into target
+    from public.matches
+    where tournament_id = m.tournament_id
+      and stage = 'PLAYOFF'
+      and bracket_type = 'LOSERS'
+      and ((metadata->>'wb_drop_round')::int) = m.round
+      and ((metadata->>'wb_drop_slot')::int) = greatest(coalesce(m.bracket_slot, 1), 1)
+    limit 1;
+
+    if target is null and m.round = 1 then
+      v_wb_drop_slot := ceil(greatest(coalesce(m.bracket_slot, 1), 1) / 2.0)::int;
+      select id into target
+      from public.matches
+      where tournament_id = m.tournament_id
+        and stage = 'PLAYOFF'
+        and bracket_type = 'LOSERS'
+        and ((metadata->>'wb_drop_round')::int) = 1
+        and ((metadata->>'wb_drop_slot')::int) = v_wb_drop_slot
+      limit 1;
+    end if;
+
+    v_target_side := case when mod(greatest(coalesce(m.bracket_slot, 1), 1), 2) = 1 then 'HOME' else 'AWAY' end;
+
+    if target is not null then
+      if v_target_side = 'HOME' then
+        update public.matches
+        set home_participant_id = coalesce(home_participant_id, loser)
+        where id = target
+          and away_participant_id is distinct from loser;
+      else
+        update public.matches
+        set away_participant_id = coalesce(away_participant_id, loser)
+        where id = target
+          and home_participant_id is distinct from loser;
+      end if;
+
+      perform public.sync_match_identities_from_participants(target);
+      perform public.balance_match_home_away(target);
+    end if;
+
+    perform public.advance_playoff_byes(m.tournament_id);
+    return new;
+  end if;
+
+  -- Legacy/non-full-with-losers behavior: keep third-place feeder.
+  if public.preset_is_playoff_only(v_preset)
+     or not public.preset_is_full_with_losers(v_preset) then
+    perform public.ensure_losers_bracket(m.tournament_id);
+
+    if m.round = greatest(v_max_round - 1, 1) then
+      select id into target
+      from public.matches
+      where tournament_id = m.tournament_id
+        and stage = 'PLAYOFF'
+        and bracket_type = 'LOSERS'
+        and round = 1
+        and bracket_slot = 1;
+
+      if target is not null then
+        update public.matches
+        set home_participant_id = coalesce(home_participant_id, loser),
+            away_participant_id = case
+              when coalesce(home_participant_id, loser) is not null
+               and away_participant_id is null
+               and coalesce(home_participant_id, loser) is distinct from loser
+              then loser
+              else away_participant_id
+            end
+        where id = target;
+
+        perform public.sync_match_identities_from_participants(target);
+        perform public.balance_match_home_away(target);
+      end if;
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+create trigger trg_place_losers_into_losers_bracket
+after update on public.match_results
+for each row execute function public.trg_place_losers_into_losers_bracket();

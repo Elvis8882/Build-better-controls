@@ -214,20 +214,44 @@ begin
     for v_round in 1..v_lb_round_count loop
       for v_slot in 1..v_lb_matches[v_round] loop
         insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot)
-        values (p_tournament_id, 'PLAYOFF', 'LOSERS', v_round, v_slot)
-        on conflict (tournament_id, stage, bracket_type, round, bracket_slot) do nothing;
+        select p_tournament_id, 'PLAYOFF', 'LOSERS', v_round, v_slot
+        where not exists (
+          select 1
+          from public.matches mx
+          where mx.tournament_id = p_tournament_id
+            and mx.stage = 'PLAYOFF'
+            and mx.bracket_type = 'LOSERS'
+            and mx.round = v_round
+            and mx.bracket_slot = v_slot
+        );
       end loop;
     end loop;
 
     -- GF1 and reset GF2 are kept as LOSERS rounds after the LB champion round.
     v_gf1_round := v_lb_round_count + 1;
     insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot)
-    values (p_tournament_id, 'PLAYOFF', 'LOSERS', v_gf1_round, 1)
-    on conflict (tournament_id, stage, bracket_type, round, bracket_slot) do nothing;
+    select p_tournament_id, 'PLAYOFF', 'LOSERS', v_gf1_round, 1
+    where not exists (
+      select 1
+      from public.matches mx
+      where mx.tournament_id = p_tournament_id
+        and mx.stage = 'PLAYOFF'
+        and mx.bracket_type = 'LOSERS'
+        and mx.round = v_gf1_round
+        and mx.bracket_slot = 1
+    );
 
     insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot)
-    values (p_tournament_id, 'PLAYOFF', 'LOSERS', v_gf1_round + 1, 1)
-    on conflict (tournament_id, stage, bracket_type, round, bracket_slot) do nothing;
+    select p_tournament_id, 'PLAYOFF', 'LOSERS', v_gf1_round + 1, 1
+    where not exists (
+      select 1
+      from public.matches mx
+      where mx.tournament_id = p_tournament_id
+        and mx.stage = 'PLAYOFF'
+        and mx.bracket_type = 'LOSERS'
+        and mx.round = v_gf1_round + 1
+        and mx.bracket_slot = 1
+    );
 
     -- Route LB winners forward round-by-round.
     for v_round in 1..(v_lb_round_count - 1) loop

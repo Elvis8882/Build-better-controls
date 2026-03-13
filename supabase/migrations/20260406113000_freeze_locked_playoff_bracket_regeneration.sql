@@ -46,6 +46,7 @@ declare
   v_drop_round_key text;
   v_drop_slot_key text;
   v_gf1_round int;
+  v_parent_metadata jsonb;
 begin
   -- Developer note:
   -- Group Stage qualification/seeding flow is intentionally preserved.
@@ -277,7 +278,19 @@ begin
           and round=(v_round + 1)
           and bracket_slot=v_to_slot;
 
-        v_parent_side := case when mod(v_slot, 2)=1 then 'HOME' else 'AWAY' end;
+        select metadata into v_parent_metadata
+        from public.matches
+        where id = v_parent;
+
+        -- Mixed LB rounds reserve one side for a winners-bracket loser drop.
+        -- Route prior-LB-round winners into the opposite side so both feeders coexist.
+        if (v_parent_metadata ? 'wb_drop_home_round') and not (v_parent_metadata ? 'wb_drop_away_round') then
+          v_parent_side := 'AWAY';
+        elsif (v_parent_metadata ? 'wb_drop_away_round') and not (v_parent_metadata ? 'wb_drop_home_round') then
+          v_parent_side := 'HOME';
+        else
+          v_parent_side := case when mod(v_slot, 2)=1 then 'HOME' else 'AWAY' end;
+        end if;
 
         update public.matches
         set next_match_id = v_parent,

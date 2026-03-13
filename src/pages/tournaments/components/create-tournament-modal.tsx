@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { useAuth } from "@/auth/AuthProvider";
 import { createTournament, type TeamPool, type TournamentPresetUi } from "@/lib/db";
 import { isGroupThenPlayoffFlow, resolvePresetGroupCount } from "@/pages/tournaments/preset-flow";
 import { Button } from "@/ui/button";
@@ -23,9 +24,10 @@ type Props = {
 };
 
 export function CreateTournamentModal({ open, onOpenChange, onCreated }: Props) {
+	const { isAdmin } = useAuth();
 	const [saving, setSaving] = useState(false);
 	const [name, setName] = useState("");
-	const [presetId, setPresetId] = useState<TournamentPresetUi>("full_with_losers");
+	const [presetId, setPresetId] = useState<TournamentPresetUi>("full_no_losers");
 	const isTwoVTwoPreset = presetId === "2v2_playoffs" || presetId === "2v2_tournament";
 	const isRoundRobinTiersPreset = presetId === "round_robin_tiers";
 	const isGoalDifferenceDuelPreset = presetId === "goal_difference_duel";
@@ -87,6 +89,10 @@ export function CreateTournamentModal({ open, onOpenChange, onCreated }: Props) 
 			toast.warning("2v2 tournaments require an even default participant count.");
 			return;
 		}
+		if (!isAdmin && presetId === "full_with_losers") {
+			toast.error("Full tournament (with losers bracket) is temporarily admin-only.");
+			return;
+		}
 		if (isGroupThenPlayoffFlow(presetId) && groupResolution.error) {
 			toast.error(groupResolution.error);
 			return;
@@ -138,8 +144,14 @@ export function CreateTournamentModal({ open, onOpenChange, onCreated }: Props) 
 							onChange={(event) => setPresetId(event.target.value as TournamentPresetUi)}
 						>
 							{PRESET_OPTIONS.map((option) => (
-								<option key={option.value} value={option.value}>
-									{option.label}
+								<option
+									key={option.value}
+									value={option.value}
+									disabled={!isAdmin && option.value === "full_with_losers"}
+								>
+									{option.value === "full_with_losers" && !isAdmin
+										? `${option.label} (admin only, temporarily disabled)`
+										: option.label}
 								</option>
 							))}
 						</select>

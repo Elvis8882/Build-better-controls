@@ -13,7 +13,6 @@ declare
   v_max_round int;
   v_target_side text;
   v_gf2_id uuid;
-  v_wb_drop_slot int;
   v_is_full_with_losers boolean := false;
 begin
   if new.locked is distinct from true then
@@ -122,45 +121,54 @@ begin
     and bracket_type = 'WINNERS';
 
   if v_is_full_with_losers and v_max_round >= 2 then
-    if m.round = 1 then
-      v_wb_drop_slot := ceil(greatest(coalesce(m.bracket_slot, 1), 1) / 2.0)::int;
-      select id into target
-      from public.matches
-      where tournament_id = m.tournament_id
-        and stage = 'PLAYOFF'
-        and bracket_type = 'LOSERS'
-        and ((metadata->>'wb_drop_round')::int) = 1
-        and bracket_slot = v_wb_drop_slot
-      limit 1;
+    select id,
+           case
+             when ((metadata->>'wb_drop_home_round')::int) = m.round
+              and ((metadata->>'wb_drop_home_slot')::int) = greatest(coalesce(m.bracket_slot, 1), 1)
+             then 'HOME'
+             when ((metadata->>'wb_drop_away_round')::int) = m.round
+              and ((metadata->>'wb_drop_away_slot')::int) = greatest(coalesce(m.bracket_slot, 1), 1)
+             then 'AWAY'
+             else null
+           end
+    into target, v_target_side
+    from public.matches
+    where tournament_id = m.tournament_id
+      and stage = 'PLAYOFF'
+      and bracket_type = 'LOSERS'
+      and (
+        (((metadata->>'wb_drop_home_round')::int) = m.round
+          and ((metadata->>'wb_drop_home_slot')::int) = greatest(coalesce(m.bracket_slot, 1), 1))
+        or
+        (((metadata->>'wb_drop_away_round')::int) = m.round
+          and ((metadata->>'wb_drop_away_slot')::int) = greatest(coalesce(m.bracket_slot, 1), 1))
+      )
+    limit 1;
+
+    if target is null or v_target_side is null then
+      raise exception 'Missing WB→LB drop mapping for tournament %, WB round %, WB slot %',
+        m.tournament_id, m.round, greatest(coalesce(m.bracket_slot, 1), 1)
+        using errcode = 'P0001';
+    end if;
+
+    if v_target_side = 'HOME' then
+      update public.matches
+      set home_participant_id = coalesce(home_participant_id, loser)
+      where id = target
+        and away_participant_id is distinct from loser;
+    elsif v_target_side = 'AWAY' then
+      update public.matches
+      set away_participant_id = coalesce(away_participant_id, loser)
+      where id = target
+        and home_participant_id is distinct from loser;
     else
-      select id into target
-      from public.matches
-      where tournament_id = m.tournament_id
-        and stage = 'PLAYOFF'
-        and bracket_type = 'LOSERS'
-        and ((metadata->>'wb_drop_round')::int) = m.round
-        and ((metadata->>'wb_drop_slot')::int) = greatest(coalesce(m.bracket_slot, 1), 1)
-      limit 1;
+      raise exception 'Invalid WB→LB drop side for tournament %, WB round %, WB slot %',
+        m.tournament_id, m.round, greatest(coalesce(m.bracket_slot, 1), 1)
+        using errcode = 'P0001';
     end if;
 
-    v_target_side := case when mod(greatest(coalesce(m.bracket_slot, 1), 1), 2) = 1 then 'HOME' else 'AWAY' end;
-
-    if target is not null then
-      if v_target_side = 'HOME' then
-        update public.matches
-        set home_participant_id = coalesce(home_participant_id, loser)
-        where id = target
-          and away_participant_id is distinct from loser;
-      else
-        update public.matches
-        set away_participant_id = coalesce(away_participant_id, loser)
-        where id = target
-          and home_participant_id is distinct from loser;
-      end if;
-
-      perform public.sync_match_identities_from_participants(target);
-      perform public.balance_match_home_away(target);
-    end if;
+    perform public.sync_match_identities_from_participants(target);
+    perform public.balance_match_home_away(target);
 
     perform public.advance_playoff_byes(m.tournament_id);
     return new;

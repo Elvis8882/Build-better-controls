@@ -36,6 +36,9 @@ declare
   v_from_round int;
   v_from_slot int;
   v_to_slot int;
+  v_drop_side text;
+  v_drop_round_key text;
+  v_drop_slot_key text;
   v_gf1_round int;
 begin
   -- Developer note:
@@ -278,6 +281,15 @@ begin
     end loop;
 
     if array_length(v_drop_round_by_wb, 1) is not null then
+      update public.matches
+      set metadata = coalesce(metadata, '{}'::jsonb)
+        - 'wb_drop_round' - 'wb_drop_slot'
+        - 'wb_drop_home_round' - 'wb_drop_home_slot'
+        - 'wb_drop_away_round' - 'wb_drop_away_slot'
+      where tournament_id = p_tournament_id
+        and stage = 'PLAYOFF'
+        and bracket_type = 'LOSERS';
+
       -- Recompute alive tree and tag drops by *actual winners bracket slot*.
       v_seed_positions := array[1, 2];
       while array_length(v_seed_positions, 1) < v_s loop
@@ -310,15 +322,15 @@ begin
             v_from_slot := v_from_slot + 1;
 
             if array_length(v_drop_round_by_wb, 1) >= v_round then
-              v_to_slot := case
-                when v_round = 1 then ceil(v_from_slot / 2.0)::int
-                else v_from_slot
-              end;
+              v_to_slot := ceil(v_from_slot / 2.0)::int;
+              v_drop_side := case when mod(v_from_slot, 2) = 1 then 'home' else 'away' end;
+              v_drop_round_key := 'wb_drop_' || v_drop_side || '_round';
+              v_drop_slot_key := 'wb_drop_' || v_drop_side || '_slot';
 
               update public.matches
               set metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object(
-                'wb_drop_round', v_round,
-                'wb_drop_slot', v_slot
+                v_drop_round_key, v_round,
+                v_drop_slot_key, v_slot
               )
               where tournament_id = p_tournament_id
                 and stage = 'PLAYOFF'

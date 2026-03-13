@@ -1,0 +1,17 @@
+name: Supabase Routine Drift
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  check-routine-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify routine snapshots match latest migrations
+        run: python3 scripts/check_supabase_routine_drift.py

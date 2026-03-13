@@ -179,7 +179,106 @@ where l.participant_id is null
 order by lb.tournament_id, lb.lb_round, lb.lb_match_id;
 -- Expected output: 0 rows.
 
--- Invariant 2: each locked WB match contributes exactly one loser mapping (idempotent trigger behavior).
+-- Invariant 2: each locked WB match contributes exactly one loser to its mapped LB target
+-- (idempotent even if the trigger fires repeatedly for the same locked result).
+with fixtures(tournament_id) as (
+  values
+    (:'tournament_id_4'::uuid),
+    (:'tournament_id_6'::uuid),
+    (:'tournament_id_8'::uuid)
+),
+wb_locked_decisive as (
+  select
+    m.tournament_id,
+    m.id as wb_match_id,
+    m.round as wb_round,
+    greatest(coalesce(m.bracket_slot, 1), 1) as wb_slot,
+    case
+      when mr.home_score > mr.away_score then m.away_participant_id
+      when mr.away_score > mr.home_score then m.home_participant_id
+      else null
+    end as loser_participant_id
+  from public.matches m
+  join public.match_results mr
+    on mr.match_id = m.id
+   and mr.locked = true
+  where m.tournament_id in (select tournament_id from fixtures)
+    and m.stage = 'PLAYOFF'
+    and m.bracket_type = 'WINNERS'
+    and m.home_participant_id is not null
+    and m.away_participant_id is not null
+    and mr.home_score <> mr.away_score
+),
+wb_to_lb_targets as (
+  select
+    wb.tournament_id,
+    wb.wb_match_id,
+    wb.loser_participant_id,
+    lb.id as lb_match_id,
+    case
+      when ((lb.metadata->>'wb_drop_home_round')::int) = wb.wb_round
+       and ((lb.metadata->>'wb_drop_home_slot')::int) = wb.wb_slot
+      then 'HOME'
+      when ((lb.metadata->>'wb_drop_away_round')::int) = wb.wb_round
+       and ((lb.metadata->>'wb_drop_away_slot')::int) = wb.wb_slot
+      then 'AWAY'
+      else null
+    end as mapped_target_side,
+    lb.home_participant_id,
+    lb.away_participant_id
+  from wb_locked_decisive wb
+  left join public.matches lb
+    on lb.tournament_id = wb.tournament_id
+   and lb.stage = 'PLAYOFF'
+   and lb.bracket_type = 'LOSERS'
+   and (
+     (((lb.metadata->>'wb_drop_home_round')::int) = wb.wb_round
+       and ((lb.metadata->>'wb_drop_home_slot')::int) = wb.wb_slot)
+     or
+     (((lb.metadata->>'wb_drop_away_round')::int) = wb.wb_round
+       and ((lb.metadata->>'wb_drop_away_slot')::int) = wb.wb_slot)
+   )
+),
+target_cardinality as (
+  select
+    tournament_id,
+    wb_match_id,
+    count(lb_match_id) as mapped_target_count
+  from wb_to_lb_targets
+  group by tournament_id, wb_match_id
+)
+select
+  wb.tournament_id,
+  wb.wb_match_id,
+  tc.mapped_target_count,
+  t.lb_match_id,
+  t.mapped_target_side,
+  wb.loser_participant_id,
+  case
+    when tc.mapped_target_count <> 1 then 'TARGET_CARDINALITY_VIOLATION'
+    when t.mapped_target_side = 'HOME' and t.home_participant_id is distinct from wb.loser_participant_id
+      then 'LOSER_NOT_ON_MAPPED_HOME_SIDE'
+    when t.mapped_target_side = 'AWAY' and t.away_participant_id is distinct from wb.loser_participant_id
+      then 'LOSER_NOT_ON_MAPPED_AWAY_SIDE'
+    when t.mapped_target_side is null then 'UNRESOLVED_TARGET_SIDE'
+    else null
+  end as violation
+from wb_locked_decisive wb
+join target_cardinality tc
+  on tc.tournament_id = wb.tournament_id
+ and tc.wb_match_id = wb.wb_match_id
+left join wb_to_lb_targets t
+  on t.tournament_id = wb.tournament_id
+ and t.wb_match_id = wb.wb_match_id
+where tc.mapped_target_count <> 1
+   or (t.mapped_target_side = 'HOME' and t.home_participant_id is distinct from wb.loser_participant_id)
+   or (t.mapped_target_side = 'AWAY' and t.away_participant_id is distinct from wb.loser_participant_id)
+   or t.mapped_target_side is null
+order by wb.tournament_id, wb.wb_match_id;
+-- Expected output: 0 rows.
+
+-- Supplemental idempotency guard: no duplicate placement rows for the same WB source match.
+-- (Kept as a compatibility check for deployments still persisting playoff_placement_entrants.)
 with fixtures(tournament_id) as (
   values
     (:'tournament_id_4'::uuid),
@@ -187,23 +286,14 @@ with fixtures(tournament_id) as (
     (:'tournament_id_8'::uuid)
 )
 select
-  m.tournament_id,
-  m.id as wb_match_id,
-  count(e.source_match_id) as mapped_loser_count
-from public.matches m
-join public.match_results mr
-  on mr.match_id = m.id
- and mr.locked = true
-left join public.playoff_placement_entrants e
-  on e.source_match_id = m.id
-where m.tournament_id in (select tournament_id from fixtures)
-  and m.stage = 'PLAYOFF'
-  and m.bracket_type = 'WINNERS'
-  and m.home_participant_id is not null
-  and m.away_participant_id is not null
-group by m.tournament_id, m.id
-having count(e.source_match_id) <> 1
-order by m.tournament_id, m.id;
+  e.tournament_id,
+  e.source_match_id,
+  count(*) as placement_rows_for_source_match
+from public.playoff_placement_entrants e
+where e.tournament_id in (select tournament_id from fixtures)
+group by e.tournament_id, e.source_match_id
+having count(*) > 1
+order by e.tournament_id, e.source_match_id;
 -- Expected output: 0 rows.
 
 -- Invariant 3: no participant is active in conflicting WB/LB matches in the same progression step.

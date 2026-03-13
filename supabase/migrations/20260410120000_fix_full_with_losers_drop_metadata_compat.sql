@@ -1,3 +1,9 @@
+create or replace function public.trg_place_losers_into_losers_bracket()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
 declare
   m record;
   loser uuid;
@@ -114,35 +120,32 @@ begin
     and bracket_type = 'WINNERS';
 
   if v_is_full_with_losers and v_max_round >= 2 then
+    v_target_side := case when mod(greatest(coalesce(m.bracket_slot, 1), 1), 2) = 1 then 'HOME' else 'AWAY' end;
+
     -- Preferred mapping: side-specific drop metadata introduced by the generalized
     -- full_with_losers generator.
-    select id,
-           case
-             when ((metadata->>'wb_drop_home_round')::int) = m.round
-              and ((metadata->>'wb_drop_home_slot')::int) = greatest(coalesce(m.bracket_slot, 1), 1)
-             then 'HOME'
-             when ((metadata->>'wb_drop_away_round')::int) = m.round
-              and ((metadata->>'wb_drop_away_slot')::int) = greatest(coalesce(m.bracket_slot, 1), 1)
-             then 'AWAY'
-             else null
-           end
-    into target, v_target_side
-    from public.matches
-    where tournament_id = m.tournament_id
-      and stage = 'PLAYOFF'
-      and bracket_type = 'LOSERS'
-      and (
-        (((metadata->>'wb_drop_home_round')::int) = m.round
-          and ((metadata->>'wb_drop_home_slot')::int) = greatest(coalesce(m.bracket_slot, 1), 1))
-        or
-        (((metadata->>'wb_drop_away_round')::int) = m.round
-          and ((metadata->>'wb_drop_away_slot')::int) = greatest(coalesce(m.bracket_slot, 1), 1))
-      )
-    limit 1;
+    if v_target_side = 'HOME' then
+      select id into target
+      from public.matches
+      where tournament_id = m.tournament_id
+        and stage = 'PLAYOFF'
+        and bracket_type = 'LOSERS'
+        and ((metadata->>'wb_drop_home_round')::int) = m.round
+        and ((metadata->>'wb_drop_home_slot')::int) = greatest(coalesce(m.bracket_slot, 1), 1)
+      limit 1;
+    else
+      select id into target
+      from public.matches
+      where tournament_id = m.tournament_id
+        and stage = 'PLAYOFF'
+        and bracket_type = 'LOSERS'
+        and ((metadata->>'wb_drop_away_round')::int) = m.round
+        and ((metadata->>'wb_drop_away_slot')::int) = greatest(coalesce(m.bracket_slot, 1), 1)
+      limit 1;
+    end if;
 
     -- Compatibility fallback: legacy mapping shape.
     if target is null then
-      v_target_side := case when mod(greatest(coalesce(m.bracket_slot, 1), 1), 2) = 1 then 'HOME' else 'AWAY' end;
       if m.round = 1 then
         v_wb_drop_slot := ceil(greatest(coalesce(m.bracket_slot, 1), 1) / 2.0)::int;
         select id into target
@@ -219,3 +222,4 @@ begin
 
   return new;
 end;
+$$;

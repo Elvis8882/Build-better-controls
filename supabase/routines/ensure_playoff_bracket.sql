@@ -203,12 +203,6 @@ begin
         v_lb_prev_winners := ceil(v_lb_entrants / 2.0)::int;
       end if;
 
-      if v_round < v_rounds and v_lb_prev_winners > 1 then
-        v_lb_round_count := v_lb_round_count + 1;
-        v_lb_round := v_lb_round_count;
-        v_lb_matches := array_append(v_lb_matches, ceil(v_lb_prev_winners / 2.0)::int);
-        v_lb_prev_winners := ceil(v_lb_prev_winners / 2.0)::int;
-      end if;
     end loop;
 
     if v_lb_round_count = 0 then

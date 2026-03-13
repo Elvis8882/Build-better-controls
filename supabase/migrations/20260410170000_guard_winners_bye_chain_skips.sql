@@ -1,3 +1,9 @@
+create or replace function public.advance_playoff_byes(p_tournament_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
 declare
   v_changed boolean := true;
   r record;
@@ -113,3 +119,6 @@ begin
     end loop;
   end loop;
 end;
+$$;
+
+grant execute on function public.advance_playoff_byes(uuid) to authenticated;

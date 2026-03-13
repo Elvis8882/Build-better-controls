@@ -5,11 +5,9 @@ declare
   target uuid;
   v_preset text;
   v_max_round int;
-  v_drop_round int;
-  v_target_slot int;
   v_target_side text;
-  v_gf1_round int;
   v_gf2_id uuid;
+  v_wb_drop_slot int;
   v_is_full_with_losers boolean := false;
 begin
   if new.locked is distinct from true then
@@ -45,16 +43,8 @@ begin
       return new;
     end if;
 
-    -- Grand Final reset support: GF1 is the first LOSERS round after LB rounds.
-    select coalesce(max(round), 1) into v_max_round
-    from public.matches
-    where tournament_id = m.tournament_id
-      and stage = 'PLAYOFF'
-      and bracket_type = 'WINNERS';
-
-    v_gf1_round := ((v_max_round - 1) * 2) + 1;
-
-    if m.round = v_gf1_round then
+    -- Grand Final reset support: for full_with_losers, GF1 is explicitly tagged.
+    if coalesce((m.metadata->>'is_gf1')::boolean, false) then
       -- If LB side wins GF1, both finalists now have one loss -> activate GF2.
       if winner = m.away_participant_id and loser is not null then
         select id into v_gf2_id
@@ -62,8 +52,26 @@ begin
         where tournament_id = m.tournament_id
           and stage = 'PLAYOFF'
           and bracket_type = 'LOSERS'
-          and round = v_gf1_round + 1
-          and bracket_slot = 1;
+          and round = m.round + 1
+          and bracket_slot = 1
+          and coalesce((metadata->>'is_gf2')::boolean, false) = true;
+
+        if v_gf2_id is null then
+          insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot, metadata)
+          values (m.tournament_id, 'PLAYOFF', 'LOSERS', m.round + 1, 1, jsonb_build_object('is_gf2', true))
+          returning id into v_gf2_id;
+        end if;
+
+        if v_gf2_id is null then
+          select id into v_gf2_id
+          from public.matches
+          where tournament_id = m.tournament_id
+            and stage = 'PLAYOFF'
+            and bracket_type = 'LOSERS'
+            and round = m.round + 1
+            and bracket_slot = 1
+          limit 1;
+        end if;
 
         if v_gf2_id is not null then
           update public.matches
@@ -108,23 +116,28 @@ begin
     and bracket_type = 'WINNERS';
 
   if v_is_full_with_losers and v_max_round >= 2 then
-    if m.round = 1 then
-      v_drop_round := 1;
-      v_target_slot := ceil(greatest(coalesce(m.bracket_slot, 1), 1) / 2.0)::int;
-    else
-      v_drop_round := (m.round - 1) * 2;
-      v_target_slot := greatest(coalesce(m.bracket_slot, 1), 1);
-    end if;
-
-    v_target_side := case when mod(greatest(coalesce(m.bracket_slot, 1), 1), 2) = 1 then 'HOME' else 'AWAY' end;
-
     select id into target
     from public.matches
     where tournament_id = m.tournament_id
       and stage = 'PLAYOFF'
       and bracket_type = 'LOSERS'
-      and round = v_drop_round
-      and bracket_slot = v_target_slot;
+      and ((metadata->>'wb_drop_round')::int) = m.round
+      and ((metadata->>'wb_drop_slot')::int) = greatest(coalesce(m.bracket_slot, 1), 1)
+    limit 1;
+
+    if target is null and m.round = 1 then
+      v_wb_drop_slot := ceil(greatest(coalesce(m.bracket_slot, 1), 1) / 2.0)::int;
+      select id into target
+      from public.matches
+      where tournament_id = m.tournament_id
+        and stage = 'PLAYOFF'
+        and bracket_type = 'LOSERS'
+        and ((metadata->>'wb_drop_round')::int) = 1
+        and ((metadata->>'wb_drop_slot')::int) = v_wb_drop_slot
+      limit 1;
+    end if;
+
+    v_target_side := case when mod(greatest(coalesce(m.bracket_slot, 1), 1), 2) = 1 then 'HOME' else 'AWAY' end;
 
     if target is not null then
       if v_target_side = 'HOME' then

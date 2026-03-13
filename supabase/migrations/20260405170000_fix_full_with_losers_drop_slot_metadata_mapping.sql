@@ -1,3 +1,9 @@
+create or replace function public.ensure_playoff_bracket(p_tournament_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
 declare
 	r record;
   v_preset text;
@@ -355,53 +361,6 @@ begin
       end loop;
     end if;
 
-    if array_length(v_drop_round_by_wb, 1) is not null then
-      for v_from_round in 1..array_length(v_drop_round_by_wb, 1) loop
-        if coalesce(v_wb_drop_counts[v_from_round], 0) = 0 then
-          continue;
-        end if;
-
-        for v_from_slot in 1..coalesce(v_wb_drop_counts[v_from_round], 0) loop
-          v_to_slot := case
-            when v_from_round = 1 then ceil(v_from_slot / 2.0)::int
-            else v_from_slot
-          end;
-
-          update public.matches
-          set metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object(
-            'wb_drop_round', v_from_round,
-            'wb_drop_slot', v_from_slot
-          )
-          where tournament_id = p_tournament_id
-            and stage = 'PLAYOFF'
-            and bracket_type = 'LOSERS'
-            and round = v_drop_round_by_wb[v_from_round]
-            and bracket_slot = v_to_slot;
-        end loop;
-      end loop;
-    end if;
-
-    if v_lb_round_count >= 1 then
-      for v_slot in 1..v_lb_matches[v_lb_round_count] loop
-        select id into v_mid
-        from public.matches
-        where tournament_id = p_tournament_id
-          and stage='PLAYOFF' and bracket_type='LOSERS'
-          and round=v_lb_round_count and bracket_slot=v_slot;
-
-        select id into v_parent
-        from public.matches
-        where tournament_id = p_tournament_id
-          and stage='PLAYOFF' and bracket_type='LOSERS'
-          and round=v_gf1_round and bracket_slot=1;
-
-        update public.matches
-        set next_match_id = v_parent,
-            next_match_side = 'AWAY'
-        where id = v_mid;
-      end loop;
-    end if;
-
     -- Winners final winner goes to GF1 home.
     select id into v_parent
     from public.matches
@@ -578,3 +537,6 @@ begin
     perform public.sync_match_identities_from_participants(r.id);
   end loop;
 end;
+$$;
+
+grant execute on function public.ensure_playoff_bracket(uuid) to authenticated;

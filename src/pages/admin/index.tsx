@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+<<<<<<< codex/enhance-admin-panel-and-profile-tracker
 import { ArrowUpDown } from "lucide-react";
+=======
+>>>>>>> main
 import { toast } from "sonner";
 import { useAuth } from "@/auth/AuthProvider";
 import { listTeams, type Team, updateTeamRatings } from "@/lib/db";
@@ -36,10 +39,14 @@ export default function AdminPanelPage() {
 	const [editingTeamId, setEditingTeamId] = useState<string | null>(null);
 	const [drafts, setDrafts] = useState<Record<string, EditableRatings>>({});
 	const [teamNameFilter, setTeamNameFilter] = useState("");
+<<<<<<< codex/enhance-admin-panel-and-profile-tracker
 	const [sortMode, setSortMode] = useState<{ key: "name" | "overall"; direction: "asc" | "desc" }>({
 		key: "name",
 		direction: "asc",
 	});
+=======
+	const [teamNameSort, setTeamNameSort] = useState<"asc" | "desc">("asc");
+>>>>>>> main
 
 	const loadTeams = useCallback(async () => {
 		try {
@@ -71,6 +78,7 @@ export default function AdminPanelPage() {
 	}, [isAdmin, loadTeams]);
 
 	const normalizedFilter = teamNameFilter.trim().toLowerCase();
+<<<<<<< codex/enhance-admin-panel-and-profile-tracker
 	const getDisplayedOverall = useCallback(
 		(team: Team) => {
 			const draft = drafts[team.id];
@@ -78,11 +86,14 @@ export default function AdminPanelPage() {
 		},
 		[drafts],
 	);
+=======
+>>>>>>> main
 	const visibleTeams = useMemo(
 		() =>
 			teams
 				.filter((team) => (normalizedFilter ? team.name.toLowerCase().includes(normalizedFilter) : true))
 				.sort((a, b) =>
+<<<<<<< codex/enhance-admin-panel-and-profile-tracker
 					sortMode.key === "name"
 						? sortMode.direction === "asc"
 							? a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
@@ -107,6 +118,16 @@ export default function AdminPanelPage() {
 	};
 
 	const sortDirectionLabel = sortMode.direction === "asc" ? "ascending" : "descending";
+=======
+					teamNameSort === "asc"
+						? a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
+						: b.name.localeCompare(a.name, undefined, { sensitivity: "base" }),
+				),
+		[normalizedFilter, teamNameSort, teams],
+	);
+	const nhlTeams = useMemo(() => visibleTeams.filter((team) => team.team_pool === "NHL"), [visibleTeams]);
+	const internationalTeams = useMemo(() => visibleTeams.filter((team) => team.team_pool === "INTL"), [visibleTeams]);
+>>>>>>> main
 
 	const onSave = async (teamId: string) => {
 		const draft = drafts[teamId];
@@ -138,6 +159,7 @@ export default function AdminPanelPage() {
 			<table className="w-full min-w-[960px] text-sm">
 				<thead>
 					<tr className="border-b">
+<<<<<<< codex/enhance-admin-panel-and-profile-tracker
 						<th className="px-2 py-2 text-left">
 							<div className="inline-flex items-center gap-1">
 								Team
@@ -169,6 +191,11 @@ export default function AdminPanelPage() {
 								</Button>
 							</div>
 						</th>
+=======
+						<th className="px-2 py-2 text-left">Team</th>
+						<th className="px-2 py-2 text-left">Tier</th>
+						<th className="px-2 py-2 text-left">OVR</th>
+>>>>>>> main
 						<th className="px-2 py-2 text-left">OFF</th>
 						<th className="px-2 py-2 text-left">DEF</th>
 						<th className="px-2 py-2 text-left">GOA</th>
@@ -278,13 +305,38 @@ export default function AdminPanelPage() {
 					<p className="text-sm text-muted-foreground">Loading teams...</p>
 				) : (
 					<div className="space-y-4">
+<<<<<<< codex/enhance-admin-panel-and-profile-tracker
 						<div className="flex flex-col gap-2">
+=======
+						<div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+>>>>>>> main
 							<Input
 								value={teamNameFilter}
 								onChange={(event) => setTeamNameFilter(event.target.value)}
 								placeholder="Filter by team name..."
 								className="md:max-w-xs"
 							/>
+<<<<<<< codex/enhance-admin-panel-and-profile-tracker
+=======
+							<div className="flex gap-2">
+								<Button
+									type="button"
+									size="sm"
+									variant={teamNameSort === "asc" ? "default" : "outline"}
+									onClick={() => setTeamNameSort("asc")}
+								>
+									Name A→Z
+								</Button>
+								<Button
+									type="button"
+									size="sm"
+									variant={teamNameSort === "desc" ? "default" : "outline"}
+									onClick={() => setTeamNameSort("desc")}
+								>
+									Name Z→A
+								</Button>
+							</div>
+>>>>>>> main
 						</div>
 						<Tabs defaultValue="nhl" className="space-y-3">
 							<TabsList>

@@ -119,6 +119,14 @@ begin
   truncate table tmp_rr_fixtures_base;
   create temporary table if not exists tmp_rr_fixtures(home_id uuid, away_id uuid, ord int);
   truncate table tmp_rr_fixtures;
+  create temporary table if not exists tmp_rr_home_away_counts(
+    participant_id uuid primary key,
+    home_count int not null default 0,
+    away_count int not null default 0
+  );
+  truncate table tmp_rr_home_away_counts;
+  insert into tmp_rr_home_away_counts(participant_id)
+  select unnest(v_participant_ids);
 
   for v_round in 1..(v_slot_count - 1) loop
     for v_pair in 1..(v_slot_count / 2) loop
@@ -127,14 +135,48 @@ begin
       if v_candidate_a is null or v_candidate_b is null then
         continue;
       end if;
-      if mod(v_round + v_pair, 2)=0 then
+
+      if (
+        (
+          abs(
+            (
+              (select c.home_count from tmp_rr_home_away_counts c where c.participant_id = v_candidate_a) + 1
+            ) - (select c.away_count from tmp_rr_home_away_counts c where c.participant_id = v_candidate_a)
+          ) +
+          abs(
+            (select c.home_count from tmp_rr_home_away_counts c where c.participant_id = v_candidate_b) -
+            (
+              (select c.away_count from tmp_rr_home_away_counts c where c.participant_id = v_candidate_b) + 1
+            )
+          )
+        ) <= (
+          abs(
+            (select c.home_count from tmp_rr_home_away_counts c where c.participant_id = v_candidate_a) -
+            (
+              (select c.away_count from tmp_rr_home_away_counts c where c.participant_id = v_candidate_a) + 1
+            )
+          ) +
+          abs(
+            (
+              (select c.home_count from tmp_rr_home_away_counts c where c.participant_id = v_candidate_b) + 1
+            ) - (select c.away_count from tmp_rr_home_away_counts c where c.participant_id = v_candidate_b)
+          )
+        )
+      ) then
         v_home_id := v_candidate_a;
         v_away_id := v_candidate_b;
       else
         v_home_id := v_candidate_b;
         v_away_id := v_candidate_a;
       end if;
+
       insert into tmp_rr_fixtures_base(home_id, away_id, ord) values (v_home_id, v_away_id, v_round * 100 + v_pair);
+      update tmp_rr_home_away_counts
+      set home_count = home_count + 1
+      where participant_id = v_home_id;
+      update tmp_rr_home_away_counts
+      set away_count = away_count + 1
+      where participant_id = v_away_id;
     end loop;
     v_working := array[v_working[1], v_working[v_slot_count]] || v_working[2:v_slot_count-1];
   end loop;
@@ -177,4 +219,23 @@ begin
 
     v_wave := v_wave + 1;
   end loop;
+
+  -- Validation query (for migration notes / regression checks):
+  -- with home_away as (
+  --   select m.home_participant_id as participant_id, count(*) as home_count, 0::bigint as away_count
+  --   from public.matches m
+  --   where m.tournament_id = p_tournament_id and m.stage = 'GROUP'
+  --   group by m.home_participant_id
+  --   union all
+  --   select m.away_participant_id as participant_id, 0::bigint as home_count, count(*) as away_count
+  --   from public.matches m
+  --   where m.tournament_id = p_tournament_id and m.stage = 'GROUP'
+  --   group by m.away_participant_id
+  -- )
+  -- select max(player_delta) as max_home_away_delta
+  -- from (
+  --   select abs(sum(home_count) - sum(away_count)) as player_delta
+  --   from home_away
+  --   group by participant_id
+  -- ) deltas;
 end;

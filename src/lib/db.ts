@@ -914,7 +914,7 @@ export async function listUserTeamTournamentPerformance(userId: string): Promise
 
 	const { data: resultsData, error: resultsError } = await supabase
 		.from("match_results")
-		.select("match_id, home_score, away_score, home_shots, away_shots, locked")
+		.select("match_id, home_score, away_score, home_shots, away_shots, locked, home_team_id, away_team_id")
 		.in(
 			"match_id",
 			matches.map((item) => item.id),
@@ -923,7 +923,15 @@ export async function listUserTeamTournamentPerformance(userId: string): Promise
 
 	const resultsByMatchId = new Map<
 		string,
-		{ home_score: number; away_score: number; home_shots: number; away_shots: number; locked: boolean }
+		{
+			home_score: number;
+			away_score: number;
+			home_shots: number;
+			away_shots: number;
+			locked: boolean;
+			home_team_id: string | null;
+			away_team_id: string | null;
+		}
 	>();
 	for (const row of resultsData ?? []) {
 		if (
@@ -940,7 +948,33 @@ export async function listUserTeamTournamentPerformance(userId: string): Promise
 			home_shots: row.home_shots,
 			away_shots: row.away_shots,
 			locked: Boolean(row.locked),
+			home_team_id: (row.home_team_id as string | null) ?? null,
+			away_team_id: (row.away_team_id as string | null) ?? null,
 		});
+	}
+
+	const resultTeamIds = new Set<string>();
+	for (const result of resultsByMatchId.values()) {
+		if (result.home_team_id) resultTeamIds.add(result.home_team_id);
+		if (result.away_team_id) resultTeamIds.add(result.away_team_id);
+	}
+	for (const participant of participantById.values()) {
+		resultTeamIds.add(participant.team_id);
+	}
+
+	const teamNameById = new Map<string, string>();
+	if (resultTeamIds.size > 0) {
+		const { data: teamsData, error: teamsError } = await supabase
+			.from("teams")
+			.select("id, name")
+			.in("id", [...resultTeamIds]);
+		throwOnError(teamsError, "Unable to load team metadata");
+		for (const team of teamsData ?? []) {
+			const teamId = team.id as string | null;
+			const teamName = team.name as string | null;
+			if (!teamId || !teamName) continue;
+			teamNameById.set(teamId, teamName);
+		}
 	}
 
 	const totalsByTournamentTeam = new Map<string, PlayerTeamTournamentPerformance>();
@@ -954,6 +988,7 @@ export async function listUserTeamTournamentPerformance(userId: string): Promise
 
 		const addTeamMatchTotals = (
 			participantId: string | null,
+			resultTeamId: string | null,
 			forShots: number,
 			forGoals: number,
 			againstShots: number,
@@ -962,13 +997,15 @@ export async function listUserTeamTournamentPerformance(userId: string): Promise
 			if (!participantId) return;
 			const participantMeta = participantById.get(participantId);
 			if (!participantMeta) return;
-			const key = `${participantMeta.tournament_id}:${participantMeta.team_id}`;
+			const resolvedTeamId = resultTeamId ?? participantMeta.team_id;
+			const resolvedTeamName = (resultTeamId ? teamNameById.get(resultTeamId) : null) ?? participantMeta.team_name;
+			const key = `${participantMeta.tournament_id}:${resolvedTeamId}`;
 			const current = totalsByTournamentTeam.get(key) ?? {
 				tournament_id: participantMeta.tournament_id,
 				tournament_name: tournamentMeta.name,
 				tournament_date: tournamentMeta.created_at,
-				team_id: participantMeta.team_id,
-				team_name: participantMeta.team_name,
+				team_id: resolvedTeamId,
+				team_name: resolvedTeamName,
 				shots_on_goal: 0,
 				goals: 0,
 				shots_against: 0,
@@ -984,6 +1021,7 @@ export async function listUserTeamTournamentPerformance(userId: string): Promise
 
 		addTeamMatchTotals(
 			match.home_participant_id,
+			result.home_team_id,
 			result.home_shots,
 			result.home_score,
 			result.away_shots,
@@ -991,6 +1029,7 @@ export async function listUserTeamTournamentPerformance(userId: string): Promise
 		);
 		addTeamMatchTotals(
 			match.away_participant_id,
+			result.away_team_id,
 			result.away_shots,
 			result.away_score,
 			result.home_shots,

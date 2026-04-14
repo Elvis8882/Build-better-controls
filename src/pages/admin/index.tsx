@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ArrowUpDown } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/auth/AuthProvider";
 import { listTeams, type Team, updateTeamRatings } from "@/lib/db";
 import Page403 from "@/pages/sys/error/Page403";
 import { Button } from "@/ui/button";
 import { Input } from "@/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/ui/tabs";
 
 type EditableRatings = {
 	offense: string;
@@ -33,6 +35,11 @@ export default function AdminPanelPage() {
 	const [saving, setSaving] = useState(false);
 	const [editingTeamId, setEditingTeamId] = useState<string | null>(null);
 	const [drafts, setDrafts] = useState<Record<string, EditableRatings>>({});
+	const [teamNameFilter, setTeamNameFilter] = useState("");
+	const [sortMode, setSortMode] = useState<{ key: "name" | "overall"; direction: "asc" | "desc" }>({
+		key: "name",
+		direction: "asc",
+	});
 
 	const loadTeams = useCallback(async () => {
 		try {
@@ -63,9 +70,43 @@ export default function AdminPanelPage() {
 		void loadTeams();
 	}, [isAdmin, loadTeams]);
 
-	if (!isAdmin) {
-		return <Page403 />;
-	}
+	const normalizedFilter = teamNameFilter.trim().toLowerCase();
+	const getDisplayedOverall = useCallback(
+		(team: Team) => {
+			const draft = drafts[team.id];
+			return draft ? toOverall(draft.offense, draft.defense, draft.goalie) : team.overall;
+		},
+		[drafts],
+	);
+	const visibleTeams = useMemo(
+		() =>
+			teams
+				.filter((team) => (normalizedFilter ? team.name.toLowerCase().includes(normalizedFilter) : true))
+				.sort((a, b) =>
+					sortMode.key === "name"
+						? sortMode.direction === "asc"
+							? a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
+							: b.name.localeCompare(a.name, undefined, { sensitivity: "base" })
+						: sortMode.direction === "asc"
+							? getDisplayedOverall(a) - getDisplayedOverall(b) ||
+								a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
+							: getDisplayedOverall(b) - getDisplayedOverall(a) ||
+								a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+				),
+		[getDisplayedOverall, normalizedFilter, sortMode, teams],
+	);
+	const nhlTeams = useMemo(() => visibleTeams.filter((team) => team.team_pool === "NHL"), [visibleTeams]);
+	const internationalTeams = useMemo(() => visibleTeams.filter((team) => team.team_pool === "INTL"), [visibleTeams]);
+
+	const toggleSort = (key: "name" | "overall") => {
+		setSortMode((previous) =>
+			previous.key === key
+				? { key, direction: previous.direction === "asc" ? "desc" : "asc" }
+				: { key, direction: "asc" },
+		);
+	};
+
+	const sortDirectionLabel = sortMode.direction === "asc" ? "ascending" : "descending";
 
 	const onSave = async (teamId: string) => {
 		const draft = drafts[teamId];
@@ -92,6 +133,138 @@ export default function AdminPanelPage() {
 		}
 	};
 
+	const renderTeamsTable = (poolTeams: Team[]) => (
+		<div className="overflow-x-auto">
+			<table className="w-full min-w-[960px] text-sm">
+				<thead>
+					<tr className="border-b">
+						<th className="px-2 py-2 text-left">
+							<div className="inline-flex items-center gap-1">
+								Team
+								<Button
+									type="button"
+									variant="ghost"
+									size="icon"
+									className="h-6 w-6"
+									onClick={() => toggleSort("name")}
+									aria-label={`Sort by team name (${sortMode.key === "name" ? sortDirectionLabel : "ascending"})`}
+								>
+									<ArrowUpDown className="h-3.5 w-3.5" />
+								</Button>
+							</div>
+						</th>
+						<th className="px-2 py-2 text-left">Tier</th>
+						<th className="px-2 py-2 text-left">
+							<div className="inline-flex items-center gap-1">
+								OVR
+								<Button
+									type="button"
+									variant="ghost"
+									size="icon"
+									className="h-6 w-6"
+									onClick={() => toggleSort("overall")}
+									aria-label={`Sort by overall (${sortMode.key === "overall" ? sortDirectionLabel : "ascending"})`}
+								>
+									<ArrowUpDown className="h-3.5 w-3.5" />
+								</Button>
+							</div>
+						</th>
+						<th className="px-2 py-2 text-left">OFF</th>
+						<th className="px-2 py-2 text-left">DEF</th>
+						<th className="px-2 py-2 text-left">GOA</th>
+						<th className="px-2 py-2 text-left">Last updated</th>
+						<th className="px-2 py-2 text-left">Actions</th>
+					</tr>
+				</thead>
+				<tbody>
+					{poolTeams.map((team) => {
+						const draft = drafts[team.id];
+						const isEditing = editingTeamId === team.id;
+						const overall = draft ? toOverall(draft.offense, draft.defense, draft.goalie) : team.overall;
+						return (
+							<tr key={team.id} className="border-b">
+								<td className="px-2 py-2">{team.name}</td>
+								<td className="px-2 py-2">{team.ovr_tier}</td>
+								<td className="px-2 py-2 font-medium">{overall}</td>
+								<td className="px-2 py-2">
+									<Input
+										type="number"
+										min={0}
+										max={100}
+										disabled={!isEditing || saving}
+										value={draft?.offense ?? "0"}
+										onChange={(event) =>
+											setDrafts((previous) => ({
+												...previous,
+												[team.id]: { ...previous[team.id], offense: event.target.value },
+											}))
+										}
+									/>
+								</td>
+								<td className="px-2 py-2">
+									<Input
+										type="number"
+										min={0}
+										max={100}
+										disabled={!isEditing || saving}
+										value={draft?.defense ?? "0"}
+										onChange={(event) =>
+											setDrafts((previous) => ({
+												...previous,
+												[team.id]: { ...previous[team.id], defense: event.target.value },
+											}))
+										}
+									/>
+								</td>
+								<td className="px-2 py-2">
+									<Input
+										type="number"
+										min={0}
+										max={100}
+										disabled={!isEditing || saving}
+										value={draft?.goalie ?? "0"}
+										onChange={(event) =>
+											setDrafts((previous) => ({
+												...previous,
+												[team.id]: { ...previous[team.id], goalie: event.target.value },
+											}))
+										}
+									/>
+								</td>
+								<td className="px-2 py-2 whitespace-nowrap">{formatLastUpdated(team.last_updated)}</td>
+								<td className="px-2 py-2">
+									{isEditing ? (
+										<div className="flex gap-2">
+											<Button size="sm" disabled={saving} onClick={() => void onSave(team.id)}>
+												Save
+											</Button>
+											<Button size="sm" variant="outline" disabled={saving} onClick={() => setEditingTeamId(null)}>
+												Cancel
+											</Button>
+										</div>
+									) : (
+										<Button size="sm" variant="outline" disabled={saving} onClick={() => setEditingTeamId(team.id)}>
+											Edit
+										</Button>
+									)}
+								</td>
+							</tr>
+						);
+					})}
+				</tbody>
+			</table>
+			{poolTeams.length === 0 ? (
+				<p className="pt-3 text-sm text-muted-foreground">
+					{normalizedFilter ? "No teams match the current filter." : "No teams available."}
+				</p>
+			) : null}
+		</div>
+	);
+
+	if (!isAdmin) {
+		return <Page403 />;
+	}
+
 	return (
 		<div className="space-y-6">
 			<div>
@@ -104,107 +277,23 @@ export default function AdminPanelPage() {
 				{loading ? (
 					<p className="text-sm text-muted-foreground">Loading teams...</p>
 				) : (
-					<div className="overflow-x-auto">
-						<table className="w-full min-w-[960px] text-sm">
-							<thead>
-								<tr className="border-b">
-									<th className="px-2 py-2 text-left">Team</th>
-									<th className="px-2 py-2 text-left">Tier</th>
-									<th className="px-2 py-2 text-left">OVR</th>
-									<th className="px-2 py-2 text-left">OFF</th>
-									<th className="px-2 py-2 text-left">DEF</th>
-									<th className="px-2 py-2 text-left">GOA</th>
-									<th className="px-2 py-2 text-left">Last updated</th>
-									<th className="px-2 py-2 text-left">Actions</th>
-								</tr>
-							</thead>
-							<tbody>
-								{teams.map((team) => {
-									const draft = drafts[team.id];
-									const isEditing = editingTeamId === team.id;
-									const overall = draft ? toOverall(draft.offense, draft.defense, draft.goalie) : team.overall;
-									return (
-										<tr key={team.id} className="border-b">
-											<td className="px-2 py-2">{team.name}</td>
-											<td className="px-2 py-2">{team.ovr_tier}</td>
-											<td className="px-2 py-2 font-medium">{overall}</td>
-											<td className="px-2 py-2">
-												<Input
-													type="number"
-													min={0}
-													max={100}
-													disabled={!isEditing || saving}
-													value={draft?.offense ?? "0"}
-													onChange={(event) =>
-														setDrafts((previous) => ({
-															...previous,
-															[team.id]: { ...previous[team.id], offense: event.target.value },
-														}))
-													}
-												/>
-											</td>
-											<td className="px-2 py-2">
-												<Input
-													type="number"
-													min={0}
-													max={100}
-													disabled={!isEditing || saving}
-													value={draft?.defense ?? "0"}
-													onChange={(event) =>
-														setDrafts((previous) => ({
-															...previous,
-															[team.id]: { ...previous[team.id], defense: event.target.value },
-														}))
-													}
-												/>
-											</td>
-											<td className="px-2 py-2">
-												<Input
-													type="number"
-													min={0}
-													max={100}
-													disabled={!isEditing || saving}
-													value={draft?.goalie ?? "0"}
-													onChange={(event) =>
-														setDrafts((previous) => ({
-															...previous,
-															[team.id]: { ...previous[team.id], goalie: event.target.value },
-														}))
-													}
-												/>
-											</td>
-											<td className="px-2 py-2 whitespace-nowrap">{formatLastUpdated(team.last_updated)}</td>
-											<td className="px-2 py-2">
-												{isEditing ? (
-													<div className="flex gap-2">
-														<Button size="sm" disabled={saving} onClick={() => void onSave(team.id)}>
-															Save
-														</Button>
-														<Button
-															size="sm"
-															variant="outline"
-															disabled={saving}
-															onClick={() => setEditingTeamId(null)}
-														>
-															Cancel
-														</Button>
-													</div>
-												) : (
-													<Button
-														size="sm"
-														variant="outline"
-														disabled={saving}
-														onClick={() => setEditingTeamId(team.id)}
-													>
-														Edit
-													</Button>
-												)}
-											</td>
-										</tr>
-									);
-								})}
-							</tbody>
-						</table>
+					<div className="space-y-4">
+						<div className="flex flex-col gap-2">
+							<Input
+								value={teamNameFilter}
+								onChange={(event) => setTeamNameFilter(event.target.value)}
+								placeholder="Filter by team name..."
+								className="md:max-w-xs"
+							/>
+						</div>
+						<Tabs defaultValue="nhl" className="space-y-3">
+							<TabsList>
+								<TabsTrigger value="nhl">NHL ({nhlTeams.length})</TabsTrigger>
+								<TabsTrigger value="intl">International ({internationalTeams.length})</TabsTrigger>
+							</TabsList>
+							<TabsContent value="nhl">{renderTeamsTable(nhlTeams)}</TabsContent>
+							<TabsContent value="intl">{renderTeamsTable(internationalTeams)}</TabsContent>
+						</Tabs>
 					</div>
 				)}
 			</div>

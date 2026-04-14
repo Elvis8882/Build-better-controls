@@ -189,6 +189,11 @@ export type PlayerTournamentPerformance = {
 	goals_against: number;
 };
 
+export type PlayerTeamTournamentPerformance = PlayerTournamentPerformance & {
+	team_id: string;
+	team_name: string;
+};
+
 export type FriendRequest = {
 	id: string;
 	sender_id: string;
@@ -840,6 +845,163 @@ export async function listUserTournamentPerformance(userId: string): Promise<Pla
 
 	return [...totalsByTournament.values()].sort(
 		(a, b) => new Date(a.tournament_date).getTime() - new Date(b.tournament_date).getTime(),
+	);
+}
+
+export async function listUserTeamTournamentPerformance(userId: string): Promise<PlayerTeamTournamentPerformance[]> {
+	const { data: participantsData, error: participantsError } = await supabase
+		.from("tournament_participants")
+		.select("id, tournament_id, team_id, team:teams(name)")
+		.eq("user_id", userId)
+		.not("team_id", "is", null);
+	throwOnError(participantsError, "Unable to load player tournament participants");
+
+	const participantRows = (participantsData ?? []) as Array<{
+		id: string;
+		tournament_id: string;
+		team_id: string;
+		team: { name: string } | Array<{ name: string }> | null;
+	}>;
+	if (participantRows.length === 0) return [];
+
+	const participantIds = participantRows.map((item) => item.id).filter(Boolean);
+	if (participantIds.length === 0) return [];
+	const participantFilter = participantIds.join(",");
+
+	const participantById = new Map<string, { tournament_id: string; team_id: string; team_name: string }>();
+	for (const participant of participantRows) {
+		const team = Array.isArray(participant.team) ? participant.team[0] : participant.team;
+		if (!participant.team_id || !participant.tournament_id || !team?.name) continue;
+		participantById.set(participant.id, {
+			tournament_id: participant.tournament_id,
+			team_id: participant.team_id,
+			team_name: team.name,
+		});
+	}
+	if (participantById.size === 0) return [];
+
+	const tournamentIds = [...new Set([...participantById.values()].map((item) => item.tournament_id))];
+	const { data: tournamentsData, error: tournamentsError } = await supabase
+		.from("tournaments")
+		.select("id, name, created_at")
+		.in("id", tournamentIds)
+		.ilike("status", "closed");
+	throwOnError(tournamentsError, "Unable to load tournaments");
+
+	const tournamentById = new Map<string, { name: string; created_at: string }>();
+	for (const row of tournamentsData ?? []) {
+		const id = row.id as string;
+		if (!id) continue;
+		tournamentById.set(id, {
+			name: (row.name as string) ?? "Unknown tournament",
+			created_at: (row.created_at as string) ?? new Date(0).toISOString(),
+		});
+	}
+
+	const { data: matchesData, error: matchesError } = await supabase
+		.from("matches")
+		.select("id, tournament_id, home_participant_id, away_participant_id")
+		.or(`home_participant_id.in.(${participantFilter}),away_participant_id.in.(${participantFilter})`);
+	throwOnError(matchesError, "Unable to load player tournament matches");
+
+	const matches = (matchesData ?? []) as Array<{
+		id: string;
+		tournament_id: string;
+		home_participant_id: string | null;
+		away_participant_id: string | null;
+	}>;
+	if (matches.length === 0) return [];
+
+	const { data: resultsData, error: resultsError } = await supabase
+		.from("match_results")
+		.select("match_id, home_score, away_score, home_shots, away_shots, locked")
+		.in(
+			"match_id",
+			matches.map((item) => item.id),
+		);
+	throwOnError(resultsError, "Unable to load player tournament results");
+
+	const resultsByMatchId = new Map<
+		string,
+		{ home_score: number; away_score: number; home_shots: number; away_shots: number; locked: boolean }
+	>();
+	for (const row of resultsData ?? []) {
+		if (
+			typeof row.home_score !== "number" ||
+			typeof row.away_score !== "number" ||
+			typeof row.home_shots !== "number" ||
+			typeof row.away_shots !== "number"
+		) {
+			continue;
+		}
+		resultsByMatchId.set(row.match_id as string, {
+			home_score: row.home_score,
+			away_score: row.away_score,
+			home_shots: row.home_shots,
+			away_shots: row.away_shots,
+			locked: Boolean(row.locked),
+		});
+	}
+
+	const totalsByTournamentTeam = new Map<string, PlayerTeamTournamentPerformance>();
+
+	for (const match of matches) {
+		const tournamentMeta = tournamentById.get(match.tournament_id);
+		if (!tournamentMeta) continue;
+
+		const result = resultsByMatchId.get(match.id);
+		if (!result?.locked) continue;
+
+		const addTeamMatchTotals = (
+			participantId: string | null,
+			forShots: number,
+			forGoals: number,
+			againstShots: number,
+			againstGoals: number,
+		) => {
+			if (!participantId) return;
+			const participantMeta = participantById.get(participantId);
+			if (!participantMeta) return;
+			const key = `${participantMeta.tournament_id}:${participantMeta.team_id}`;
+			const current = totalsByTournamentTeam.get(key) ?? {
+				tournament_id: participantMeta.tournament_id,
+				tournament_name: tournamentMeta.name,
+				tournament_date: tournamentMeta.created_at,
+				team_id: participantMeta.team_id,
+				team_name: participantMeta.team_name,
+				shots_on_goal: 0,
+				goals: 0,
+				shots_against: 0,
+				goals_against: 0,
+			};
+
+			current.shots_on_goal += forShots;
+			current.goals += forGoals;
+			current.shots_against += againstShots;
+			current.goals_against += againstGoals;
+			totalsByTournamentTeam.set(key, current);
+		};
+
+		addTeamMatchTotals(
+			match.home_participant_id,
+			result.home_shots,
+			result.home_score,
+			result.away_shots,
+			result.away_score,
+		);
+		addTeamMatchTotals(
+			match.away_participant_id,
+			result.away_shots,
+			result.away_score,
+			result.home_shots,
+			result.home_score,
+		);
+	}
+
+	return [...totalsByTournamentTeam.values()].sort(
+		(a, b) =>
+			new Date(a.tournament_date).getTime() - new Date(b.tournament_date).getTime() ||
+			a.team_name.localeCompare(b.team_name),
 	);
 }
 

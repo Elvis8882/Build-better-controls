@@ -7,7 +7,9 @@ import { useAuth } from "@/auth/AuthProvider";
 import {
 	fetchTeamsByPool,
 	getProfileOverview,
+	listUserTeamTournamentPerformance,
 	listUserTournamentPerformance,
+	type PlayerTeamTournamentPerformance,
 	type ProfileOverview,
 	type Team,
 	updateProfileOverview,
@@ -16,6 +18,7 @@ import { getTeamLogoUrl, handleTeamLogoImageError } from "@/lib/teamLogos";
 import { Button } from "@/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/ui/card";
 import { Input } from "@/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/ui/select";
 import { Textarea } from "@/ui/textarea";
 
 type ProfileFormState = {
@@ -72,7 +75,20 @@ export default function UserProfilePage() {
 		{ name: "Shots against", data: [0] },
 		{ name: "Goals let in", data: [0] },
 	]);
-	const [performanceCategories, setPerformanceCategories] = useState(["Career"]);
+	const [performanceCategories, setPerformanceCategories] = useState(["Total"]);
+	const [tournamentPerformance, setTournamentPerformance] = useState<
+		Array<{
+			tournament_id: string;
+			tournament_name: string;
+			tournament_date: string;
+			shots_on_goal: number;
+			goals: number;
+			shots_against: number;
+			goals_against: number;
+		}>
+	>([]);
+	const [teamTournamentPerformance, setTeamTournamentPerformance] = useState<PlayerTeamTournamentPerformance[]>([]);
+	const [selectedPerformanceTeamId, setSelectedPerformanceTeamId] = useState("all");
 	const [nhlTeams, setNhlTeams] = useState<Array<Pick<Team, "code" | "name">>>([]);
 	const [form, setForm] = useState<ProfileFormState>({
 		bio: "",
@@ -121,7 +137,7 @@ export default function UserProfilePage() {
 			try {
 				const [profileData, statsResult] = await Promise.allSettled([
 					getProfileOverview(targetUserId),
-					listUserTournamentPerformance(targetUserId),
+					Promise.all([listUserTournamentPerformance(targetUserId), listUserTeamTournamentPerformance(targetUserId)]),
 				]);
 
 				if (profileData.status !== "fulfilled") {
@@ -145,8 +161,8 @@ export default function UserProfilePage() {
 					),
 				);
 
-				if (statsResult.status !== "fulfilled" || statsResult.value.length === 0) {
-					setPerformanceCategories(["Career"]);
+				if (statsResult.status !== "fulfilled" || statsResult.value[0].length === 0) {
+					setPerformanceCategories(["Total"]);
 					setOffenseSeries([
 						{ name: "Shots on goal", data: [0] },
 						{ name: "Goals", data: [0] },
@@ -155,6 +171,9 @@ export default function UserProfilePage() {
 						{ name: "Shots against", data: [0] },
 						{ name: "Goals let in", data: [0] },
 					]);
+					setTournamentPerformance([]);
+					setTeamTournamentPerformance([]);
+					setSelectedPerformanceTeamId("all");
 
 					if (statsResult.status === "rejected") {
 						toast.error((statsResult.reason as Error).message);
@@ -162,16 +181,19 @@ export default function UserProfilePage() {
 					return;
 				}
 
-				const stats = statsResult.value;
-				setPerformanceCategories(stats.map((item) => item.tournament_name));
+				const [tournamentStats, teamStats] = statsResult.value;
+				setTournamentPerformance(tournamentStats);
+				setPerformanceCategories(tournamentStats.map((item) => item.tournament_name));
 				setOffenseSeries([
-					{ name: "Shots on goal", data: stats.map((item) => item.shots_on_goal) },
-					{ name: "Goals", data: stats.map((item) => item.goals) },
+					{ name: "Shots on goal", data: tournamentStats.map((item) => item.shots_on_goal) },
+					{ name: "Goals", data: tournamentStats.map((item) => item.goals) },
 				]);
 				setDefenseSeries([
-					{ name: "Shots against", data: stats.map((item) => item.shots_against) },
-					{ name: "Goals let in", data: stats.map((item) => item.goals_against) },
+					{ name: "Shots against", data: tournamentStats.map((item) => item.shots_against) },
+					{ name: "Goals let in", data: tournamentStats.map((item) => item.goals_against) },
 				]);
+				setTeamTournamentPerformance(teamStats);
+				setSelectedPerformanceTeamId("all");
 			} catch {
 				setProfile(null);
 			} finally {
@@ -179,6 +201,67 @@ export default function UserProfilePage() {
 			}
 		})();
 	}, [targetUserId]);
+
+	useEffect(() => {
+		if (tournamentPerformance.length === 0) {
+			setPerformanceCategories(["Total"]);
+			setOffenseSeries([
+				{ name: "Shots on goal", data: [0] },
+				{ name: "Goals", data: [0] },
+			]);
+			setDefenseSeries([
+				{ name: "Shots against", data: [0] },
+				{ name: "Goals let in", data: [0] },
+			]);
+			return;
+		}
+
+		if (selectedPerformanceTeamId === "all") {
+			setPerformanceCategories(tournamentPerformance.map((item) => item.tournament_name));
+			setOffenseSeries([
+				{ name: "Shots on goal", data: tournamentPerformance.map((item) => item.shots_on_goal) },
+				{ name: "Goals", data: tournamentPerformance.map((item) => item.goals) },
+			]);
+			setDefenseSeries([
+				{ name: "Shots against", data: tournamentPerformance.map((item) => item.shots_against) },
+				{ name: "Goals let in", data: tournamentPerformance.map((item) => item.goals_against) },
+			]);
+			return;
+		}
+
+		const selectedTeamRows = teamTournamentPerformance.filter((item) => item.team_id === selectedPerformanceTeamId);
+		if (selectedTeamRows.length === 0) {
+			setPerformanceCategories(["Total"]);
+			setOffenseSeries([
+				{ name: "Shots on goal", data: [0] },
+				{ name: "Goals", data: [0] },
+			]);
+			setDefenseSeries([
+				{ name: "Shots against", data: [0] },
+				{ name: "Goals let in", data: [0] },
+			]);
+			return;
+		}
+		setPerformanceCategories(selectedTeamRows.map((item) => item.tournament_name));
+		setOffenseSeries([
+			{ name: "Shots on goal", data: selectedTeamRows.map((item) => item.shots_on_goal) },
+			{ name: "Goals", data: selectedTeamRows.map((item) => item.goals) },
+		]);
+		setDefenseSeries([
+			{ name: "Shots against", data: selectedTeamRows.map((item) => item.shots_against) },
+			{ name: "Goals let in", data: selectedTeamRows.map((item) => item.goals_against) },
+		]);
+	}, [selectedPerformanceTeamId, teamTournamentPerformance, tournamentPerformance]);
+
+	const playedTeams = useMemo(
+		() =>
+			[
+				...new Map(
+					teamTournamentPerformance.map((item) => [item.team_id, { team_id: item.team_id, team_name: item.team_name }]),
+				).values(),
+			].sort((a, b) => a.team_name.localeCompare(b.team_name, undefined, { sensitivity: "base" })),
+		[teamTournamentPerformance],
+	);
 
 	if (loading) {
 		return <div className="p-6 text-sm text-muted-foreground">Loading profile...</div>;
@@ -372,31 +455,49 @@ export default function UserProfilePage() {
 				<CardHeader>
 					<CardTitle>Performance tracker</CardTitle>
 				</CardHeader>
-				<CardContent className="grid gap-4 md:grid-cols-2">
-					<Chart
-						type="line"
-						height={320}
-						series={offenseSeries}
-						options={{
-							chart: { toolbar: { show: false } },
-							xaxis: { categories: performanceCategories },
-							yaxis: { title: { text: "Total" } },
-							legend: { position: "top" },
-							stroke: { curve: "smooth", width: 3 },
-						}}
-					/>
-					<Chart
-						type="line"
-						height={320}
-						series={defenseSeries}
-						options={{
-							chart: { toolbar: { show: false } },
-							xaxis: { categories: performanceCategories },
-							yaxis: { title: { text: "Total" } },
-							legend: { position: "top" },
-							stroke: { curve: "smooth", width: 3 },
-						}}
-					/>
+				<CardContent className="space-y-4">
+					<div className="space-y-1">
+						<p className="text-sm text-muted-foreground">Team statistics view</p>
+						<Select value={selectedPerformanceTeamId} onValueChange={setSelectedPerformanceTeamId}>
+							<SelectTrigger className="max-w-sm">
+								<SelectValue placeholder="Select team statistics scope" />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="all">Total (all teams)</SelectItem>
+								{playedTeams.map((teamStat) => (
+									<SelectItem key={teamStat.team_id} value={teamStat.team_id}>
+										{teamStat.team_name}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+					</div>
+					<div className="grid gap-4 md:grid-cols-2">
+						<Chart
+							type="line"
+							height={320}
+							series={offenseSeries}
+							options={{
+								chart: { toolbar: { show: false } },
+								xaxis: { categories: performanceCategories },
+								yaxis: { title: { text: "Total" } },
+								legend: { position: "top" },
+								stroke: { curve: "smooth", width: 3 },
+							}}
+						/>
+						<Chart
+							type="line"
+							height={320}
+							series={defenseSeries}
+							options={{
+								chart: { toolbar: { show: false } },
+								xaxis: { categories: performanceCategories },
+								yaxis: { title: { text: "Total" } },
+								legend: { position: "top" },
+								stroke: { curve: "smooth", width: 3 },
+							}}
+						/>
+					</div>
 				</CardContent>
 			</Card>
 		</div>

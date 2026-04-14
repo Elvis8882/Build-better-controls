@@ -7,9 +7,9 @@ import { useAuth } from "@/auth/AuthProvider";
 import {
 	fetchTeamsByPool,
 	getProfileOverview,
-	listUserTeamStats,
+	listUserTeamTournamentPerformance,
 	listUserTournamentPerformance,
-	type PlayerTeamStat,
+	type PlayerTeamTournamentPerformance,
 	type ProfileOverview,
 	type Team,
 	updateProfileOverview,
@@ -76,7 +76,18 @@ export default function UserProfilePage() {
 		{ name: "Goals let in", data: [0] },
 	]);
 	const [performanceCategories, setPerformanceCategories] = useState(["Total"]);
-	const [teamPerformanceStats, setTeamPerformanceStats] = useState<PlayerTeamStat[]>([]);
+	const [tournamentPerformance, setTournamentPerformance] = useState<
+		Array<{
+			tournament_id: string;
+			tournament_name: string;
+			tournament_date: string;
+			shots_on_goal: number;
+			goals: number;
+			shots_against: number;
+			goals_against: number;
+		}>
+	>([]);
+	const [teamTournamentPerformance, setTeamTournamentPerformance] = useState<PlayerTeamTournamentPerformance[]>([]);
 	const [selectedPerformanceTeamId, setSelectedPerformanceTeamId] = useState("all");
 	const [nhlTeams, setNhlTeams] = useState<Array<Pick<Team, "code" | "name">>>([]);
 	const [form, setForm] = useState<ProfileFormState>({
@@ -126,7 +137,7 @@ export default function UserProfilePage() {
 			try {
 				const [profileData, statsResult] = await Promise.allSettled([
 					getProfileOverview(targetUserId),
-					Promise.all([listUserTournamentPerformance(targetUserId), listUserTeamStats(targetUserId)]),
+					Promise.all([listUserTournamentPerformance(targetUserId), listUserTeamTournamentPerformance(targetUserId)]),
 				]);
 
 				if (profileData.status !== "fulfilled") {
@@ -160,7 +171,8 @@ export default function UserProfilePage() {
 						{ name: "Shots against", data: [0] },
 						{ name: "Goals let in", data: [0] },
 					]);
-					setTeamPerformanceStats([]);
+					setTournamentPerformance([]);
+					setTeamTournamentPerformance([]);
 					setSelectedPerformanceTeamId("all");
 
 					if (statsResult.status === "rejected") {
@@ -170,6 +182,7 @@ export default function UserProfilePage() {
 				}
 
 				const [tournamentStats, teamStats] = statsResult.value;
+				setTournamentPerformance(tournamentStats);
 				setPerformanceCategories(tournamentStats.map((item) => item.tournament_name));
 				setOffenseSeries([
 					{ name: "Shots on goal", data: tournamentStats.map((item) => item.shots_on_goal) },
@@ -179,7 +192,7 @@ export default function UserProfilePage() {
 					{ name: "Shots against", data: tournamentStats.map((item) => item.shots_against) },
 					{ name: "Goals let in", data: tournamentStats.map((item) => item.goals_against) },
 				]);
-				setTeamPerformanceStats(teamStats);
+				setTeamTournamentPerformance(teamStats);
 				setSelectedPerformanceTeamId("all");
 			} catch {
 				setProfile(null);
@@ -190,7 +203,7 @@ export default function UserProfilePage() {
 	}, [targetUserId]);
 
 	useEffect(() => {
-		if (teamPerformanceStats.length === 0) {
+		if (tournamentPerformance.length === 0) {
 			setPerformanceCategories(["Total"]);
 			setOffenseSeries([
 				{ name: "Shots on goal", data: [0] },
@@ -204,39 +217,51 @@ export default function UserProfilePage() {
 		}
 
 		if (selectedPerformanceTeamId === "all") {
-			const totals = teamPerformanceStats.reduce(
-				(accumulator, teamStat) => ({
-					shots_on_goal: accumulator.shots_on_goal + teamStat.shots_made,
-					goals: accumulator.goals + teamStat.goals_made,
-					shots_against: accumulator.shots_against + teamStat.shots_received,
-					goals_against: accumulator.goals_against + teamStat.goals_received,
-				}),
-				{ shots_on_goal: 0, goals: 0, shots_against: 0, goals_against: 0 },
-			);
-			setPerformanceCategories(["Total"]);
+			setPerformanceCategories(tournamentPerformance.map((item) => item.tournament_name));
 			setOffenseSeries([
-				{ name: "Shots on goal", data: [totals.shots_on_goal] },
-				{ name: "Goals", data: [totals.goals] },
+				{ name: "Shots on goal", data: tournamentPerformance.map((item) => item.shots_on_goal) },
+				{ name: "Goals", data: tournamentPerformance.map((item) => item.goals) },
 			]);
 			setDefenseSeries([
-				{ name: "Shots against", data: [totals.shots_against] },
-				{ name: "Goals let in", data: [totals.goals_against] },
+				{ name: "Shots against", data: tournamentPerformance.map((item) => item.shots_against) },
+				{ name: "Goals let in", data: tournamentPerformance.map((item) => item.goals_against) },
 			]);
 			return;
 		}
 
-		const selectedTeam = teamPerformanceStats.find((item) => item.team_id === selectedPerformanceTeamId) ?? null;
-		if (!selectedTeam) return;
-		setPerformanceCategories([selectedTeam.team_name]);
+		const selectedTeamRows = teamTournamentPerformance.filter((item) => item.team_id === selectedPerformanceTeamId);
+		if (selectedTeamRows.length === 0) {
+			setPerformanceCategories(["Total"]);
+			setOffenseSeries([
+				{ name: "Shots on goal", data: [0] },
+				{ name: "Goals", data: [0] },
+			]);
+			setDefenseSeries([
+				{ name: "Shots against", data: [0] },
+				{ name: "Goals let in", data: [0] },
+			]);
+			return;
+		}
+		setPerformanceCategories(selectedTeamRows.map((item) => item.tournament_name));
 		setOffenseSeries([
-			{ name: "Shots on goal", data: [selectedTeam.shots_made] },
-			{ name: "Goals", data: [selectedTeam.goals_made] },
+			{ name: "Shots on goal", data: selectedTeamRows.map((item) => item.shots_on_goal) },
+			{ name: "Goals", data: selectedTeamRows.map((item) => item.goals) },
 		]);
 		setDefenseSeries([
-			{ name: "Shots against", data: [selectedTeam.shots_received] },
-			{ name: "Goals let in", data: [selectedTeam.goals_received] },
+			{ name: "Shots against", data: selectedTeamRows.map((item) => item.shots_against) },
+			{ name: "Goals let in", data: selectedTeamRows.map((item) => item.goals_against) },
 		]);
-	}, [selectedPerformanceTeamId, teamPerformanceStats]);
+	}, [selectedPerformanceTeamId, teamTournamentPerformance, tournamentPerformance]);
+
+	const playedTeams = useMemo(
+		() =>
+			[
+				...new Map(
+					teamTournamentPerformance.map((item) => [item.team_id, { team_id: item.team_id, team_name: item.team_name }]),
+				).values(),
+			].sort((a, b) => a.team_name.localeCompare(b.team_name, undefined, { sensitivity: "base" })),
+		[teamTournamentPerformance],
+	);
 
 	if (loading) {
 		return <div className="p-6 text-sm text-muted-foreground">Loading profile...</div>;
@@ -439,7 +464,7 @@ export default function UserProfilePage() {
 							</SelectTrigger>
 							<SelectContent>
 								<SelectItem value="all">Total (all teams)</SelectItem>
-								{teamPerformanceStats.map((teamStat) => (
+								{playedTeams.map((teamStat) => (
 									<SelectItem key={teamStat.team_id} value={teamStat.team_id}>
 										{teamStat.team_name}
 									</SelectItem>

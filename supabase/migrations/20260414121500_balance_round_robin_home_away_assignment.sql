@@ -1,6 +1,9 @@
--- Canonical generator body; supersedes earlier auth-patch migrations
--- 20260319110000_authorize_round_robin_tiers_stage.sql and
--- 20260321110000_authorize_round_robin_tiers_generator.sql.
+create or replace function public.generate_round_robin_tiers_stage(p_tournament_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
 declare
   v_participant_ids uuid[];
   v_slots uuid[];
@@ -236,3 +239,4 @@ begin
   --   group by participant_id
   -- ) deltas;
 end;
+$$;

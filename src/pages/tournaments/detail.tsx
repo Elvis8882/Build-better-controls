@@ -914,8 +914,9 @@ export default function TournamentDetailPage() {
 		return parsed;
 	};
 
-	const rerollRoundRobinWaveIfNeeded = async (lockedMatchId: string, parsed: ParsedResult) => {
+	const rerollRoundRobinWaveIfNeeded = async (lockedMatchId: string, parsed: ParsedResult, affectsReroll: boolean) => {
 		if (!roundRobinTiersPreset) return;
+		if (!affectsReroll) return;
 		const lockedMatch = groupMatches.find((match) => match.id === lockedMatchId);
 		if (!lockedMatch) return;
 		const waveMatches = groupMatches.filter((match) => match.round === lockedMatch.round);
@@ -987,6 +988,27 @@ export default function TournamentDetailPage() {
 		if (!parsed) return;
 		const isGroupMatch = groupMatches.some((match) => match.id === matchId);
 		const isPlayoffMatch = playoffMatches.some((match) => match.id === matchId);
+		const matchForSnapshot =
+			groupMatches.find((match) => match.id === matchId) ?? playoffMatches.find((match) => match.id === matchId);
+		const previousResult = matchForSnapshot?.result;
+		const scoreChanged =
+			(previousResult?.home_score ?? null) !== parsed.homeScore ||
+			(previousResult?.away_score ?? null) !== parsed.awayScore;
+		const previousWinner =
+			(previousResult?.home_score ?? 0) > (previousResult?.away_score ?? 0)
+				? (matchForSnapshot?.home_participant_id ?? null)
+				: (previousResult?.away_score ?? 0) > (previousResult?.home_score ?? 0)
+					? (matchForSnapshot?.away_participant_id ?? null)
+					: null;
+		const nextWinner =
+			parsed.homeScore > parsed.awayScore
+				? (matchForSnapshot?.home_participant_id ?? null)
+				: parsed.awayScore > parsed.homeScore
+					? (matchForSnapshot?.away_participant_id ?? null)
+					: null;
+		const winnerFlipped = previousWinner !== nextWinner;
+		const firstTimeLock = !previousResult?.locked;
+		const affectsReroll = scoreChanged || winnerFlipped || firstTimeLock;
 
 		setSaving(true);
 		try {
@@ -998,8 +1020,6 @@ export default function TournamentDetailPage() {
 				parsed.awayShots,
 				parsed.decision,
 			);
-			const matchForSnapshot =
-				groupMatches.find((match) => match.id === matchId) ?? playoffMatches.find((match) => match.id === matchId);
 			const homeTeamIdForResult =
 				participants.find((participant) => participant.id === matchForSnapshot?.home_participant_id)?.team_id ??
 				matchForSnapshot?.home_team_id ??
@@ -1009,7 +1029,7 @@ export default function TournamentDetailPage() {
 				matchForSnapshot?.away_team_id ??
 				null;
 			await lockMatchResult(matchId, homeTeamIdForResult, awayTeamIdForResult);
-			await rerollRoundRobinWaveIfNeeded(matchId, parsed);
+			await rerollRoundRobinWaveIfNeeded(matchId, parsed, affectsReroll);
 			if (goalDifferenceDuelPreset) {
 				await advanceGoalDifferenceDuelAfterLock(matchId);
 			}

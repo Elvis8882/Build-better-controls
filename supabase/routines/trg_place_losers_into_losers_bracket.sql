@@ -120,104 +120,44 @@ begin
     and bracket_type = 'WINNERS';
 
   if v_is_full_with_losers and v_max_round >= 2 then
-    -- Full-with-losers placement flow follows winners-bracket round/slot drops:
-    -- each locked winners match emits exactly one loser into the corresponding
-    -- losers-bracket round/slot shell. Matches are created lazily as results lock.
-    v_wb_drop_slot := greatest(coalesce(m.bracket_slot, 1), 1);
-
-    -- Avoid immediate rematches by crossing winners-drop mapping inside each winners round
-    -- (for rounds after the first), so drops land on the opposite placement branch.
-    if m.round > 1 then
-      select mapped.slot_pos, mapped.slot_total
-      into v_round_slot_pos, v_round_slot_total
-      from (
-        select wm.bracket_slot,
-               row_number() over (order by wm.bracket_slot asc) as slot_pos,
-               count(*) over () as slot_total
-        from public.matches wm
-        where wm.tournament_id = m.tournament_id
-          and wm.stage = 'PLAYOFF'
-          and wm.bracket_type = 'WINNERS'
-          and wm.round = m.round
-          and wm.home_participant_id is not null
-          and wm.away_participant_id is not null
-      ) mapped
-      where mapped.bracket_slot = greatest(coalesce(m.bracket_slot, 1), 1)
-      limit 1;
-
-      if coalesce(v_round_slot_total, 0) > 1 and coalesce(v_round_slot_pos, 0) > 0 then
-        v_wb_drop_slot := (v_round_slot_total - v_round_slot_pos + 1);
-      end if;
-    end if;
-
-    insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot)
-    select m.tournament_id, 'PLAYOFF', 'LOSERS', m.round, v_wb_drop_slot
-    where not exists (
-      select 1
-      from public.matches mx
-      where mx.tournament_id = m.tournament_id
-        and mx.stage = 'PLAYOFF'
-        and mx.bracket_type = 'LOSERS'
-        and mx.round = m.round
-        and mx.bracket_slot = v_wb_drop_slot
-    );
-
-    select id into target
+    -- Winners losers are routed via precomputed metadata mapping authored by
+    -- ensure_playoff_bracket. This keeps bracket progression deterministic for
+    -- all sizes 3..16 and prevents BYE-only winners nodes from emitting losers.
+    select id,
+           case
+             when (metadata->>'wb_drop_home_round')::int = m.round
+              and (metadata->>'wb_drop_home_slot')::int = m.bracket_slot then 'HOME'
+             when (metadata->>'wb_drop_away_round')::int = m.round
+              and (metadata->>'wb_drop_away_slot')::int = m.bracket_slot then 'AWAY'
+             else null
+           end as mapped_side
+    into target, v_drop_preferred_side
     from public.matches
     where tournament_id = m.tournament_id
       and stage = 'PLAYOFF'
       and bracket_type = 'LOSERS'
-      and round = m.round
-      and bracket_slot = v_wb_drop_slot
+      and (
+        (
+          metadata ? 'wb_drop_home_round'
+          and metadata ? 'wb_drop_home_slot'
+          and (metadata->>'wb_drop_home_round')::int = m.round
+          and (metadata->>'wb_drop_home_slot')::int = m.bracket_slot
+        )
+        or
+        (
+          metadata ? 'wb_drop_away_round'
+          and metadata ? 'wb_drop_away_slot'
+          and (metadata->>'wb_drop_away_round')::int = m.round
+          and (metadata->>'wb_drop_away_slot')::int = m.bracket_slot
+        )
+      )
     limit 1;
 
-    if target is not null and m.round < greatest(v_max_round - 1, 1) then
-      v_parent_round := m.round + 1;
-      v_parent_slot := ceil(v_wb_drop_slot / 2.0)::int;
-
-      insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot)
-      select m.tournament_id, 'PLAYOFF', 'LOSERS', v_parent_round, v_parent_slot
-      where not exists (
-        select 1
-        from public.matches mx
-        where mx.tournament_id = m.tournament_id
-          and mx.stage = 'PLAYOFF'
-          and mx.bracket_type = 'LOSERS'
-          and mx.round = v_parent_round
-          and mx.bracket_slot = v_parent_slot
-      );
-
-      select id into v_parent_id
-      from public.matches
-      where tournament_id = m.tournament_id
-        and stage = 'PLAYOFF'
-        and bracket_type = 'LOSERS'
-        and round = v_parent_round
-        and bracket_slot = v_parent_slot
-      limit 1;
-
-      update public.matches
-      set next_match_id = v_parent_id,
-          next_match_side = case when mod(v_wb_drop_slot, 2) = 1 then 'HOME' else 'AWAY' end
-      where id = target;
-    elsif target is not null and m.round = greatest(v_max_round - 1, 1) then
-      select id into v_parent_id
-      from public.matches
-      where tournament_id = m.tournament_id
-        and stage = 'PLAYOFF'
-        and bracket_type = 'LOSERS'
-        and round = v_max_round
-        and bracket_slot = 1
-        and coalesce((metadata->>'is_gf1')::boolean, false) = true
-      limit 1;
-
-      update public.matches
-      set next_match_id = v_parent_id,
-          next_match_side = 'AWAY'
-      where id = target;
+    if target is null then
+      perform public.advance_playoff_byes(m.tournament_id);
+      return new;
     end if;
 
-    v_drop_preferred_side := case when mod(v_wb_drop_slot, 2) = 1 then 'HOME' else 'AWAY' end;
     v_target_side := case
       when target is null then null
       when v_drop_preferred_side = 'HOME'

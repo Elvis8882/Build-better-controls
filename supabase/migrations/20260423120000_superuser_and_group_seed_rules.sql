@@ -1,3 +1,9 @@
+create or replace function public.generate_playoff_bracket(p_tournament_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
 declare
 	r record;
 	seeded uuid[];
@@ -105,3 +111,24 @@ begin
 		end loop;
 	end if;
 end;
+$$;
+
+drop policy if exists teams_mutate_admin on public.teams;
+create policy teams_mutate_admin on public.teams
+for all to authenticated
+using (
+	exists (
+		select 1
+		from public.profiles p
+		where p.id = auth.uid()
+			and p.role in ('admin', 'superuser')
+	)
+)
+with check (
+	exists (
+		select 1
+		from public.profiles p
+		where p.id = auth.uid()
+			and p.role in ('admin', 'superuser')
+	)
+);

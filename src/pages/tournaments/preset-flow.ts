@@ -24,7 +24,7 @@ const TWO_V_TWO_TOURNAMENT_GROUPING: GroupingSemantics = {
 	usesTeamEntrants: true,
 	entrantCountDivisor: 2,
 	autoExpand: true,
-	maxEntrantsPerGroup: 6,
+	maxEntrantsPerGroup: 7,
 };
 
 export const isPlayoffOnlyFlow = (preset: TournamentPresetFlowInput): boolean => isPlayoffOnlyPreset(preset);
@@ -43,7 +43,7 @@ export const getGroupingSemanticsByPreset = (preset: TournamentPresetFlowInput):
 			usesTeamEntrants: isTwoVTwoFlow(preset),
 			entrantCountDivisor: isTwoVTwoFlow(preset) ? 2 : 1,
 			autoExpand: true,
-			maxEntrantsPerGroup: 6,
+			maxEntrantsPerGroup: 7,
 		};
 	}
 
@@ -56,7 +56,7 @@ export const getGroupingSemanticsByPreset = (preset: TournamentPresetFlowInput):
 		usesTeamEntrants: false,
 		entrantCountDivisor: 1,
 		autoExpand: true,
-		maxEntrantsPerGroup: 6,
+		maxEntrantsPerGroup: 7,
 	};
 };
 

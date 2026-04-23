@@ -143,7 +143,7 @@ export default function TournamentDetailPage() {
 	const { id } = useParams();
 	const navigate = useNavigate();
 	const location = useLocation();
-	const { user, profile, isSessionReady } = useAuth();
+	const { user, isSessionReady, isAdmin } = useAuth();
 	const [loading, setLoading] = useState(true);
 	const [tournament, setTournament] = useState<Tournament | null>(null);
 	const [members, setMembers] = useState<TournamentMember[]>([]);
@@ -170,7 +170,6 @@ export default function TournamentDetailPage() {
 	const roundRobinAutoGenerationAttemptedRef = useRef(false);
 	const initializedTournamentIdRef = useRef<string | null>(null);
 
-	const isAdmin = profile?.role === "admin";
 	const managerMembership = useMemo(
 		() => members.find((member) => member.user_id === user?.id && (member.role === "host" || member.role === "admin")),
 		[members, user?.id],
@@ -1813,11 +1812,12 @@ export default function TournamentDetailPage() {
 								shouldShowPlacementBracket ? (
 									<BracketDiagram
 										title="Placement bracket"
-										matches={placementBracketMatchesRaw}
+										matches={placementBracketMatches}
 										teamById={teamById}
 										standingByParticipantId={standingByParticipantId}
 										medalByParticipantId={medalByParticipantId}
 										placementRevealKeys={placementRevealKeys}
+										hideUnplayableMatches
 									/>
 								) : undefined
 							}

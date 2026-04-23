@@ -321,7 +321,7 @@ export function sanitizeGroupCount(
 	let groupCount = Math.max(1, Math.min(4, selectedGroups));
 	let note: string | null = null;
 	const autoExpand = options?.autoExpand ?? true;
-	const maxParticipantsPerGroup = options?.maxParticipantsPerGroup ?? 6;
+	const maxParticipantsPerGroup = options?.maxParticipantsPerGroup ?? 7;
 
 	if (participants < 3) {
 		return { groupCount, note, error: "Participants must be at least 3." };
@@ -449,7 +449,7 @@ export async function createTournament(payload: {
 
 		const isTeamBasedPreset = payload.presetId === "2v2_tournament";
 		const entrantCount = isTeamBasedPreset ? Math.floor(payload.defaultParticipants / 2) : payload.defaultParticipants;
-		const maxEntrantsPerGroup = 6;
+		const maxEntrantsPerGroup = 7;
 		const groupResolution = sanitizeGroupCount(entrantCount, payload.groupCount, {
 			autoExpand: true,
 			maxParticipantsPerGroup: maxEntrantsPerGroup,

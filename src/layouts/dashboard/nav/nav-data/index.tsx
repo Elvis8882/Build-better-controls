@@ -67,7 +67,7 @@ const filterNavData = (permissions: string[]) => {
  * @returns Filtered navigation data
  */
 export const useFilteredNavData = () => {
-	const { isAdmin } = useAuth();
+	const { canAccessAdminPanel } = useAuth();
 	const permissions = useUserPermissions();
 	const permissionCodes = useMemo(() => permissions.map((p) => p.code), [permissions]);
 	const filteredNavData = useMemo(() => {
@@ -78,12 +78,12 @@ export const useFilteredNavData = () => {
 				path: "/dashboard/admin",
 				icon: <Icon icon="local:ic-admin-panel" size="24" />,
 			};
-			const items = isAdmin ? [...navItems, adminPanelItem] : navItems;
+			const items = canAccessAdminPanel ? [...navItems, adminPanelItem] : navItems;
 
 			return [{ ...frontendNavData[0], items }];
 		}
 
 		return filterNavData(permissionCodes);
-	}, [isAdmin, permissionCodes]);
+	}, [canAccessAdminPanel, permissionCodes]);
 	return filteredNavData;
 };

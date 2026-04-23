@@ -29,7 +29,7 @@ function formatLastUpdated(value: string): string {
 }
 
 export default function AdminPanelPage() {
-	const { isAdmin } = useAuth();
+	const { canAccessAdminPanel } = useAuth();
 	const [teams, setTeams] = useState<Team[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [saving, setSaving] = useState(false);
@@ -66,9 +66,9 @@ export default function AdminPanelPage() {
 	}, []);
 
 	useEffect(() => {
-		if (!isAdmin) return;
+		if (!canAccessAdminPanel) return;
 		void loadTeams();
-	}, [isAdmin, loadTeams]);
+	}, [canAccessAdminPanel, loadTeams]);
 
 	const normalizedFilter = teamNameFilter.trim().toLowerCase();
 	const getDisplayedOverall = useCallback(
@@ -261,7 +261,7 @@ export default function AdminPanelPage() {
 		</div>
 	);
 
-	if (!isAdmin) {
+	if (!canAccessAdminPanel) {
 		return <Page403 />;
 	}
 

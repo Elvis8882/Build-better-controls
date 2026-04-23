@@ -1,12 +1,12 @@
 -- Regression checklist for generalized full_with_losers double-elimination generation.
--- Covers entrant counts: 4,5,6,7,8,10,12,16.
+-- Covers entrant counts: 3..16 (spot-check focus list below includes required cases).
 
 -- Run in a staging DB with host/admin auth.
 -- This script validates bracket graph shape and bye/flow invariants after:
 --   select public.ensure_playoff_bracket(<tournament_id>);
 
 with expected_counts(n) as (
-  values (4),(5),(6),(7),(8),(10),(12),(16)
+  values (3),(4),(5),(6),(7),(8),(9),(10),(11),(12),(13),(14),(15),(16)
 )
 select n,
        (select ceil(log(2, n::numeric))::int) as winners_rounds,
@@ -47,3 +47,25 @@ from expected_counts;
 --   and bracket_type='LOSERS'
 -- group by round
 -- having sum(case when (home_participant_id is null) <> (away_participant_id is null) then 1 else 0 end) > 1;
+
+-- 5) every played competitor who receives a first loss gets a losers-bracket path
+--    (no first-loss elimination due to missing drop mapping).
+-- with first_losses as (
+--   select m.id as source_match_id,
+--          case when mr.home_score > mr.away_score then m.away_participant_id else m.home_participant_id end as loser_id
+--   from public.matches m
+--   join public.match_results mr on mr.match_id = m.id and mr.locked = true
+--   where m.tournament_id = :'tournament_id'
+--     and m.stage = 'PLAYOFF'
+--     and m.bracket_type = 'WINNERS'
+--     and m.home_participant_id is not null
+--     and m.away_participant_id is not null
+-- )
+-- select fl.source_match_id
+-- from first_losses fl
+-- left join public.matches lm
+--   on lm.tournament_id = :'tournament_id'
+--  and lm.stage = 'PLAYOFF'
+--  and lm.bracket_type = 'LOSERS'
+--  and (lm.home_participant_id = fl.loser_id or lm.away_participant_id = fl.loser_id)
+-- where lm.id is null;

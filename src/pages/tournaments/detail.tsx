@@ -1828,6 +1828,7 @@ export default function TournamentDetailPage() {
 										standingByParticipantId={standingByParticipantId}
 										medalByParticipantId={medalByParticipantId}
 										placementRevealKeys={placementRevealKeys}
+										omitTbdOnlySlots
 									/>
 								) : undefined
 							}

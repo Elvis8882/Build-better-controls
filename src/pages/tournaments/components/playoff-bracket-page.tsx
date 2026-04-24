@@ -161,6 +161,7 @@ export function BracketDiagram({
 	placementRevealKeys,
 	finalStandings,
 	hideUnplayableMatches = false,
+	omitTbdOnlySlots = false,
 }: {
 	title: string;
 	matches: MatchWithResult[];
@@ -170,10 +171,11 @@ export function BracketDiagram({
 	placementRevealKeys?: Set<string>;
 	finalStandings?: Array<{ participantId: string; name: string; placement: number; team?: Team | null }>;
 	hideUnplayableMatches?: boolean;
+	omitTbdOnlySlots?: boolean;
 }) {
 	const roundSlots = useMemo(
-		() => buildBracketSlots(matches, false, hideUnplayableMatches),
-		[matches, hideUnplayableMatches],
+		() => buildBracketSlots(matches, omitTbdOnlySlots, hideUnplayableMatches),
+		[matches, hideUnplayableMatches, omitTbdOnlySlots],
 	);
 	const totalRoundCount = useMemo(() => roundSlots.length || 1, [roundSlots]);
 

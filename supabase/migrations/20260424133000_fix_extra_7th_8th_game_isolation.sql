@@ -29,6 +29,7 @@ declare
   v_lb_extra_match_id uuid;
   v_lb_final_round int;
   v_lb_extra_round int;
+  v_lb_final_locked boolean := false;
 begin
   if new.locked is distinct from true then
     return new;
@@ -66,7 +67,7 @@ begin
       return new;
     end if;
 
-    if v_is_full_with_losers and m.round = 1 then
+    if v_is_full_with_losers then
       if v_team_based then
         select count(*)
         into v_participant_count
@@ -84,8 +85,8 @@ begin
       end if;
 
       -- 8-participant special case:
-      -- after both initial placement eliminations are known, create one extra
-      -- consolation game so the two earliest-eliminated teams get a fair game count.
+      -- create one detached 7th/8th game only after the placement final
+      -- is already determined, so we do not materialize future rounds early.
       if v_participant_count = 8 then
         with round1_losers as (
           select
@@ -112,22 +113,37 @@ begin
         into v_lb_round1_slot1_loser, v_lb_round1_slot2_loser
         from round1_losers;
 
+        select coalesce(max(mx.round), 1)
+        into v_lb_final_round
+        from public.matches mx
+        where mx.tournament_id = m.tournament_id
+          and mx.stage = 'PLAYOFF'
+          and mx.bracket_type = 'LOSERS'
+          and coalesce((mx.metadata->>'is_gf2')::boolean, false) = false
+          and coalesce((mx.metadata->>'is_additional_placement')::boolean, false) = false;
+
+        select exists (
+          select 1
+          from public.matches mx
+          join public.match_results mr on mr.match_id = mx.id
+          where mx.tournament_id = m.tournament_id
+            and mx.stage = 'PLAYOFF'
+            and mx.bracket_type = 'LOSERS'
+            and mx.round = v_lb_final_round
+            and coalesce((mx.metadata->>'is_additional_placement')::boolean, false) = false
+            and coalesce((mx.metadata->>'is_gf2')::boolean, false) = false
+            and mr.locked = true
+            and mr.home_score <> mr.away_score
+        ) into v_lb_final_locked;
+
         if v_lb_round1_slot1_loser is not null
            and v_lb_round1_slot2_loser is not null
+           and v_lb_final_locked
            and v_lb_round1_slot1_loser is distinct from v_lb_round1_slot2_loser then
           -- Root-cause fix:
           -- never reuse a structural LOSERS-tree node for the extra 7th/8th game.
           -- We place it in its own post-final round so it is visually detached from
           -- the placement playoff tree and cannot overwrite tree metadata/participants.
-          select coalesce(max(mx.round), 1)
-          into v_lb_final_round
-          from public.matches mx
-          where mx.tournament_id = m.tournament_id
-            and mx.stage = 'PLAYOFF'
-            and mx.bracket_type = 'LOSERS'
-            and coalesce((mx.metadata->>'is_gf2')::boolean, false) = false
-            and coalesce((mx.metadata->>'is_additional_placement')::boolean, false) = false;
-
           v_lb_extra_round := greatest(coalesce(v_lb_final_round, 1) + 1, 2);
 
           insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot, metadata)

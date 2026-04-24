@@ -1288,17 +1288,32 @@ export default function TournamentDetailPage() {
 		if (!match.result?.locked) return maxRound;
 		return Math.max(maxRound, match.round ?? 0);
 	}, 0);
+	const matchMetadata = (match: (typeof placementBracketMatches)[number]) =>
+		((match as unknown as { metadata?: Record<string, unknown> | null }).metadata ?? null) as Record<
+			string,
+			unknown
+		> | null;
+	const placementClassification = (match: (typeof placementBracketMatches)[number]) =>
+		typeof matchMetadata(match)?.classification === "string" ? (matchMetadata(match)?.classification as string) : null;
+	const isExtraSeventhPlacementGame = (match: (typeof placementBracketMatches)[number]) =>
+		placementClassification(match) === "extra_7th_place_game";
 	const thirdPlaceMatch =
 		[...placementBracketMatches]
 			.filter(
 				(match) =>
 					Boolean(match.result?.locked) &&
 					(match.round ?? 0) === placementFinalRound &&
-					(match.bracket_slot ?? 1) === 1,
+					(match.bracket_slot ?? 1) === 1 &&
+					!isExtraSeventhPlacementGame(match),
 			)
 			.sort((a, b) => (a.id > b.id ? 1 : -1))[0] ??
 		[...placementBracketMatches]
-			.filter((match) => Boolean(match.result?.locked) && (match.round ?? 0) === placementFinalRound)
+			.filter(
+				(match) =>
+					Boolean(match.result?.locked) &&
+					(match.round ?? 0) === placementFinalRound &&
+					!isExtraSeventhPlacementGame(match),
+			)
 			.sort((a, b) => (a.bracket_slot ?? 0) - (b.bracket_slot ?? 0))[0];
 	if (thirdPlaceMatch) {
 		const bronzeWinner = resolveWinner(thirdPlaceMatch);
@@ -1307,17 +1322,36 @@ export default function TournamentDetailPage() {
 		if (bronzeLoser && !standingByParticipantId.has(bronzeLoser)) standingByParticipantId.set(bronzeLoser, 4);
 	}
 
+	const extraSeventhMatch = [...placementBracketMatches]
+		.filter((match) => Boolean(match.result?.locked) && isExtraSeventhPlacementGame(match))
+		.sort((a, b) => (a.id > b.id ? 1 : -1))[0];
+	if (extraSeventhMatch) {
+		const seventhWinner = resolveWinner(extraSeventhMatch);
+		const seventhLoser = resolveLoser(extraSeventhMatch);
+		if (seventhWinner && !standingByParticipantId.has(seventhWinner)) standingByParticipantId.set(seventhWinner, 7);
+		if (seventhLoser && !standingByParticipantId.has(seventhLoser)) standingByParticipantId.set(seventhLoser, 8);
+	}
+
+	const extraSeventhParticipants = new Set<string>();
+	if (extraSeventhMatch?.home_participant_id) extraSeventhParticipants.add(extraSeventhMatch.home_participant_id);
+	if (extraSeventhMatch?.away_participant_id) extraSeventhParticipants.add(extraSeventhMatch.away_participant_id);
+
 	const fifthPlaceMatch = [...placementBracketMatches]
 		.filter(
 			(match) =>
-				Boolean(match.result?.locked) && (match.round ?? 0) === placementFinalRound && (match.bracket_slot ?? 0) === 2,
+				Boolean(match.result?.locked) &&
+				(match.round ?? 0) === placementFinalRound &&
+				(match.bracket_slot ?? 0) === 2 &&
+				!isExtraSeventhPlacementGame(match),
 		)
 		.sort((a, b) => (a.id > b.id ? 1 : -1))[0];
 	if (fifthPlaceMatch) {
 		const fifthWinner = resolveWinner(fifthPlaceMatch);
 		const fifthLoser = resolveLoser(fifthPlaceMatch);
-		if (fifthWinner && !standingByParticipantId.has(fifthWinner)) standingByParticipantId.set(fifthWinner, 5);
-		if (fifthLoser && !standingByParticipantId.has(fifthLoser)) standingByParticipantId.set(fifthLoser, 6);
+		if (fifthWinner && !extraSeventhParticipants.has(fifthWinner) && !standingByParticipantId.has(fifthWinner))
+			standingByParticipantId.set(fifthWinner, 5);
+		if (fifthLoser && !extraSeventhParticipants.has(fifthLoser) && !standingByParticipantId.has(fifthLoser))
+			standingByParticipantId.set(fifthLoser, 6);
 	}
 
 	if (allPlayoffMatchesLocked) {

@@ -29,7 +29,6 @@ declare
   v_lb_extra_match_id uuid;
   v_lb_final_round int;
   v_lb_extra_round int;
-  v_lb_final_locked boolean := false;
 begin
   if new.locked is distinct from true then
     return new;
@@ -85,8 +84,8 @@ begin
       end if;
 
       -- 8-participant special case:
-      -- create one detached 7th/8th game only after the placement final
-      -- is already determined, so we do not materialize future rounds early.
+      -- add one detached 7th/8th game in the same final placement round,
+      -- underneath the 3rd/4th game (slot 2 in final round).
       if v_participant_count = 8 then
         with round1_losers as (
           select
@@ -122,29 +121,15 @@ begin
           and coalesce((mx.metadata->>'is_gf2')::boolean, false) = false
           and coalesce((mx.metadata->>'is_additional_placement')::boolean, false) = false;
 
-        select exists (
-          select 1
-          from public.matches mx
-          join public.match_results mr on mr.match_id = mx.id
-          where mx.tournament_id = m.tournament_id
-            and mx.stage = 'PLAYOFF'
-            and mx.bracket_type = 'LOSERS'
-            and mx.round = v_lb_final_round
-            and coalesce((mx.metadata->>'is_additional_placement')::boolean, false) = false
-            and coalesce((mx.metadata->>'is_gf2')::boolean, false) = false
-            and mr.locked = true
-            and mr.home_score <> mr.away_score
-        ) into v_lb_final_locked;
-
         if v_lb_round1_slot1_loser is not null
            and v_lb_round1_slot2_loser is not null
-           and v_lb_final_locked
            and v_lb_round1_slot1_loser is distinct from v_lb_round1_slot2_loser then
           -- Root-cause fix:
           -- never reuse a structural LOSERS-tree node for the extra 7th/8th game.
-          -- We place it in its own post-final round so it is visually detached from
-          -- the placement playoff tree and cannot overwrite tree metadata/participants.
-          v_lb_extra_round := greatest(coalesce(v_lb_final_round, 1) + 1, 2);
+          -- We place it in the final round's detached slot so it is visually
+          -- separated from the placement playoff tree and cannot overwrite
+          -- structural tree metadata/participants.
+          v_lb_extra_round := greatest(coalesce(v_lb_final_round, 1), 2);
 
           insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot, metadata)
           select

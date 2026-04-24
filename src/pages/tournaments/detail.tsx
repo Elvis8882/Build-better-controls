@@ -120,16 +120,6 @@ const isMatchDisplayable = (match: MatchWithResult) => {
 	return hasHome && hasAway;
 };
 
-const isMatchEditableOrActionable = (match: MatchWithResult) => {
-	if (isSkippedPlayoffMatch(match)) return false;
-	const hasResult = Boolean(match.result?.locked);
-	const hasHome = Boolean(match.home_participant_id);
-	const hasAway = Boolean(match.away_participant_id);
-	if (hasResult) return true;
-	if (!hasHome && !hasAway) return false;
-	return hasHome && hasAway;
-};
-
 const resolveWinner = (match: MatchWithResult): string | null => {
 	if (!match.result?.locked || !match.home_participant_id || !match.away_participant_id) return null;
 	if ((match.result.home_score ?? 0) > (match.result.away_score ?? 0)) return match.home_participant_id;
@@ -1079,7 +1069,6 @@ export default function TournamentDetailPage() {
 
 	const canEditPlayoffMatch = (match: MatchWithResult) => {
 		if (tournamentClosed) return false;
-		if (!isMatchEditableOrActionable(match)) return false;
 		const matchLocked = Boolean(match.result?.locked);
 		const hasLockedDescendant = hasLockedDescendantByMatchId.get(match.id) ?? false;
 		if (isHostOrAdmin) {
@@ -1247,11 +1236,11 @@ export default function TournamentDetailPage() {
 	const winnersBracketMatchesRaw = playoffMatches
 		.filter((match) => match.bracket_type === "WINNERS")
 		.sort((left, right) => left.round - right.round || (left.bracket_slot ?? 0) - (right.bracket_slot ?? 0));
-	const winnersBracketMatches = winnersBracketMatchesRaw.filter(isMatchEditableOrActionable);
+	const winnersBracketMatches = winnersBracketMatchesRaw.filter(isMatchDisplayable);
 	const placementBracketMatchesRaw = playoffMatches
 		.filter((match) => match.bracket_type === "LOSERS")
 		.sort((left, right) => left.round - right.round || (left.bracket_slot ?? 0) - (right.bracket_slot ?? 0));
-	const placementBracketMatches = placementBracketMatchesRaw.filter(isMatchEditableOrActionable);
+	const placementBracketMatches = placementBracketMatchesRaw.filter(isMatchDisplayable);
 	const shouldShowPlacementBracket =
 		hasLosersProgressionFlow(tournament.preset_id) || placementBracketMatchesRaw.length > 0;
 	const allPlayoffMatchesLocked =
@@ -1823,12 +1812,12 @@ export default function TournamentDetailPage() {
 								shouldShowPlacementBracket ? (
 									<BracketDiagram
 										title="Placement bracket"
-										matches={placementBracketMatchesRaw}
+										matches={placementBracketMatches}
 										teamById={teamById}
 										standingByParticipantId={standingByParticipantId}
 										medalByParticipantId={medalByParticipantId}
 										placementRevealKeys={placementRevealKeys}
-										omitTbdOnlySlots
+										hideUnplayableMatches
 									/>
 								) : undefined
 							}

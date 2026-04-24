@@ -1,3 +1,11 @@
+-- Compose full_with_losers placement by compact display rounds and keep BYE holes as structural shell slots.
+
+create or replace function public.ensure_playoff_bracket(p_tournament_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $function$
 declare
 	r record;
   v_preset text;
@@ -630,3 +638,4 @@ begin
     perform public.sync_match_identities_from_participants(r.id);
   end loop;
 end;
+$function$;

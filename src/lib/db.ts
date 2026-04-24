@@ -2351,6 +2351,31 @@ export async function listTournamentTeamStats(tournamentId: string): Promise<Tou
 		);
 		const placementFinalRound =
 			classificationMatches.length > 0 ? Math.max(...classificationMatches.map((item) => item.round)) : null;
+		const roundOneLosers = placementMatches
+			.filter((item) => item.round === 1 && (item.bracket_slot ?? 0) > 0)
+			.map((item) => resolveWinnerLoser(item.id, item.home_participant_id, item.away_participant_id)?.loser ?? null)
+			.filter((participantId): participantId is string => Boolean(participantId));
+		const roundOneLoserSet = new Set(roundOneLosers);
+		const isExtraSeventhMatch = (match: (typeof placementMatches)[number]) => {
+			const metadata = getMeta(match);
+			if (!metadata) return false;
+			if (classificationOf(match) === "extra_7th_place_game") return true;
+			if (typeof metadata.round_label === "string" && metadata.round_label.toLowerCase() === "7th/8th game") {
+				return true;
+			}
+			if (metadata.lb_loss_home_round === 1 && metadata.lb_loss_away_round === 1) return true;
+			return false;
+		};
+		const extraSeventhByParticipants = placementMatches.find((item) => {
+			if (!item.home_participant_id || !item.away_participant_id) return false;
+			if (roundOneLoserSet.size < 2) return false;
+			return roundOneLoserSet.has(item.home_participant_id) && roundOneLoserSet.has(item.away_participant_id);
+		});
+		const extraSeventh =
+			placementMatches.find((item) => isAdditionalPlacement(item) && isExtraSeventhMatch(item)) ??
+			placementMatches.find((item) => isExtraSeventhMatch(item)) ??
+			extraSeventhByParticipants ??
+			null;
 		const bronze =
 			placementFinalRound === null
 				? null
@@ -2362,9 +2387,9 @@ export async function listTournamentTeamStats(tournamentId: string): Promise<Tou
 						(item) =>
 							item.round === placementFinalRound &&
 							(item.bracket_slot ?? 0) === 2 &&
+							item.id !== extraSeventh?.id &&
 							classificationOf(item) !== "extra_7th_place_game",
 					);
-		const extraSeventh = placementMatches.find((item) => classificationOf(item) === "extra_7th_place_game");
 
 		const bronzeOutcome = bronze
 			? resolveWinnerLoser(bronze.id, bronze.home_participant_id, bronze.away_participant_id)

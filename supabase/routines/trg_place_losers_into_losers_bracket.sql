@@ -122,7 +122,7 @@ begin
               'lb_loss_away_slot', 2
             )
           )
-          on conflict (tournament_id, stage, bracket_type, round, bracket_slot)
+          on conflict (tournament_id, stage, bracket_type, round, bracket_slot) where stage = 'PLAYOFF'
           do update set
             metadata = coalesce(matches.metadata, '{}'::jsonb)
               || excluded.metadata

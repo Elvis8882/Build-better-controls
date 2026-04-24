@@ -1,3 +1,10 @@
+-- Deterministic group-stage round-1 pairing builder for playoff brackets.
+create or replace function public.ensure_playoff_bracket(p_tournament_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $function$
 declare
 	r record;
   v_preset text;
@@ -767,3 +774,4 @@ begin
     perform public.sync_match_identities_from_participants(r.id);
   end loop;
 end;
+$function$;

@@ -276,6 +276,14 @@ export function computePlacementByParticipantId(
 	} | null,
 ): Map<string, number> {
 	const placementByParticipantId = new Map<string, number>();
+	const resolvedOutcomeByMatchId = new Map<string, { winner: string; loser: string }>();
+	const resolveOutcome = (match: PlayoffPlacementMatch) => {
+		const cached = resolvedOutcomeByMatchId.get(match.id);
+		if (cached) return cached;
+		const resolved = resolveWinnerLoser(match.id, match.home_participant_id, match.away_participant_id);
+		if (resolved) resolvedOutcomeByMatchId.set(match.id, resolved);
+		return resolved;
+	};
 	const assignRankBand = (outcome: { winner: string; loser: string } | null, winnerRank: number, loserRank: number) => {
 		if (!outcome) return new Set<string>();
 		if (!placementByParticipantId.has(outcome.winner)) placementByParticipantId.set(outcome.winner, winnerRank);
@@ -286,25 +294,55 @@ export function computePlacementByParticipantId(
 	const finals = playoffMatches.filter((match) => !match.next_match_id && match.bracket_type !== "LOSERS");
 	const finalRound = finals.length > 0 ? Math.max(...finals.map((item) => item.round)) : null;
 	const goldFinal =
-		finalRound === null
-			? null
-			: (finals.find(
-					(item) =>
-						item.round === finalRound &&
-						resolveWinnerLoser(item.id, item.home_participant_id, item.away_participant_id),
-				) ?? null);
+		finalRound === null ? null : (finals.find((item) => item.round === finalRound && resolveOutcome(item)) ?? null);
 
-	assignRankBand(
-		goldFinal ? resolveWinnerLoser(goldFinal.id, goldFinal.home_participant_id, goldFinal.away_participant_id) : null,
-		1,
-		2,
-	);
+	assignRankBand(goldFinal ? (resolveOutcome(goldFinal) ?? null) : null, 1, 2);
 
 	const placementMatches = playoffMatches.filter((match) => match.bracket_type === "LOSERS");
 	if (placementMatches.length === 0) return placementByParticipantId;
 
+	const markedExtraMatch =
+		placementMatches.find(
+			(item) => isAdditionalPlacementMatch(item) || resolvePlacementClassification(item) === "extra_7th_place_game",
+		) ?? null;
+	const participantPairKey = (match: PlayoffPlacementMatch): string | null => {
+		if (!match.home_participant_id || !match.away_participant_id) return null;
+		const [left, right] = [match.home_participant_id, match.away_participant_id].sort();
+		return `${left}:${right}`;
+	};
+	const duplicatePairExtraMatch = (() => {
+		const grouped = new Map<string, PlayoffPlacementMatch[]>();
+		for (const item of placementMatches) {
+			if (isGrandFinalPlacementMatch(item) || !resolveOutcome(item)) continue;
+			const key = participantPairKey(item);
+			if (!key) continue;
+			const items = grouped.get(key) ?? [];
+			items.push(item);
+			grouped.set(key, items);
+		}
+		let candidate: PlayoffPlacementMatch | null = null;
+		for (const items of grouped.values()) {
+			if (items.length < 2) continue;
+			const latest = [...items].sort((a, b) => b.round - a.round || (b.bracket_slot ?? 0) - (a.bracket_slot ?? 0))[0];
+			if (!candidate) {
+				candidate = latest;
+				continue;
+			}
+			const candidateScore = candidate.round * 100 + (candidate.bracket_slot ?? 0);
+			const latestScore = latest.round * 100 + (latest.bracket_slot ?? 0);
+			if (latestScore > candidateScore) candidate = latest;
+		}
+		return candidate;
+	})();
+	const structuralExtraMatch =
+		[...placementMatches]
+			.filter((item) => !isGrandFinalPlacementMatch(item))
+			.sort((a, b) => b.round - a.round || (b.bracket_slot ?? 0) - (a.bracket_slot ?? 0))
+			.find((item) => (item.bracket_slot ?? 0) >= 3) ?? null;
+	const inferredExtraMatch = markedExtraMatch ?? duplicatePairExtraMatch ?? structuralExtraMatch;
+
 	const classificationMatches = placementMatches.filter(
-		(item) => !isAdditionalPlacementMatch(item) && !isGrandFinalPlacementMatch(item),
+		(item) => !isGrandFinalPlacementMatch(item) && item.id !== inferredExtraMatch?.id,
 	);
 	const placementFinalRound =
 		classificationMatches.length > 0 ? Math.max(...classificationMatches.map((item) => item.round)) : null;
@@ -324,10 +362,7 @@ export function computePlacementByParticipantId(
 							(item.bracket_slot ?? 0) === 2 &&
 							resolvePlacementClassification(item) !== "extra_7th_place_game",
 					) ?? null),
-		extra_7th_8th_game:
-			placementMatches.find(
-				(item) => isAdditionalPlacementMatch(item) || resolvePlacementClassification(item) === "extra_7th_place_game",
-			) ?? null,
+		extra_7th_8th_game: inferredExtraMatch,
 	};
 
 	assignRankBand(

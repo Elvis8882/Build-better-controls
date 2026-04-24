@@ -38,6 +38,11 @@ declare
   v_drop_side text;
   v_drop_round_key text;
   v_drop_slot_key text;
+  v_active_slots int[];
+  v_active_pos int;
+  v_active_total int;
+  v_mirrored_pos int;
+  v_mirrored_slot int;
   v_gf1_round int;
   v_parent_metadata jsonb;
 begin
@@ -344,6 +349,14 @@ begin
 
       for v_round in 1..v_rounds loop
         v_next_alive := '{}'::int[];
+        v_active_slots := '{}'::int[];
+
+        -- Build ordered WB slots that have real matches this round.
+        for v_pos in 1..(array_length(v_leaf_alive, 1) / 2) loop
+          if v_leaf_alive[(v_pos * 2) - 1] = 1 and v_leaf_alive[v_pos * 2] = 1 then
+            v_active_slots := array_append(v_active_slots, v_pos);
+          end if;
+        end loop;
 
         for v_slot in 1..(array_length(v_leaf_alive, 1) / 2) loop
           v_child_a := v_leaf_alive[(v_slot * 2) - 1];
@@ -351,9 +364,21 @@ begin
 
           if v_child_a = 1 and v_child_b = 1 then
             if array_length(v_drop_round_by_wb, 1) >= v_round and v_drop_round_by_wb[v_round] is not null then
-              -- Round-1 drops pair into same LB slot; later WB rounds map 1:1 by slot.
-              v_to_slot := case when v_round = 1 then ceil(v_slot / 2.0)::int else v_slot end;
-              v_drop_side := case when mod(v_slot, 2)=1 then 'HOME' else 'AWAY' end;
+              -- Round-1 drops pair into same LB slot to preserve intake structure.
+              -- Fairness rule: for WB rounds after first, drops are mirrored to opposite placement branch.
+              if v_round = 1 then
+                v_to_slot := ceil(v_slot / 2.0)::int;
+                v_mirrored_slot := v_slot;
+                v_drop_side := case when mod(v_slot, 2)=1 then 'HOME' else 'AWAY' end;
+              else
+                v_active_pos := array_position(v_active_slots, v_slot);
+                v_active_total := coalesce(array_length(v_active_slots, 1), 0);
+                v_mirrored_pos := (v_active_total - v_active_pos + 1);
+                v_mirrored_slot := v_active_slots[v_mirrored_pos];
+                v_to_slot := v_mirrored_slot;
+                -- Side reservation follows mirrored ordering so LB winner wiring fills the opposite open side.
+                v_drop_side := case when mod(v_mirrored_pos, 2)=1 then 'HOME' else 'AWAY' end;
+              end if;
 
               v_drop_round_key := case when v_drop_side = 'HOME' then 'wb_drop_home_round' else 'wb_drop_away_round' end;
               v_drop_slot_key := case when v_drop_side = 'HOME' then 'wb_drop_home_slot' else 'wb_drop_away_slot' end;
@@ -365,7 +390,7 @@ begin
                   'wb_drop_slot', v_slot
                 )
                 || jsonb_build_object(v_drop_round_key, v_round)
-                || jsonb_build_object(v_drop_slot_key, v_slot)
+                || jsonb_build_object(v_drop_slot_key, v_mirrored_slot)
               where tournament_id = p_tournament_id
                 and stage = 'PLAYOFF'
                 and bracket_type = 'LOSERS'

@@ -758,8 +758,8 @@ begin
             and mr.home_score <> mr.away_score
         )
         select
-          max(loser_participant_id) filter (where bracket_slot = 1),
-          max(loser_participant_id) filter (where bracket_slot = 2)
+          (array_agg(loser_participant_id) filter (where bracket_slot = 1))[1],
+          (array_agg(loser_participant_id) filter (where bracket_slot = 2))[1]
         into v_lb_round1_slot1_loser, v_lb_round1_slot2_loser
         from round1_losers;
 

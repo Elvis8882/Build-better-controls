@@ -19,6 +19,30 @@ type BracketSlot = {
 	match: MatchWithResult | null;
 };
 
+type BracketNodePosition = {
+	roundIndex: number;
+	rowIndex: number;
+};
+
+type BracketEdge = {
+	sourceId: string;
+	targetId: string;
+	side: "HOME" | "AWAY" | null;
+};
+
+const BRACKET_COLUMN_WIDTH = 220;
+const BRACKET_COLUMN_GAP = 40;
+const BRACKET_HEADER_HEIGHT = 20;
+const BRACKET_HEADER_MARGIN = 12;
+const BRACKET_SLOT_HEIGHT = 112;
+const BRACKET_SLOT_GAP = 12;
+const BRACKET_ROW_PITCH = BRACKET_SLOT_HEIGHT + BRACKET_SLOT_GAP;
+
+function isAdditionalPlacementMatch(match: MatchWithResult): boolean {
+	const metadata = (match as MatchWithResult & { metadata?: { is_additional_placement?: boolean } | null }).metadata;
+	return Boolean(metadata?.is_additional_placement);
+}
+
 function isEmptySlotMatch(match: MatchWithResult | null): boolean {
 	if (!match) return true;
 	const hasHome = Boolean(match.home_participant_id);
@@ -193,6 +217,30 @@ export function BracketDiagram({
 		[matches, hideUnplayableMatches],
 	);
 	const totalRoundCount = useMemo(() => roundSlots.length || 1, [roundSlots]);
+	const nodePositionById = useMemo(() => {
+		const positions = new Map<string, BracketNodePosition>();
+		roundSlots.forEach((slots, roundIndex) => {
+			slots.forEach((entry, rowIndex) => {
+				if (!entry.match) return;
+				positions.set(entry.match.id, { roundIndex, rowIndex });
+			});
+		});
+		return positions;
+	}, [roundSlots]);
+	const bracketEdges = useMemo(() => {
+		const edges: BracketEdge[] = [];
+		for (const match of matches) {
+			if (!match.next_match_id) continue;
+			if (isAdditionalPlacementMatch(match)) continue;
+			if (!nodePositionById.has(match.id) || !nodePositionById.has(match.next_match_id)) continue;
+			edges.push({ sourceId: match.id, targetId: match.next_match_id, side: match.next_match_side });
+		}
+		return edges;
+	}, [matches, nodePositionById]);
+	const maxRows = useMemo(() => Math.max(...roundSlots.map((slots) => slots.length), 1), [roundSlots]);
+	const diagramHeight = BRACKET_HEADER_HEIGHT + BRACKET_HEADER_MARGIN + maxRows * BRACKET_ROW_PITCH - BRACKET_SLOT_GAP;
+	const diagramWidth =
+		roundSlots.length * BRACKET_COLUMN_WIDTH + Math.max(0, roundSlots.length - 1) * BRACKET_COLUMN_GAP;
 
 	if (matches.length === 0) {
 		return (
@@ -216,114 +264,128 @@ export function BracketDiagram({
 		<section className="space-y-3 rounded-lg border p-3 md:p-4">
 			<h2 className="text-lg font-semibold">{title}</h2>
 			<div className="overflow-x-auto">
-				<div className="flex min-w-[760px] gap-4 md:min-w-[980px] md:gap-10">
-					{roundSlots.map((slots, roundIndex) => {
-						const currentRound = slots[0]?.round ?? roundIndex + 1;
-						return (
-							<div key={`round-${roundIndex + 1}`} className="min-w-[180px] space-y-3 md:min-w-[220px]">
-								<h3 className="text-center text-sm font-semibold text-muted-foreground">
-									{getRoundLabel(Math.min(currentRound, totalRoundCount), totalRoundCount)}
-								</h3>
-								{slots.map((entry) => {
-									const nextRoundSlots = roundSlots[roundIndex + 1] ?? [];
-									const targetSlot = Math.ceil(entry.slot / 2);
-									const hasNextTarget = nextRoundSlots.some((nextEntry) => nextEntry.slot === targetSlot);
-									const siblingSlot = entry.slot % 2 === 0 ? entry.slot - 1 : entry.slot + 1;
-									const hasSibling = slots.some((slotEntry) => slotEntry.slot === siblingSlot);
-
-									if (!entry.match) {
-										return (
-											<div
-												key={`${entry.round}-${entry.slot}`}
-												className="rounded-md border border-dashed bg-muted/20 p-3"
-											>
-												<div className="space-y-1">
-													<div className="rounded px-1 text-sm text-muted-foreground">TBD</div>
-													<div className="rounded px-1 text-sm text-muted-foreground">TBD</div>
-												</div>
-											</div>
-										);
-									}
-									const match = entry.match;
-									const homeTeam = match.home_team_id ? teamById.get(match.home_team_id) : null;
-									const awayTeam = match.away_team_id ? teamById.get(match.away_team_id) : null;
-									const winningSide = getWinningSide(match);
-									const homeStanding = match.home_participant_id
-										? standingByParticipantId?.get(match.home_participant_id)
-										: undefined;
-									const awayStanding = match.away_participant_id
-										? standingByParticipantId?.get(match.away_participant_id)
-										: undefined;
-									const homeMedal = match.home_participant_id
-										? medalByParticipantId?.get(match.home_participant_id)
-										: undefined;
-									const awayMedal = match.away_participant_id
-										? medalByParticipantId?.get(match.away_participant_id)
-										: undefined;
-
-									const skipped = isSkippedMatch(match);
-									const showHomePlacement = placementRevealKeys
-										? placementRevealKeys.has(getPlacementRevealKey(match.id, "HOME"))
-										: false;
-									const showAwayPlacement = placementRevealKeys
-										? placementRevealKeys.has(getPlacementRevealKey(match.id, "AWAY"))
-										: false;
-
-									return (
-										<div
-											key={match.id}
-											className={`relative rounded-md border p-3 ${skipped ? "border-dashed border-muted-foreground/40 bg-muted/40" : "bg-card"}`}
-										>
-											<div className="space-y-1">
-												<div
-													className={`flex items-center justify-between gap-2 rounded px-1 ${winningSide === "HOME" ? "bg-green-100/80" : ""}`}
-												>
-													<div className="flex items-center">
-														{showHomePlacement && <PlacementPrefix standing={homeStanding} medal={homeMedal} />}
-														<TeamName team={homeTeam} teamName={getBracketTeamLabel(match, "HOME")} />
-													</div>
-													<span className="text-sm font-bold">{match.result?.home_score ?? "-"}</span>
-												</div>
-												<div
-													className={`flex items-center justify-between gap-2 rounded px-1 ${winningSide === "AWAY" ? "bg-green-100/80" : ""}`}
-												>
-													<div className="flex items-center">
-														{showAwayPlacement && <PlacementPrefix standing={awayStanding} medal={awayMedal} />}
-														<TeamName team={awayTeam} teamName={getBracketTeamLabel(match, "AWAY")} />
-													</div>
-													<span className="text-sm font-bold">{match.result?.away_score ?? "-"}</span>
-												</div>
-											</div>
-											<div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
-												<span>{match.result?.decision ?? "R"}</span>
-												{skipped && <Badge variant="outline">Skipped</Badge>}
-												{match.result?.locked && <Badge>Locked</Badge>}
-											</div>
-											{roundIndex < roundSlots.length - 1 && hasNextTarget && (
-												<>
+				<div className="flex min-w-[980px] items-start gap-10">
+					<div className="relative" style={{ width: diagramWidth, minHeight: diagramHeight }}>
+						<svg
+							className="pointer-events-none absolute inset-0"
+							width={diagramWidth}
+							height={diagramHeight}
+							aria-hidden="true"
+						>
+							{bracketEdges.map((edge) => {
+								const source = nodePositionById.get(edge.sourceId);
+								const target = nodePositionById.get(edge.targetId);
+								if (!source || !target) return null;
+								const sourceX = source.roundIndex * (BRACKET_COLUMN_WIDTH + BRACKET_COLUMN_GAP) + BRACKET_COLUMN_WIDTH;
+								const targetX = target.roundIndex * (BRACKET_COLUMN_WIDTH + BRACKET_COLUMN_GAP);
+								const sourceY =
+									BRACKET_HEADER_HEIGHT +
+									BRACKET_HEADER_MARGIN +
+									source.rowIndex * BRACKET_ROW_PITCH +
+									BRACKET_SLOT_HEIGHT / 2;
+								const targetY =
+									BRACKET_HEADER_HEIGHT +
+									BRACKET_HEADER_MARGIN +
+									target.rowIndex * BRACKET_ROW_PITCH +
+									BRACKET_SLOT_HEIGHT / 2;
+								const midX = sourceX + (targetX - sourceX) / 2;
+								const stroke = edge.side === "AWAY" ? "hsl(var(--muted-foreground) / 0.6)" : "hsl(var(--border))";
+								return (
+									<path
+										key={`${edge.sourceId}-${edge.targetId}`}
+										d={`M ${sourceX} ${sourceY} L ${midX} ${sourceY} L ${midX} ${targetY} L ${targetX} ${targetY}`}
+										fill="none"
+										stroke={stroke}
+										strokeWidth={1.5}
+									/>
+								);
+							})}
+						</svg>
+						<div className="relative flex" style={{ gap: BRACKET_COLUMN_GAP }}>
+							{roundSlots.map((slots, roundIndex) => {
+								const currentRound = slots[0]?.round ?? roundIndex + 1;
+								return (
+									<div key={`round-${roundIndex + 1}`} className="space-y-3" style={{ width: BRACKET_COLUMN_WIDTH }}>
+										<h3 className="text-center text-sm font-semibold text-muted-foreground">
+											{getRoundLabel(Math.min(currentRound, totalRoundCount), totalRoundCount)}
+										</h3>
+										{slots.map((entry) => {
+											if (!entry.match) {
+												return (
 													<div
-														className="pointer-events-none absolute -right-4 top-1/2 h-px w-4 bg-border"
-														aria-hidden="true"
-													/>
-													{entry.slot % 2 === 1 && hasSibling ? (
+														key={`${entry.round}-${entry.slot}`}
+														className="h-28 rounded-md border border-dashed bg-muted/20 p-3"
+													>
+														<div className="space-y-1">
+															<div className="rounded px-1 text-sm text-muted-foreground">TBD</div>
+															<div className="rounded px-1 text-sm text-muted-foreground">TBD</div>
+														</div>
+													</div>
+												);
+											}
+											const match = entry.match;
+											const homeTeam = match.home_team_id ? teamById.get(match.home_team_id) : null;
+											const awayTeam = match.away_team_id ? teamById.get(match.away_team_id) : null;
+											const winningSide = getWinningSide(match);
+											const homeStanding = match.home_participant_id
+												? standingByParticipantId?.get(match.home_participant_id)
+												: undefined;
+											const awayStanding = match.away_participant_id
+												? standingByParticipantId?.get(match.away_participant_id)
+												: undefined;
+											const homeMedal = match.home_participant_id
+												? medalByParticipantId?.get(match.home_participant_id)
+												: undefined;
+											const awayMedal = match.away_participant_id
+												? medalByParticipantId?.get(match.away_participant_id)
+												: undefined;
+
+											const skipped = isSkippedMatch(match);
+											const showHomePlacement = placementRevealKeys
+												? placementRevealKeys.has(getPlacementRevealKey(match.id, "HOME"))
+												: false;
+											const showAwayPlacement = placementRevealKeys
+												? placementRevealKeys.has(getPlacementRevealKey(match.id, "AWAY"))
+												: false;
+
+											return (
+												<div
+													key={match.id}
+													className={`h-28 rounded-md border p-3 ${skipped ? "border-dashed border-muted-foreground/40 bg-muted/40" : "bg-card"}`}
+												>
+													<div className="space-y-1">
 														<div
-															className="pointer-events-none absolute -right-4 top-1/2 h-[calc(100%+0.75rem)] w-px bg-border"
-															aria-hidden="true"
-														/>
-													) : entry.slot % 2 === 0 && hasSibling ? (
+															className={`flex items-center justify-between gap-2 rounded px-1 ${winningSide === "HOME" ? "bg-green-100/80" : ""}`}
+														>
+															<div className="flex items-center">
+																{showHomePlacement && <PlacementPrefix standing={homeStanding} medal={homeMedal} />}
+																<TeamName team={homeTeam} teamName={getBracketTeamLabel(match, "HOME")} />
+															</div>
+															<span className="text-sm font-bold">{match.result?.home_score ?? "-"}</span>
+														</div>
 														<div
-															className="pointer-events-none absolute -right-4 bottom-1/2 h-[calc(100%+0.75rem)] w-px bg-border"
-															aria-hidden="true"
-														/>
-													) : null}
-												</>
-											)}
-										</div>
-									);
-								})}
-							</div>
-						);
-					})}
+															className={`flex items-center justify-between gap-2 rounded px-1 ${winningSide === "AWAY" ? "bg-green-100/80" : ""}`}
+														>
+															<div className="flex items-center">
+																{showAwayPlacement && <PlacementPrefix standing={awayStanding} medal={awayMedal} />}
+																<TeamName team={awayTeam} teamName={getBracketTeamLabel(match, "AWAY")} />
+															</div>
+															<span className="text-sm font-bold">{match.result?.away_score ?? "-"}</span>
+														</div>
+													</div>
+													<div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
+														<span>{match.result?.decision ?? "R"}</span>
+														{skipped && <Badge variant="outline">Skipped</Badge>}
+														{match.result?.locked && <Badge>Locked</Badge>}
+													</div>
+												</div>
+											);
+										})}
+									</div>
+								);
+							})}
+						</div>
+					</div>
 					{finalStandings && finalStandings.length > 0 && (
 						<div className="min-w-[180px] space-y-3 md:min-w-[220px]">
 							<h3 className="text-center text-sm font-semibold text-muted-foreground">Final standings</h3>

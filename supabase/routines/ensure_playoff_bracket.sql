@@ -546,7 +546,10 @@ begin
       select
         row_number() over (order by g.group_rank asc)::int as bracket_slot,
         g.participant_id as home_participant_id,
-        g_opp.participant_id as away_participant_id
+        case
+          when g_opp.participant_id = g.participant_id then null
+          else g_opp.participant_id
+        end as away_participant_id
       from tmp_group_ranked g
       left join tmp_group_ranked g_opp
         on g_opp.group_id = g.group_id

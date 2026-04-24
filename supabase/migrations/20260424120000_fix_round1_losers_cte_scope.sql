@@ -1,3 +1,10 @@
+-- Fix round1_losers CTE scope while collecting slot losers for the extra 8-participant placement game.
+create or replace function public.trg_place_losers_into_losers_bracket()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $function$
 declare
   m record;
   loser uuid;
@@ -331,3 +338,5 @@ begin
 
   return new;
 end;
+
+$function$;

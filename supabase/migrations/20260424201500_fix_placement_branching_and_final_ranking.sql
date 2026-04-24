@@ -50,7 +50,6 @@ declare
   v_active_total int;
   v_mirrored_pos int;
   v_mirrored_slot int;
-  v_gf1_round int;
   v_parent_metadata jsonb;
 begin
   -- Developer note:
@@ -243,28 +242,6 @@ begin
       end loop;
     end loop;
 
-    -- GF1 only; GF2 is created lazily only if reset is required.
-    v_gf1_round := v_lb_round_count + 1;
-    insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot, metadata)
-    select p_tournament_id, 'PLAYOFF', 'LOSERS', v_gf1_round, 1, jsonb_build_object('is_gf1', true)
-    where not exists (
-      select 1
-      from public.matches mx
-      where mx.tournament_id = p_tournament_id
-        and mx.stage = 'PLAYOFF'
-        and mx.bracket_type = 'LOSERS'
-        and mx.round = v_gf1_round
-        and mx.bracket_slot = 1
-    );
-
-    update public.matches
-    set metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object('is_gf1', true)
-    where tournament_id = p_tournament_id
-      and stage = 'PLAYOFF'
-      and bracket_type = 'LOSERS'
-      and round = v_gf1_round
-      and bracket_slot = 1;
-
     for v_round in 1..(v_lb_round_count - 1) loop
       for v_slot in 1..v_lb_matches[v_round] loop
         select id into v_mid
@@ -444,39 +421,6 @@ begin
       end loop;
     end loop;
 
-    if v_lb_round_count >= 1 then
-      for v_slot in 1..v_lb_matches[v_lb_round_count] loop
-        select id into v_mid
-        from public.matches
-        where tournament_id = p_tournament_id
-          and stage='PLAYOFF' and bracket_type='LOSERS'
-          and round=v_lb_round_count and bracket_slot=v_slot;
-
-        select id into v_parent
-        from public.matches
-        where tournament_id = p_tournament_id
-          and stage='PLAYOFF' and bracket_type='LOSERS'
-          and round=v_gf1_round and bracket_slot=1;
-
-        update public.matches
-        set next_match_id = v_parent,
-            next_match_side = 'AWAY'
-        where id = v_mid;
-      end loop;
-    end if;
-
-    -- Winners final winner goes to GF1 home.
-    select id into v_parent
-    from public.matches
-    where tournament_id = p_tournament_id and stage='PLAYOFF' and bracket_type='LOSERS'
-      and round=v_gf1_round and bracket_slot=1;
-
-    update public.matches
-    set next_match_id = v_parent,
-        next_match_side = 'HOME'
-    where tournament_id = p_tournament_id
-      and stage='PLAYOFF' and bracket_type='WINNERS'
-      and round=v_rounds and bracket_slot=1;
   else
     perform public.ensure_losers_bracket(p_tournament_id);
   end if;

@@ -2374,22 +2374,29 @@ export async function listTournamentTeamStats(tournamentId: string): Promise<Tou
 			if (!placementByParticipantId.has(bronzeOutcome.loser)) placementByParticipantId.set(bronzeOutcome.loser, 4);
 		}
 
-		const fifthOutcome = fifth
-			? resolveWinnerLoser(fifth.id, fifth.home_participant_id, fifth.away_participant_id)
-			: null;
-		if (fifthOutcome) {
-			if (!placementByParticipantId.has(fifthOutcome.winner)) placementByParticipantId.set(fifthOutcome.winner, 5);
-			if (!placementByParticipantId.has(fifthOutcome.loser)) placementByParticipantId.set(fifthOutcome.loser, 6);
-		}
-
 		const extraSeventhOutcome = extraSeventh
 			? resolveWinnerLoser(extraSeventh.id, extraSeventh.home_participant_id, extraSeventh.away_participant_id)
 			: null;
+		const extraSeventhParticipants = new Set<string>();
 		if (extraSeventhOutcome) {
+			extraSeventhParticipants.add(extraSeventhOutcome.winner);
+			extraSeventhParticipants.add(extraSeventhOutcome.loser);
 			if (!placementByParticipantId.has(extraSeventhOutcome.winner))
 				placementByParticipantId.set(extraSeventhOutcome.winner, 7);
 			if (!placementByParticipantId.has(extraSeventhOutcome.loser))
 				placementByParticipantId.set(extraSeventhOutcome.loser, 8);
+		}
+
+		const fifthOutcome = fifth
+			? resolveWinnerLoser(fifth.id, fifth.home_participant_id, fifth.away_participant_id)
+			: null;
+		if (fifthOutcome) {
+			if (!extraSeventhParticipants.has(fifthOutcome.winner) && !placementByParticipantId.has(fifthOutcome.winner)) {
+				placementByParticipantId.set(fifthOutcome.winner, 5);
+			}
+			if (!extraSeventhParticipants.has(fifthOutcome.loser) && !placementByParticipantId.has(fifthOutcome.loser)) {
+				placementByParticipantId.set(fifthOutcome.loser, 6);
+			}
 		}
 	}
 

@@ -21,6 +21,7 @@ declare
   v_lb_round1_slot2_loser uuid;
   v_lb_extra_match_id uuid;
   v_lb_final_round int;
+  v_lb_extra_locked boolean := false;
 begin
   if new.locked is distinct from true then
     return new;
@@ -117,9 +118,13 @@ begin
         if v_lb_round1_slot1_loser is not null
            and v_lb_round1_slot2_loser is not null
            and v_lb_round1_slot1_loser is distinct from v_lb_round1_slot2_loser then
-          select mx.id
-          into v_lb_extra_match_id
+          select
+            mx.id,
+            coalesce(mr.locked, false)
+          into v_lb_extra_match_id, v_lb_extra_locked
           from public.matches mx
+          left join public.match_results mr
+            on mr.match_id = mx.id
           where mx.tournament_id = m.tournament_id
             and mx.stage = 'PLAYOFF'
             and mx.bracket_type = 'LOSERS'
@@ -149,7 +154,7 @@ begin
             returning id into v_lb_extra_match_id;
           end if;
 
-          if v_lb_extra_match_id is not null then
+          if v_lb_extra_match_id is not null and not v_lb_extra_locked then
             update public.matches
             set home_participant_id = v_lb_round1_slot1_loser,
                 away_participant_id = v_lb_round1_slot2_loser,

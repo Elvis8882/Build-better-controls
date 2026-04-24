@@ -128,15 +128,16 @@ function buildBracketSlots(
 	if (hasLosersMatches) {
 		const rounds: BracketSlot[][] = [];
 		for (const [round, roundMatches] of [...grouped.entries()].sort((a, b) => a[0] - b[0])) {
-			const slots = roundMatches
-				.map((match, index) => ({
-					round,
-					slot: Math.max(1, match.bracket_slot ?? index + 1),
-					match,
-				}))
-				.sort((a, b) => a.slot - b.slot)
-				.filter((slotEntry) => !(hideUnplayableMatches && isUnplayableMatch(slotEntry.match)))
-				.filter((slotEntry) => !(omitTbdOnlySlots && isEmptySlotMatch(slotEntry.match)));
+			const maxExistingSlot = Math.max(0, ...roundMatches.map((match) => Math.max(1, match.bracket_slot ?? 1)));
+			const slotCount = Math.max(1, maxExistingSlot);
+			const bySlot = new Map(roundMatches.map((match) => [Math.max(1, match.bracket_slot ?? 1), match]));
+			const slots: BracketSlot[] = [];
+			for (let slot = 1; slot <= slotCount; slot += 1) {
+				const slotEntry = { round, slot, match: bySlot.get(slot) ?? null };
+				if (hideUnplayableMatches && slotEntry.match && isUnplayableMatch(slotEntry.match)) continue;
+				if (omitTbdOnlySlots && isEmptySlotMatch(slotEntry.match)) continue;
+				slots.push(slotEntry);
+			}
 
 			if (slots.length === 0) continue;
 			rounds.push(slots);
@@ -223,7 +224,13 @@ export function BracketDiagram({
 								<h3 className="text-center text-sm font-semibold text-muted-foreground">
 									{getRoundLabel(Math.min(currentRound, totalRoundCount), totalRoundCount)}
 								</h3>
-								{slots.map((entry, index) => {
+								{slots.map((entry) => {
+									const nextRoundSlots = roundSlots[roundIndex + 1] ?? [];
+									const targetSlot = Math.ceil(entry.slot / 2);
+									const hasNextTarget = nextRoundSlots.some((nextEntry) => nextEntry.slot === targetSlot);
+									const siblingSlot = entry.slot % 2 === 0 ? entry.slot - 1 : entry.slot + 1;
+									const hasSibling = slots.some((slotEntry) => slotEntry.slot === siblingSlot);
+
 									if (!entry.match) {
 										return (
 											<div
@@ -292,23 +299,23 @@ export function BracketDiagram({
 												{skipped && <Badge variant="outline">Skipped</Badge>}
 												{match.result?.locked && <Badge>Locked</Badge>}
 											</div>
-											{roundIndex < roundSlots.length - 1 && (
+											{roundIndex < roundSlots.length - 1 && hasNextTarget && (
 												<>
 													<div
 														className="pointer-events-none absolute -right-4 top-1/2 h-px w-4 bg-border"
 														aria-hidden="true"
 													/>
-													{index % 2 === 0 ? (
+													{entry.slot % 2 === 1 && hasSibling ? (
 														<div
 															className="pointer-events-none absolute -right-4 top-1/2 h-[calc(100%+0.75rem)] w-px bg-border"
 															aria-hidden="true"
 														/>
-													) : (
+													) : entry.slot % 2 === 0 && hasSibling ? (
 														<div
 															className="pointer-events-none absolute -right-4 bottom-1/2 h-[calc(100%+0.75rem)] w-px bg-border"
 															aria-hidden="true"
 														/>
-													)}
+													) : null}
 												</>
 											)}
 										</div>

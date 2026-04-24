@@ -97,11 +97,25 @@ begin
             and mr.locked = true
             and mr.home_score <> mr.away_score
         )
+<<<<<<< codex/fix-placement-bracket-display-and-error
         select
           (array_agg(loser_participant_id) filter (where bracket_slot = 1))[1],
           (array_agg(loser_participant_id) filter (where bracket_slot = 2))[1]
         into v_lb_round1_slot1_loser, v_lb_round1_slot2_loser
         from round1_losers;
+=======
+        select loser_participant_id
+        into v_lb_round1_slot1_loser
+        from round1_losers
+        where bracket_slot = 1
+        limit 1;
+
+        select loser_participant_id
+        into v_lb_round1_slot2_loser
+        from round1_losers
+        where bracket_slot = 2
+        limit 1;
+>>>>>>> main
 
         if v_lb_round1_slot1_loser is not null
            and v_lb_round1_slot2_loser is not null

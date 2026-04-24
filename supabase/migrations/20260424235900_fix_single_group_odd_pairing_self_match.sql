@@ -1,4 +1,4 @@
--- Deterministic group-stage round-1 pairing builder for playoff brackets.
+-- Prevent self-match assignments in odd single-group playoff pairings.
 create or replace function public.ensure_playoff_bracket(p_tournament_id uuid)
 returns void
 language plpgsql

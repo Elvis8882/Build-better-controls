@@ -1284,19 +1284,27 @@ export default function TournamentDetailPage() {
 		if (loser) standingByParticipantId.set(loser, 2);
 	}
 
-	const placementFinalRound = placementBracketMatches.reduce((maxRound, match) => {
-		if (!match.result?.locked) return maxRound;
-		return Math.max(maxRound, match.round ?? 0);
-	}, 0);
 	const matchMetadata = (match: (typeof placementBracketMatches)[number]) =>
 		((match as unknown as { metadata?: Record<string, unknown> | null }).metadata ?? null) as Record<
 			string,
 			unknown
 		> | null;
+	const isAdditionalPlacementMatch = (match: (typeof placementBracketMatches)[number]) =>
+		Boolean(matchMetadata(match)?.is_additional_placement);
+	const isGrandFinalPlacementMatch = (match: (typeof placementBracketMatches)[number]) =>
+		Boolean(matchMetadata(match)?.is_gf1) || Boolean(matchMetadata(match)?.is_gf2);
 	const placementClassification = (match: (typeof placementBracketMatches)[number]) =>
 		typeof matchMetadata(match)?.classification === "string" ? (matchMetadata(match)?.classification as string) : null;
 	const isExtraSeventhPlacementGame = (match: (typeof placementBracketMatches)[number]) =>
-		placementClassification(match) === "extra_7th_place_game";
+		isAdditionalPlacementMatch(match) || placementClassification(match) === "extra_7th_place_game";
+	const classificationMatches = placementBracketMatches.filter(
+		(match) =>
+			Boolean(match.result?.locked) && !isAdditionalPlacementMatch(match) && !isGrandFinalPlacementMatch(match),
+	);
+	const placementFinalRound = classificationMatches.reduce(
+		(maxRound, match) => Math.max(maxRound, match.round ?? 0),
+		0,
+	);
 	const thirdPlaceMatch =
 		[...placementBracketMatches]
 			.filter(

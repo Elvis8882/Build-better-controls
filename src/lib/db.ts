@@ -2334,11 +2334,38 @@ export async function listTournamentTeamStats(tournamentId: string): Promise<Tou
 
 	const placementMatches = playoffMatches.filter((match) => match.bracket_type === "LOSERS");
 	if (placementMatches.length > 0) {
-		const placementFinalRound = Math.max(...placementMatches.map((item) => item.round));
-		const bronze = placementMatches.find(
-			(item) => item.round === placementFinalRound && (item.bracket_slot ?? 0) === 1,
+		const getMeta = (match: (typeof placementMatches)[number]) =>
+			((match as unknown as { metadata?: Record<string, unknown> | null }).metadata ?? null) as Record<
+				string,
+				unknown
+			> | null;
+		const isAdditionalPlacement = (match: (typeof placementMatches)[number]) =>
+			Boolean(getMeta(match)?.is_additional_placement);
+		const isGrandFinalMatch = (match: (typeof placementMatches)[number]) =>
+			Boolean(getMeta(match)?.is_gf1) || Boolean(getMeta(match)?.is_gf2);
+		const classificationOf = (match: (typeof placementMatches)[number]) =>
+			typeof getMeta(match)?.classification === "string" ? (getMeta(match)?.classification as string) : null;
+
+		const classificationMatches = placementMatches.filter(
+			(item) => !isAdditionalPlacement(item) && !isGrandFinalMatch(item),
 		);
-		const fifth = placementMatches.find((item) => item.round === placementFinalRound && (item.bracket_slot ?? 0) === 2);
+		const placementFinalRound =
+			classificationMatches.length > 0 ? Math.max(...classificationMatches.map((item) => item.round)) : null;
+		const bronze =
+			placementFinalRound === null
+				? null
+				: classificationMatches.find((item) => item.round === placementFinalRound && (item.bracket_slot ?? 0) === 1);
+		const fifth =
+			placementFinalRound === null
+				? null
+				: classificationMatches.find(
+						(item) =>
+							item.round === placementFinalRound &&
+							(item.bracket_slot ?? 0) === 2 &&
+							classificationOf(item) !== "extra_7th_place_game",
+					);
+		const extraSeventh = placementMatches.find((item) => classificationOf(item) === "extra_7th_place_game");
+
 		const bronzeOutcome = bronze
 			? resolveWinnerLoser(bronze.id, bronze.home_participant_id, bronze.away_participant_id)
 			: null;
@@ -2353,6 +2380,16 @@ export async function listTournamentTeamStats(tournamentId: string): Promise<Tou
 		if (fifthOutcome) {
 			if (!placementByParticipantId.has(fifthOutcome.winner)) placementByParticipantId.set(fifthOutcome.winner, 5);
 			if (!placementByParticipantId.has(fifthOutcome.loser)) placementByParticipantId.set(fifthOutcome.loser, 6);
+		}
+
+		const extraSeventhOutcome = extraSeventh
+			? resolveWinnerLoser(extraSeventh.id, extraSeventh.home_participant_id, extraSeventh.away_participant_id)
+			: null;
+		if (extraSeventhOutcome) {
+			if (!placementByParticipantId.has(extraSeventhOutcome.winner))
+				placementByParticipantId.set(extraSeventhOutcome.winner, 7);
+			if (!placementByParticipantId.has(extraSeventhOutcome.loser))
+				placementByParticipantId.set(extraSeventhOutcome.loser, 8);
 		}
 	}
 

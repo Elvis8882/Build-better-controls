@@ -124,35 +124,18 @@ function buildBracketSlots(
 		grouped.set(match.round, items);
 	}
 
-	const hasLosersMatches = matches.some((match) => match.bracket_type === "LOSERS");
-	if (hasLosersMatches) {
-		const rounds: BracketSlot[][] = [];
-		for (const [round, roundMatches] of [...grouped.entries()].sort((a, b) => a[0] - b[0])) {
-			const slots = roundMatches
-				.map((match, index) => ({
-					round,
-					slot: Math.max(1, match.bracket_slot ?? index + 1),
-					match,
-				}))
-				.sort((a, b) => a.slot - b.slot)
-				.filter((slotEntry) => !(hideUnplayableMatches && isUnplayableMatch(slotEntry.match)))
-				.filter((slotEntry) => !(omitTbdOnlySlots && isEmptySlotMatch(slotEntry.match)));
-
-			if (slots.length === 0) continue;
-			rounds.push(slots);
-		}
-		return rounds;
-	}
-
-	const maxRound = Math.max(...matches.map((match) => match.round), 1);
-	const firstRoundCount = grouped.get(1)?.length ?? 1;
+	const orderedRounds = [...grouped.keys()].sort((left, right) => left - right);
+	const firstRound = orderedRounds[0] ?? 1;
+	const firstRoundCount = grouped.get(firstRound)?.length ?? 1;
 	const rounds: BracketSlot[][] = [];
-	for (let round = 1; round <= maxRound; round += 1) {
-		const expectedCount = Math.max(1, Math.ceil(firstRoundCount / 2 ** (round - 1)));
-		const bySlot = new Map((grouped.get(round) ?? []).map((match) => [match.bracket_slot ?? 0, match]));
+
+	for (const [roundIndex, round] of orderedRounds.entries()) {
+		const roundMatches = grouped.get(round) ?? [];
+		const expectedCount = Math.max(1, Math.ceil(firstRoundCount / 2 ** roundIndex));
+		const bySlot = new Map(roundMatches.map((match, index) => [Math.max(1, match.bracket_slot ?? index + 1), match]));
 		const maxExistingSlot = Math.max(
 			0,
-			...(grouped.get(round) ?? []).map((match) => Math.max(1, match.bracket_slot ?? 1)),
+			...roundMatches.map((match, index) => Math.max(1, match.bracket_slot ?? index + 1)),
 		);
 		const slotCount = Math.max(expectedCount, maxExistingSlot);
 		const slots: BracketSlot[] = [];
@@ -165,6 +148,7 @@ function buildBracketSlots(
 		if (omitTbdOnlySlots && slots.length === 0) continue;
 		rounds.push(slots);
 	}
+
 	return rounds;
 }
 
@@ -217,11 +201,10 @@ export function BracketDiagram({
 			<div className="overflow-x-auto">
 				<div className="flex min-w-[760px] gap-4 md:min-w-[980px] md:gap-10">
 					{roundSlots.map((slots, roundIndex) => {
-						const currentRound = slots[0]?.round ?? roundIndex + 1;
 						return (
 							<div key={`round-${roundIndex + 1}`} className="min-w-[180px] space-y-3 md:min-w-[220px]">
 								<h3 className="text-center text-sm font-semibold text-muted-foreground">
-									{getRoundLabel(Math.min(currentRound, totalRoundCount), totalRoundCount)}
+									{getRoundLabel(roundIndex + 1, totalRoundCount)}
 								</h3>
 								{slots.map((entry, index) => {
 									if (!entry.match) {

@@ -67,7 +67,98 @@ export function runPlacementFixtureAssertions(): void {
 	assert(normalPlacements.get("C") === 3 && normalPlacements.get("D") === 4, "normal path should set #3/#4");
 	assert(normalPlacements.get("E") === 5 && normalPlacements.get("F") === 6, "normal path should set #5/#6");
 
-	const extraPlacementMatches: FixtureMatch[] = [
+	const extraPlacementRoundMatches: FixtureMatch[] = [
+		{
+			id: "gold",
+			round: 3,
+			bracket_type: "WINNERS",
+			next_match_id: null,
+			bracket_slot: 1,
+			home_participant_id: "A",
+			away_participant_id: "B",
+		},
+		{
+			id: "bronze",
+			round: 3,
+			bracket_type: "LOSERS",
+			next_match_id: null,
+			bracket_slot: 1,
+			home_participant_id: "C",
+			away_participant_id: "D",
+		},
+		{
+			id: "extra-78-with-meta",
+			round: 3,
+			bracket_type: "LOSERS",
+			next_match_id: null,
+			bracket_slot: 2,
+			home_participant_id: "E",
+			away_participant_id: "F",
+			metadata: { is_additional_placement: true, classification: "extra_7th_place_game" },
+		},
+	];
+	const extraPlacementRoundWithMetadataPlacements = runFixture(extraPlacementRoundMatches, {
+		gold: { home_score: 4, away_score: 2 },
+		bronze: { home_score: 3, away_score: 1 },
+		"extra-78-with-meta": { home_score: 1, away_score: 2 },
+	});
+	assert(
+		extraPlacementRoundWithMetadataPlacements.get("E") === 8 &&
+			extraPlacementRoundWithMetadataPlacements.get("F") === 7,
+		"same-round extra path with metadata should force #7/#8",
+	);
+	assert(
+		extraPlacementRoundWithMetadataPlacements.get("E") !== 5 &&
+			extraPlacementRoundWithMetadataPlacements.get("F") !== 6,
+		"same-round extra path with metadata cannot leak into #5/#6",
+	);
+
+	const extraPlacementRoundWithoutMetadataMatches: FixtureMatch[] = [
+		{
+			id: "gold",
+			round: 3,
+			bracket_type: "WINNERS",
+			next_match_id: null,
+			bracket_slot: 1,
+			home_participant_id: "A",
+			away_participant_id: "B",
+		},
+		{
+			id: "bronze",
+			round: 3,
+			bracket_type: "LOSERS",
+			next_match_id: null,
+			bracket_slot: 1,
+			home_participant_id: "C",
+			away_participant_id: "D",
+		},
+		{
+			id: "extra-78-no-meta",
+			round: 3,
+			bracket_type: "LOSERS",
+			next_match_id: null,
+			bracket_slot: 2,
+			home_participant_id: "E",
+			away_participant_id: "F",
+		},
+	];
+	const extraPlacementRoundWithoutMetadataPlacements = runFixture(extraPlacementRoundWithoutMetadataMatches, {
+		gold: { home_score: 4, away_score: 2 },
+		bronze: { home_score: 3, away_score: 1 },
+		"extra-78-no-meta": { home_score: 2, away_score: 1 },
+	});
+	assert(
+		extraPlacementRoundWithoutMetadataPlacements.get("E") === 7 &&
+			extraPlacementRoundWithoutMetadataPlacements.get("F") === 8,
+		"same-round extra path without metadata should still force #7/#8",
+	);
+	assert(
+		extraPlacementRoundWithoutMetadataPlacements.get("E") !== 5 &&
+			extraPlacementRoundWithoutMetadataPlacements.get("F") !== 6,
+		"same-round extra path without metadata cannot leak into #5/#6",
+	);
+
+	const extraPlacementMatchesLegacyCompat: FixtureMatch[] = [
 		...normalMatches,
 		{
 			id: "extra-78",
@@ -80,12 +171,18 @@ export function runPlacementFixtureAssertions(): void {
 			metadata: { is_additional_placement: true, classification: "extra_7th_place_game" },
 		},
 	];
-	const extraPlacements = runFixture(extraPlacementMatches, {
+	const extraPlacementsLegacyCompat = runFixture(extraPlacementMatchesLegacyCompat, {
 		gold: { home_score: 4, away_score: 2 },
 		bronze: { home_score: 3, away_score: 1 },
 		fifth: { home_score: 5, away_score: 2 },
 		"extra-78": { home_score: 1, away_score: 2 },
 	});
-	assert(extraPlacements.get("E") === 8 && extraPlacements.get("F") === 7, "extra path should force #7/#8");
-	assert(extraPlacements.get("E") !== 5 && extraPlacements.get("F") !== 6, "extra path cannot leak into #5/#6");
+	assert(
+		extraPlacementsLegacyCompat.get("E") === 8 && extraPlacementsLegacyCompat.get("F") === 7,
+		"legacy extra path should force #7/#8",
+	);
+	assert(
+		extraPlacementsLegacyCompat.get("E") !== 5 && extraPlacementsLegacyCompat.get("F") !== 6,
+		"legacy extra path cannot leak into #5/#6",
+	);
 }

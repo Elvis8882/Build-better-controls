@@ -51,6 +51,7 @@ import {
 	PlayoffMatchesTable,
 } from "@/pages/tournaments/components/playoff-bracket-page";
 import { buildGoalDifferenceHistory } from "@/pages/tournaments/goal-difference-duel";
+import { assignUnresolvedStandings } from "@/pages/tournaments/detail.rank-assignment";
 import {
 	hasLosersProgressionFlow,
 	isGoalDifferenceDuelFlow,
@@ -1341,11 +1342,7 @@ export default function TournamentDetailPage() {
 			return left.localeCompare(right);
 		});
 
-		let nextStanding = standingByParticipantId.size + 1;
-		for (const participantId of unresolvedRanked) {
-			standingByParticipantId.set(participantId, nextStanding);
-			nextStanding += 1;
-		}
+		assignUnresolvedStandings(standingByParticipantId, unresolvedRanked);
 	}
 
 	const placementRevealKeys = new Set<string>();

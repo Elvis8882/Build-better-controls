@@ -185,4 +185,108 @@ export function runPlacementFixtureAssertions(): void {
 		extraPlacementsLegacyCompat.get("E") !== 5 && extraPlacementsLegacyCompat.get("F") !== 6,
 		"legacy extra path cannot leak into #5/#6",
 	);
+
+	const slotTwoConflictMatches: FixtureMatch[] = [
+		{
+			id: "gold",
+			round: 4,
+			bracket_type: "WINNERS",
+			next_match_id: null,
+			bracket_slot: 1,
+			home_participant_id: "A",
+			away_participant_id: "B",
+		},
+		{
+			id: "bronze",
+			round: 4,
+			bracket_type: "LOSERS",
+			next_match_id: null,
+			bracket_slot: 1,
+			home_participant_id: "C",
+			away_participant_id: "D",
+		},
+		{
+			id: "slot2-extra",
+			round: 4,
+			bracket_type: "LOSERS",
+			next_match_id: null,
+			bracket_slot: 2,
+			home_participant_id: "E",
+			away_participant_id: "F",
+		},
+		{
+			id: "slot2-fifth",
+			round: 4,
+			bracket_type: "LOSERS",
+			next_match_id: null,
+			bracket_slot: 2,
+			home_participant_id: "G",
+			away_participant_id: "H",
+		},
+		{
+			id: "l1-a",
+			round: 1,
+			bracket_type: "LOSERS",
+			next_match_id: "slot2-extra",
+			bracket_slot: 1,
+			home_participant_id: "L1",
+			away_participant_id: "L2",
+		},
+		{
+			id: "l1-b",
+			round: 1,
+			bracket_type: "LOSERS",
+			next_match_id: "slot2-extra",
+			bracket_slot: 2,
+			home_participant_id: "L3",
+			away_participant_id: "L4",
+		},
+		{
+			id: "l2-a",
+			round: 2,
+			bracket_type: "LOSERS",
+			next_match_id: "slot2-fifth",
+			bracket_slot: 1,
+			home_participant_id: "L5",
+			away_participant_id: "L6",
+		},
+		{
+			id: "l2-b",
+			round: 2,
+			bracket_type: "LOSERS",
+			next_match_id: "slot2-fifth",
+			bracket_slot: 2,
+			home_participant_id: "L7",
+			away_participant_id: "L8",
+		},
+	];
+	const slotTwoConflictResults = {
+		gold: { home_score: 4, away_score: 1 },
+		bronze: { home_score: 3, away_score: 0 },
+		"slot2-extra": { home_score: 2, away_score: 1 },
+		"slot2-fifth": { home_score: 1, away_score: 3 },
+		"l1-a": { home_score: 1, away_score: 0 },
+		"l1-b": { home_score: 1, away_score: 0 },
+		"l2-a": { home_score: 1, away_score: 0 },
+		"l2-b": { home_score: 1, away_score: 0 },
+	};
+	const slotTwoConflictPlacements = runFixture(slotTwoConflictMatches, slotTwoConflictResults);
+	assert(
+		slotTwoConflictPlacements.get("E") === 7 && slotTwoConflictPlacements.get("F") === 8,
+		"loser-path origin should infer slot-2 extra game as #7/#8",
+	);
+	assert(
+		slotTwoConflictPlacements.get("H") === 5 && slotTwoConflictPlacements.get("G") === 6,
+		"remaining slot-2 game should keep #5/#6 semantics",
+	);
+
+	const reversedSlotTwoConflictPlacements = runFixture([...slotTwoConflictMatches].reverse(), slotTwoConflictResults);
+	assert(
+		reversedSlotTwoConflictPlacements.get("E") === 7 && reversedSlotTwoConflictPlacements.get("F") === 8,
+		"slot-2 conflict inference should be deterministic regardless of array order",
+	);
+	assert(
+		reversedSlotTwoConflictPlacements.get("H") === 5 && reversedSlotTwoConflictPlacements.get("G") === 6,
+		"slot-2 fifth-game assignment should be deterministic regardless of array order",
+	);
 }

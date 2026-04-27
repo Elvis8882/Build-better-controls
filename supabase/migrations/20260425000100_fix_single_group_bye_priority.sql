@@ -605,14 +605,48 @@ begin
         coalesce((select max(group_rank) from tmp_group_ranked where group_id = v_group_b), 0)
       ) into v_max_group_rank;
 
-      for v_rank in 1..v_max_group_rank loop
-        insert into tmp_r1_pairs(bracket_slot, home_participant_id, away_participant_id)
-        values (
-          v_rank,
-          (select participant_id from tmp_group_ranked where group_id = v_group_a and group_rank = v_rank),
-          (select participant_id from tmp_group_ranked where group_id = v_group_b and group_rank = (v_max_group_rank + 1 - v_rank))
-        );
-      end loop;
+      if v_n < 7 then
+        -- For 5/6 qualifiers we keep the normalized-tree slot shape so top seeds
+        -- receive round-1 BYEs in the canonical 8-slot bracket layout.
+        v_seed_positions := array[1, 2];
+        while array_length(v_seed_positions, 1) < v_s loop
+          v_next_positions := '{}'::int[];
+          foreach v_pos in array v_seed_positions loop
+            v_next_positions := array_append(v_next_positions, v_pos);
+            v_next_positions := array_append(v_next_positions, array_length(v_seed_positions, 1) * 2 + 1 - v_pos);
+          end loop;
+          v_seed_positions := v_next_positions;
+        end loop;
+
+        for v_slot in 1..v_matches_in_round loop
+          insert into tmp_r1_pairs(bracket_slot, home_participant_id, away_participant_id)
+          values (
+            v_slot,
+            (
+              select gr.participant_id
+              from tmp_group_ranked gr
+              where gr.seed = v_seed_positions[(v_slot - 1) * 2 + 1]
+            ),
+            case
+              when v_seed_positions[(v_slot - 1) * 2 + 2] <= v_n then (
+                select gr.participant_id
+                from tmp_group_ranked gr
+                where gr.seed = v_seed_positions[(v_slot - 1) * 2 + 2]
+              )
+              else null
+            end
+          );
+        end loop;
+      else
+        for v_rank in 1..v_max_group_rank loop
+          insert into tmp_r1_pairs(bracket_slot, home_participant_id, away_participant_id)
+          values (
+            v_rank,
+            (select participant_id from tmp_group_ranked where group_id = v_group_a and group_rank = v_rank),
+            (select participant_id from tmp_group_ranked where group_id = v_group_b and group_rank = (v_max_group_rank + 1 - v_rank))
+          );
+        end loop;
+      end if;
     else
       drop table if exists tmp_unpaired_pool;
       create temporary table tmp_unpaired_pool (

@@ -1691,12 +1691,11 @@ export default function TournamentDetailPage() {
 								shouldShowPlacementBracket ? (
 									<BracketDiagram
 										title="Placement bracket"
-										matches={placementBracketMatches}
+										matches={placementBracketMatchesRaw}
 										teamById={teamById}
 										standingByParticipantId={standingByParticipantId}
 										medalByParticipantId={medalByParticipantId}
 										placementRevealKeys={placementRevealKeys}
-										hideUnplayableMatches
 									/>
 								) : undefined
 							}

@@ -150,7 +150,11 @@ begin
     and m.stage = 'PLAYOFF'
     and m.bracket_type = 'WINNERS'
     and (
-      m.round > v_rounds
+      m.round is null
+      or m.round < 1
+      or m.round > v_rounds
+      or m.bracket_slot is null
+      or m.bracket_slot < 1
       or m.bracket_slot > (v_s / (2^m.round))
     );
 

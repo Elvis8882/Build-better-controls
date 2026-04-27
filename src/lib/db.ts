@@ -49,6 +49,7 @@ export type Match = {
 	created_at: string;
 	stage: MatchStage;
 	bracket_type: BracketType | null;
+	metadata?: Record<string, unknown> | null;
 };
 
 export type MatchResult = {
@@ -69,6 +70,7 @@ export type MatchWithResult = Match & {
 	away_participant_name: string;
 	home_team_id: string | null;
 	away_team_id: string | null;
+	metadata?: Record<string, unknown> | null;
 };
 
 export type ProfileOption = {
@@ -1756,7 +1758,7 @@ export async function listMatchesWithResults(tournamentId: string, stage?: Match
 		let query = supabase
 			.from("matches")
 			.select(
-				"id, tournament_id, home_participant_id, away_participant_id, round, bracket_slot, next_match_id, next_match_side, created_at, stage, bracket_type, home_participant:tournament_participants!matches_home_participant_id_fkey(display_name,team_id), away_participant:tournament_participants!matches_away_participant_id_fkey(display_name,team_id)",
+				"id, tournament_id, home_participant_id, away_participant_id, round, bracket_slot, next_match_id, next_match_side, created_at, stage, bracket_type, metadata, home_participant:tournament_participants!matches_home_participant_id_fkey(display_name,team_id), away_participant:tournament_participants!matches_away_participant_id_fkey(display_name,team_id)",
 			)
 			.eq("tournament_id", tournamentId)
 			.order("round", { ascending: true })
@@ -1828,6 +1830,7 @@ export async function listMatchesWithResults(tournamentId: string, stage?: Match
 			created_at: match.created_at,
 			stage: match.stage,
 			bracket_type: match.bracket_type,
+			metadata: match.metadata ?? null,
 			home_participant_name: homeParticipant?.display_name ?? placeholderName,
 			away_participant_name: awayParticipant?.display_name ?? placeholderName,
 			home_team_id: resultMap.get(match.id)?.home_team_id ?? homeParticipant?.team_id ?? null,

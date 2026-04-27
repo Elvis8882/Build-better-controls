@@ -180,9 +180,19 @@ where r1.home_group_id = r1.away_group_id
 
 -- =====================================================================
 -- Scenario 4: 2 groups x 6 participants => canonical 8-slot R1 occupancy
---             (2 BYE matches, 2 full matches) and 4 semifinal participants.
+--             (2 BYE matches, 2 full matches), no structurally empty played
+--             slots, and 4 semifinal participant assignments after BYE advance.
 -- =====================================================================
-with r1 as (
+with qualified as (
+  select
+    ps.participant_id,
+    tgm.group_id
+  from public.v_playoff_seeds ps
+  join public.tournament_group_members tgm
+    on tgm.participant_id = ps.participant_id
+  where ps.tournament_id = :'tournament_id_2g6'::uuid
+),
+r1 as (
   select
     m.bracket_slot,
     m.home_participant_id,
@@ -204,23 +214,41 @@ with r1 as (
     and m.round = 2
 ), agg as (
   select
+    (select count(distinct group_id) from qualified) as qualified_group_count,
+    (select count(*) from qualified) as qualified_count,
+    (select count(*) from r1 where home_participant_id is null and away_participant_id is null) as empty_matches,
     (select count(*) from r1 where (home_participant_id is null) <> (away_participant_id is null)) as bye_matches,
     (select count(*) from r1 where home_participant_id is not null and away_participant_id is not null) as full_matches,
+    (select count(*) from r1 where home_participant_id is not null or away_participant_id is not null) as assigned_matches,
     (select count(*) from sf where home_participant_id is not null)
       + (select count(*) from sf where away_participant_id is not null) as semifinal_participants
 )
 select *
 from agg
-where bye_matches <> 2
+where qualified_group_count <> 2
+   or qualified_count <> 6
+   or bye_matches <> 2
    or full_matches <> 2
+   or assigned_matches <> (bye_matches + full_matches)
+   or empty_matches <> 0
    or semifinal_participants <> 4;
 -- Expected output: 0 rows.
 
 -- =====================================================================
 -- Scenario 5: 2 groups x 5 participants => canonical 8-slot R1 occupancy
---             (3 BYE matches, 1 full match) and 4 semifinal participants.
+--             (3 BYE matches, 1 full match), no structurally empty played
+--             slots, and 4 semifinal participant assignments after BYE advance.
 -- =====================================================================
-with r1 as (
+with qualified as (
+  select
+    ps.participant_id,
+    tgm.group_id
+  from public.v_playoff_seeds ps
+  join public.tournament_group_members tgm
+    on tgm.participant_id = ps.participant_id
+  where ps.tournament_id = :'tournament_id_2g5'::uuid
+),
+r1 as (
   select
     m.bracket_slot,
     m.home_participant_id,
@@ -242,14 +270,22 @@ with r1 as (
     and m.round = 2
 ), agg as (
   select
+    (select count(distinct group_id) from qualified) as qualified_group_count,
+    (select count(*) from qualified) as qualified_count,
+    (select count(*) from r1 where home_participant_id is null and away_participant_id is null) as empty_matches,
     (select count(*) from r1 where (home_participant_id is null) <> (away_participant_id is null)) as bye_matches,
     (select count(*) from r1 where home_participant_id is not null and away_participant_id is not null) as full_matches,
+    (select count(*) from r1 where home_participant_id is not null or away_participant_id is not null) as assigned_matches,
     (select count(*) from sf where home_participant_id is not null)
       + (select count(*) from sf where away_participant_id is not null) as semifinal_participants
 )
 select *
 from agg
-where bye_matches <> 3
+where qualified_group_count <> 2
+   or qualified_count <> 5
+   or bye_matches <> 3
    or full_matches <> 1
+   or assigned_matches <> (bye_matches + full_matches)
+   or empty_matches <> 0
    or semifinal_participants <> 4;
 -- Expected output: 0 rows.

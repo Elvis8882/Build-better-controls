@@ -247,13 +247,19 @@ type QueryError = {
 };
 
 let authFailureHandled = false;
+const PLACEMENT_CLASSIFICATION_KEY = "placement_classification";
+const LEGACY_PLACEMENT_CLASSIFICATION_KEY = "classification";
+const FIFTH_SIXTH_CLASSIFICATIONS = new Set(["placement_5_6", "fifth_sixth_place_game", "fifth_place_game"]);
+const EXTRA_SEVENTH_EIGHTH_CLASSIFICATIONS = new Set(["extra_7th_place_game"]);
 
 function resolvePlacementMetadata(match: PlayoffPlacementMatch): Record<string, unknown> | null {
 	return (match.metadata ?? null) as Record<string, unknown> | null;
 }
 
 function resolvePlacementClassification(match: PlayoffPlacementMatch): string | null {
-	const classification = resolvePlacementMetadata(match)?.classification;
+	const metadata = resolvePlacementMetadata(match);
+	const classification =
+		metadata?.[PLACEMENT_CLASSIFICATION_KEY] ?? metadata?.[LEGACY_PLACEMENT_CLASSIFICATION_KEY] ?? null;
 	return typeof classification === "string" ? classification : null;
 }
 
@@ -328,7 +334,9 @@ export function computePlacementByParticipantId(
 
 	const markedExtraMatch =
 		placementMatches.find(
-			(item) => isAdditionalPlacementMatch(item) || resolvePlacementClassification(item) === "extra_7th_place_game",
+			(item) =>
+				isAdditionalPlacementMatch(item) ||
+				EXTRA_SEVENTH_EIGHTH_CLASSIFICATIONS.has(resolvePlacementClassification(item) ?? ""),
 		) ?? null;
 	const participantPairKey = (match: PlayoffPlacementMatch): string | null => {
 		if (!match.home_participant_id || !match.away_participant_id) return null;
@@ -380,6 +388,23 @@ export function computePlacementByParticipantId(
 	);
 	const placementFinalRound =
 		classificationMatches.length > 0 ? Math.max(...classificationMatches.map((item) => item.round)) : null;
+	const terminalClassificationMatches = classificationMatches.filter((item) => !item.next_match_id);
+	const compareFifthGamePriority = (a: PlayoffPlacementMatch, b: PlayoffPlacementMatch): number => {
+		const byRound = b.round - a.round;
+		if (byRound !== 0) return byRound;
+		const aSlot = a.bracket_slot ?? Number.POSITIVE_INFINITY;
+		const bSlot = b.bracket_slot ?? Number.POSITIVE_INFINITY;
+		if (aSlot !== bSlot) return aSlot - bSlot;
+		return a.id.localeCompare(b.id);
+	};
+	const fifthGameFromMetadata =
+		[...terminalClassificationMatches]
+			.filter((item) => FIFTH_SIXTH_CLASSIFICATIONS.has(resolvePlacementClassification(item) ?? ""))
+			.sort(compareFifthGamePriority)[0] ?? null;
+	const highestPriorityStructuralFifthGame =
+		[...terminalClassificationMatches]
+			.sort(compareFifthGamePriority)
+			.find((item) => (item.bracket_slot ?? Number.POSITIVE_INFINITY) > 1) ?? null;
 	const canonicalRoles = {
 		gold_final: goldFinal,
 		bronze_game:
@@ -390,18 +415,7 @@ export function computePlacementByParticipantId(
 							(item) => item.round === placementFinalRound && (item.bracket_slot ?? 0) === 1,
 						),
 					) ?? null),
-		fifth_game:
-			placementFinalRound === null
-				? null
-				: (selectTopPlacementMatch(
-						classificationMatches.filter(
-							(item) =>
-								item.round === placementFinalRound &&
-								(item.bracket_slot ?? 0) === 2 &&
-								item.id !== inferredExtraMatch?.id &&
-								resolvePlacementClassification(item) !== "extra_7th_place_game",
-						),
-					) ?? null),
+		fifth_game: fifthGameFromMetadata ?? (placementFinalRound === null ? null : highestPriorityStructuralFifthGame),
 		extra_7th_8th_game: inferredExtraMatch,
 	};
 

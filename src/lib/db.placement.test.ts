@@ -289,4 +289,73 @@ export function runPlacementFixtureAssertions(): void {
 		reversedSlotTwoConflictPlacements.get("H") === 5 && reversedSlotTwoConflictPlacements.get("G") === 6,
 		"slot-2 fifth-game assignment should be deterministic regardless of array order",
 	);
+
+	const eightParticipantFinalDisplayRoundMatches: FixtureMatch[] = [
+		{
+			id: "gold",
+			round: 3,
+			bracket_type: "WINNERS",
+			next_match_id: null,
+			bracket_slot: 1,
+			home_participant_id: "A",
+			away_participant_id: "B",
+		},
+		{
+			id: "bronze",
+			round: 3,
+			bracket_type: "LOSERS",
+			next_match_id: null,
+			bracket_slot: 1,
+			home_participant_id: "C",
+			away_participant_id: "D",
+		},
+		{
+			id: "extra-78-display",
+			round: 3,
+			bracket_type: "LOSERS",
+			next_match_id: null,
+			bracket_slot: 2,
+			home_participant_id: "G",
+			away_participant_id: "H",
+			metadata: {
+				is_additional_placement: true,
+				placement_classification: "extra_7th_place_game",
+				classification: "extra_7th_place_game",
+			},
+		},
+		{
+			id: "fifth-sixth-display",
+			round: 3,
+			bracket_type: "LOSERS",
+			next_match_id: null,
+			bracket_slot: 3,
+			home_participant_id: "E",
+			away_participant_id: "F",
+			metadata: {
+				placement_classification: "fifth_sixth_place_game",
+			},
+		},
+	];
+	const eightParticipantFinalDisplayRoundPlacements = runFixture(eightParticipantFinalDisplayRoundMatches, {
+		gold: { home_score: 4, away_score: 2 },
+		bronze: { home_score: 3, away_score: 1 },
+		"extra-78-display": { home_score: 2, away_score: 1 },
+		"fifth-sixth-display": { home_score: 5, away_score: 3 },
+	});
+	assert(
+		eightParticipantFinalDisplayRoundPlacements.get("A") === 1 &&
+			eightParticipantFinalDisplayRoundPlacements.get("B") === 2 &&
+			eightParticipantFinalDisplayRoundPlacements.get("C") === 3 &&
+			eightParticipantFinalDisplayRoundPlacements.get("D") === 4 &&
+			eightParticipantFinalDisplayRoundPlacements.get("E") === 5 &&
+			eightParticipantFinalDisplayRoundPlacements.get("F") === 6 &&
+			eightParticipantFinalDisplayRoundPlacements.get("G") === 7 &&
+			eightParticipantFinalDisplayRoundPlacements.get("H") === 8,
+		"8-player final display round should resolve uniquely to #1..#8 when 5/6 and extra 7/8 both exist",
+	);
+	const eightParticipantRanks = [...eightParticipantFinalDisplayRoundPlacements.values()].sort((a, b) => a - b);
+	assert(
+		eightParticipantRanks.length === 8 && eightParticipantRanks.every((rank, index) => rank === index + 1),
+		"8-player final display round should not produce duplicate placement values",
+	);
 }

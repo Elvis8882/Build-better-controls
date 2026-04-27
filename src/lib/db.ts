@@ -278,6 +278,10 @@ export function computePlacementByParticipantId(
 	} | null,
 ): Map<string, number> {
 	const placementByParticipantId = new Map<string, number>();
+	const comparePlacementMatchDesc = (a: PlayoffPlacementMatch, b: PlayoffPlacementMatch): number =>
+		b.round - a.round || (b.bracket_slot ?? 0) - (a.bracket_slot ?? 0) || a.id.localeCompare(b.id);
+	const selectTopPlacementMatch = (matches: PlayoffPlacementMatch[]): PlayoffPlacementMatch | null =>
+		matches.length === 0 ? null : [...matches].sort(comparePlacementMatchDesc)[0];
 	const resolvedOutcomeByMatchId = new Map<string, { winner: string; loser: string }>();
 	const resolveOutcome = (match: PlayoffPlacementMatch) => {
 		const cached = resolvedOutcomeByMatchId.get(match.id);
@@ -302,6 +306,25 @@ export function computePlacementByParticipantId(
 
 	const placementMatches = playoffMatches.filter((match) => match.bracket_type === "LOSERS");
 	if (placementMatches.length === 0) return placementByParticipantId;
+	const nonGrandFinalPlacementMatches = placementMatches.filter((item) => !isGrandFinalPlacementMatch(item));
+	const feederMatchesByNextMatchId = new Map<string, PlayoffPlacementMatch[]>();
+	for (const match of nonGrandFinalPlacementMatches) {
+		if (!match.next_match_id) continue;
+		const feederMatches = feederMatchesByNextMatchId.get(match.next_match_id) ?? [];
+		feederMatches.push(match);
+		feederMatchesByNextMatchId.set(match.next_match_id, feederMatches);
+	}
+	const earliestLosersRound =
+		nonGrandFinalPlacementMatches.length > 0
+			? Math.min(...nonGrandFinalPlacementMatches.map((match) => match.round))
+			: null;
+	const hasEarliestLosersPathOrigin = (match: PlayoffPlacementMatch): boolean => {
+		if (earliestLosersRound === null) return false;
+		const feeders = feederMatchesByNextMatchId.get(match.id) ?? [];
+		return feeders.some((feederMatch) => feederMatch.round === earliestLosersRound);
+	};
+	const compareLosersPathPriority = (a: PlayoffPlacementMatch, b: PlayoffPlacementMatch): number =>
+		Number(hasEarliestLosersPathOrigin(b)) - Number(hasEarliestLosersPathOrigin(a)) || comparePlacementMatchDesc(a, b);
 
 	const markedExtraMatch =
 		placementMatches.find(
@@ -325,23 +348,32 @@ export function computePlacementByParticipantId(
 		let candidate: PlayoffPlacementMatch | null = null;
 		for (const items of grouped.values()) {
 			if (items.length < 2) continue;
-			const latest = [...items].sort((a, b) => b.round - a.round || (b.bracket_slot ?? 0) - (a.bracket_slot ?? 0))[0];
+			const latest = [...items].sort(comparePlacementMatchDesc)[0];
 			if (!candidate) {
 				candidate = latest;
 				continue;
 			}
-			const candidateScore = candidate.round * 100 + (candidate.bracket_slot ?? 0);
-			const latestScore = latest.round * 100 + (latest.bracket_slot ?? 0);
-			if (latestScore > candidateScore) candidate = latest;
+			if (comparePlacementMatchDesc(candidate, latest) > 0) candidate = latest;
 		}
 		return candidate;
 	})();
-	const structuralExtraMatch =
-		[...placementMatches]
-			.filter((item) => !isGrandFinalPlacementMatch(item))
-			.sort((a, b) => b.round - a.round || (b.bracket_slot ?? 0) - (a.bracket_slot ?? 0))
-			.find((item) => (item.bracket_slot ?? 0) >= 3) ?? null;
-	const inferredExtraMatch = markedExtraMatch ?? duplicatePairExtraMatch ?? structuralExtraMatch;
+	const terminalPlacementMatches = nonGrandFinalPlacementMatches.filter((item) => !item.next_match_id);
+	const terminalPlacementFinalRound =
+		terminalPlacementMatches.length > 0 ? Math.max(...terminalPlacementMatches.map((item) => item.round)) : null;
+	const slotTwoTerminalMatches =
+		terminalPlacementFinalRound === null
+			? []
+			: terminalPlacementMatches.filter(
+					(item) => item.round === terminalPlacementFinalRound && (item.bracket_slot ?? 0) === 2,
+				);
+	const slotTwoConflictExtraMatch =
+		slotTwoTerminalMatches.length >= 2 ? [...slotTwoTerminalMatches].sort(compareLosersPathPriority)[0] : null;
+	const loserPathOriginExtraMatch =
+		slotTwoTerminalMatches.length === 1 && hasEarliestLosersPathOrigin(slotTwoTerminalMatches[0])
+			? slotTwoTerminalMatches[0]
+			: null;
+	const inferredExtraMatch =
+		markedExtraMatch ?? slotTwoConflictExtraMatch ?? loserPathOriginExtraMatch ?? duplicatePairExtraMatch;
 
 	const classificationMatches = placementMatches.filter(
 		(item) => !isGrandFinalPlacementMatch(item) && item.id !== inferredExtraMatch?.id,
@@ -353,16 +385,22 @@ export function computePlacementByParticipantId(
 		bronze_game:
 			placementFinalRound === null
 				? null
-				: (classificationMatches.find((item) => item.round === placementFinalRound && (item.bracket_slot ?? 0) === 1) ??
-					null),
+				: (selectTopPlacementMatch(
+						classificationMatches.filter(
+							(item) => item.round === placementFinalRound && (item.bracket_slot ?? 0) === 1,
+						),
+					) ?? null),
 		fifth_game:
 			placementFinalRound === null
 				? null
-				: (classificationMatches.find(
-						(item) =>
-							item.round === placementFinalRound &&
-							(item.bracket_slot ?? 0) === 2 &&
-							resolvePlacementClassification(item) !== "extra_7th_place_game",
+				: (selectTopPlacementMatch(
+						classificationMatches.filter(
+							(item) =>
+								item.round === placementFinalRound &&
+								(item.bracket_slot ?? 0) === 2 &&
+								item.id !== inferredExtraMatch?.id &&
+								resolvePlacementClassification(item) !== "extra_7th_place_game",
+						),
 					) ?? null),
 		extra_7th_8th_game: inferredExtraMatch,
 	};
@@ -388,13 +426,14 @@ export function computePlacementByParticipantId(
 		: null;
 	const lockedSeventhEighthParticipants = assignRankBand(extraSeventhOutcome, 7, 8);
 
-	const fifthOutcome = canonicalRoles.fifth_game
-		? resolveWinnerLoser(
-				canonicalRoles.fifth_game.id,
-				canonicalRoles.fifth_game.home_participant_id,
-				canonicalRoles.fifth_game.away_participant_id,
-			)
-		: null;
+	const fifthOutcome =
+		canonicalRoles.fifth_game && canonicalRoles.fifth_game.id !== canonicalRoles.extra_7th_8th_game?.id
+			? resolveWinnerLoser(
+					canonicalRoles.fifth_game.id,
+					canonicalRoles.fifth_game.home_participant_id,
+					canonicalRoles.fifth_game.away_participant_id,
+				)
+			: null;
 	if (fifthOutcome) {
 		if (
 			!lockedSeventhEighthParticipants.has(fifthOutcome.winner) &&

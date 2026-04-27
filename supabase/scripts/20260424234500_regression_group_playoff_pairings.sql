@@ -8,6 +8,8 @@
 --   :tournament_id_1g8  -> 1 group, 8 qualified participants
 --   :tournament_id_2g8  -> 2 groups, 8 qualified participants (4 per group)
 --   :tournament_id_3g   -> 3+ groups (any supported qualified size)
+--   :tournament_id_2g6  -> 2 groups, 6 qualified participants
+--   :tournament_id_2g5  -> 2 groups, 5 qualified participants
 
 -- =====================================================================
 -- Scenario 1: 1 group x 8 participants => 1v8, 2v7, 3v6, 4v5
@@ -173,4 +175,81 @@ from r1
 cross join unavoidable u
 where r1.home_group_id = r1.away_group_id
   and not u.is_unavoidable;
+-- Expected output: 0 rows.
+
+
+-- =====================================================================
+-- Scenario 4: 2 groups x 6 participants => canonical 8-slot R1 occupancy
+--             (2 BYE matches, 2 full matches) and 4 semifinal participants.
+-- =====================================================================
+with r1 as (
+  select
+    m.bracket_slot,
+    m.home_participant_id,
+    m.away_participant_id
+  from public.matches m
+  where m.tournament_id = :'tournament_id_2g6'::uuid
+    and m.stage = 'PLAYOFF'
+    and m.bracket_type = 'WINNERS'
+    and m.round = 1
+), sf as (
+  select
+    m.bracket_slot,
+    m.home_participant_id,
+    m.away_participant_id
+  from public.matches m
+  where m.tournament_id = :'tournament_id_2g6'::uuid
+    and m.stage = 'PLAYOFF'
+    and m.bracket_type = 'WINNERS'
+    and m.round = 2
+), agg as (
+  select
+    (select count(*) from r1 where (home_participant_id is null) <> (away_participant_id is null)) as bye_matches,
+    (select count(*) from r1 where home_participant_id is not null and away_participant_id is not null) as full_matches,
+    (select count(*) from sf where home_participant_id is not null)
+      + (select count(*) from sf where away_participant_id is not null) as semifinal_participants
+)
+select *
+from agg
+where bye_matches <> 2
+   or full_matches <> 2
+   or semifinal_participants <> 4;
+-- Expected output: 0 rows.
+
+-- =====================================================================
+-- Scenario 5: 2 groups x 5 participants => canonical 8-slot R1 occupancy
+--             (3 BYE matches, 1 full match) and 4 semifinal participants.
+-- =====================================================================
+with r1 as (
+  select
+    m.bracket_slot,
+    m.home_participant_id,
+    m.away_participant_id
+  from public.matches m
+  where m.tournament_id = :'tournament_id_2g5'::uuid
+    and m.stage = 'PLAYOFF'
+    and m.bracket_type = 'WINNERS'
+    and m.round = 1
+), sf as (
+  select
+    m.bracket_slot,
+    m.home_participant_id,
+    m.away_participant_id
+  from public.matches m
+  where m.tournament_id = :'tournament_id_2g5'::uuid
+    and m.stage = 'PLAYOFF'
+    and m.bracket_type = 'WINNERS'
+    and m.round = 2
+), agg as (
+  select
+    (select count(*) from r1 where (home_participant_id is null) <> (away_participant_id is null)) as bye_matches,
+    (select count(*) from r1 where home_participant_id is not null and away_participant_id is not null) as full_matches,
+    (select count(*) from sf where home_participant_id is not null)
+      + (select count(*) from sf where away_participant_id is not null) as semifinal_participants
+)
+select *
+from agg
+where bye_matches <> 3
+   or full_matches <> 1
+   or semifinal_participants <> 4;
 -- Expected output: 0 rows.

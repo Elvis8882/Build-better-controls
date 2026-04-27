@@ -1,3 +1,10 @@
+-- Ensure two-group normalized 16-slot playoffs always materialize complete round-1 structure.
+create or replace function public.ensure_playoff_bracket(p_tournament_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $function$
 declare
 	r record;
   v_preset text;
@@ -861,3 +868,4 @@ begin
     perform public.sync_match_identities_from_participants(r.id);
   end loop;
 end;
+$function$;

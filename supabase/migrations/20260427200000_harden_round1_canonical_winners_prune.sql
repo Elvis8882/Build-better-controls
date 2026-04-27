@@ -1,4 +1,4 @@
--- Validate winners round-1 population for full_with_losers (9..16) before downstream clears.
+-- Ensure round-1 validation only operates on canonical winners rows.
 create or replace function public.ensure_playoff_bracket(p_tournament_id uuid)
 returns void
 language plpgsql
@@ -157,6 +157,28 @@ begin
       or m.bracket_slot < 1
       or m.bracket_slot > (v_s / (2^m.round))
     );
+
+  -- Keep only one winners match row per structural slot.
+  -- Historical data may contain duplicate (round, bracket_slot) rows, which can
+  -- inflate round-1 assignment validation counts (assigned_refs > participant_count).
+  delete from public.matches m
+  using (
+    select id
+    from (
+      select
+        mx.id,
+        row_number() over (
+          partition by mx.round, mx.bracket_slot
+          order by mx.id asc
+        ) as rn
+      from public.matches mx
+      where mx.tournament_id = p_tournament_id
+        and mx.stage = 'PLAYOFF'
+        and mx.bracket_type = 'WINNERS'
+    ) ranked
+    where ranked.rn > 1
+  ) dup
+  where m.id = dup.id;
 
   for v_round in 1..(v_rounds-1) loop
     v_matches_in_round := v_s / (2^v_round);

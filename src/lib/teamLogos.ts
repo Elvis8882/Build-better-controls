@@ -8,12 +8,14 @@ const COUNTRY_FLAG_CODE_BY_TEAM_CODE: Record<string, string> = {
 	CZE: "cz",
 	DEN: "dk",
 	FIN: "fi",
+	FRA: "fr",
 	HUN: "hu",
 	GBR: "gb",
 	GER: "de",
 	ITA: "it",
 	LAT: "lv",
 	NOR: "no",
+	POL: "pl",
 	SVN: "si",
 	SVK: "sk",
 	SUI: "ch",
@@ -28,7 +30,12 @@ export function getTeamLogoUrl(teamCode: string, teamPool: TeamPool): string {
 		return `https://assets.nhle.com/logos/nhl/svg/${teamCode}_light.svg`;
 	}
 
-	const flagCode = COUNTRY_FLAG_CODE_BY_TEAM_CODE[teamCode] ?? "us";
+	// Keep legacy codes available while the team replacement migration rolls out.
+	// An unknown code is a data problem, not a United States team.
+	const flagCode = COUNTRY_FLAG_CODE_BY_TEAM_CODE[teamCode.trim().toUpperCase()];
+	if (!flagCode) {
+		return TEAM_LOGO_FALLBACK_URL;
+	}
 	return `https://flagcdn.com/w80/${flagCode}.png`;
 }
 

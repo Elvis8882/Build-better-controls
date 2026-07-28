@@ -1539,6 +1539,7 @@ export async function fetchTeamsByPool(teamPool: TeamPool): Promise<Team[]> {
 					"id, code, name, short_name, team_pool, primary_color, secondary_color, text_color, overall, off_def_sum, offense, defense, goalie, ovr_tier, last_updated",
 				)
 				.eq("team_pool", teamPool)
+				.eq("active", true)
 				.order("name", { ascending: true }),
 		"Unable to load teams",
 	);
@@ -1551,6 +1552,7 @@ export async function listTeams(): Promise<Team[]> {
 		.select(
 			"id, code, name, short_name, team_pool, primary_color, secondary_color, text_color, overall, off_def_sum, offense, defense, goalie, ovr_tier, last_updated",
 		)
+		.eq("active", true)
 		.order("overall", { ascending: false })
 		.order("off_def_sum", { ascending: false })
 		.order("goalie", { ascending: false })

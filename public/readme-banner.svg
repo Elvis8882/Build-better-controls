@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-labelledby="title desc">
+  <title id="title">NHL Enthusiast Club</title>
+  <desc id="desc">A dark tournament dashboard banner with ice blue, purple, and green bracket accents.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#09090B"/>
+      <stop offset="0.55" stop-color="#141A21"/>
+      <stop offset="1" stop-color="#1C252E"/>
+    </linearGradient>
+    <radialGradient id="blue" cx="0" cy="0" r="1" gradientTransform="translate(955 80) rotate(140) scale(410 270)">
+      <stop stop-color="#078DEE" stop-opacity=".34"/>
+      <stop offset="1" stop-color="#078DEE" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="purple" cx="0" cy="0" r="1" gradientTransform="translate(1050 360) rotate(-145) scale(410 220)">
+      <stop stop-color="#7635DC" stop-opacity=".3"/>
+      <stop offset="1" stop-color="#7635DC" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="16" flood-color="#000" flood-opacity=".35"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="420" rx="28" fill="url(#bg)"/>
+  <rect width="1200" height="420" rx="28" fill="url(#blue)"/>
+  <rect width="1200" height="420" rx="28" fill="url(#purple)"/>
+  <path d="M0 350C190 302 327 410 522 355S876 298 1200 371V420H0Z" fill="#00A76F" opacity=".05"/>
+  <g transform="translate(74 75)">
+    <rect width="58" height="58" rx="17" fill="#00A76F"/>
+    <path d="M17 18h24M17 29h15M17 40h24" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+    <circle cx="41" cy="29" r="5" fill="#C8FAD6"/>
+    <text x="0" y="118" fill="#919EAB" font-family="Inter,Arial,sans-serif" font-size="16" font-weight="700" letter-spacing="4">TOURNAMENT CONTROL</text>
+    <text x="0" y="176" fill="#FFFFFF" font-family="Inter,Arial,sans-serif" font-size="48" font-weight="750">NHL Enthusiast Club</text>
+    <text x="0" y="220" fill="#C4CDD5" font-family="Inter,Arial,sans-serif" font-size="21">Run the tournament, not the spreadsheet.</text>
+    <g transform="translate(0 258)" font-family="Inter,Arial,sans-serif" font-size="14" font-weight="650">
+      <rect width="128" height="38" rx="19" fill="#00A76F" fill-opacity=".16" stroke="#5BE49B" stroke-opacity=".55"/>
+      <circle cx="20" cy="19" r="5" fill="#5BE49B"/><text x="34" y="24" fill="#C8FAD6">LIVE BRACKETS</text>
+      <rect x="142" width="126" height="38" rx="19" fill="#078DEE" fill-opacity=".14" stroke="#68CDF9" stroke-opacity=".45"/>
+      <text x="164" y="24" fill="#CCF4FE">7 FORMATS</text>
+    </g>
+  </g>
+  <g transform="translate(790 70)" filter="url(#shadow)" stroke-linecap="round" stroke-linejoin="round">
+    <rect width="330" height="280" rx="24" fill="#141A21" stroke="#454F5B"/>
+    <text x="28" y="39" fill="#919EAB" font-family="Inter,Arial,sans-serif" font-size="12" font-weight="700" letter-spacing="2">PLAYOFFS</text>
+    <g fill="#1C252E" stroke="#454F5B">
+      <rect x="28" y="62" width="100" height="42" rx="10"/><rect x="28" y="126" width="100" height="42" rx="10"/>
+      <rect x="28" y="190" width="100" height="42" rx="10"/><rect x="202" y="94" width="100" height="42" rx="10"/>
+      <rect x="202" y="174" width="100" height="42" rx="10"/>
+    </g>
+    <g fill="none" stroke="#637381" stroke-width="2">
+      <path d="M128 83h38v32h36M128 147h38v-32"/><path d="M128 211h38v-16h36"/>
+    </g>
+    <g font-family="Inter,Arial,sans-serif" font-size="12" font-weight="650">
+      <text x="44" y="88" fill="#F4F6F8">ICE WOLVES</text><text x="44" y="152" fill="#F4F6F8">NORTH STARS</text>
+      <text x="44" y="216" fill="#F4F6F8">POLAR CLUB</text><text x="218" y="120" fill="#68CDF9">SEMIFINAL</text>
+      <text x="222" y="200" fill="#B985F4">FINAL</text>
+    </g>
+    <circle cx="288" cy="39" r="6" fill="#5BE49B"/><text x="259" y="43" text-anchor="end" fill="#919EAB" font-family="Inter,Arial,sans-serif" font-size="11">LIVE</text>
+  </g>
+</svg>

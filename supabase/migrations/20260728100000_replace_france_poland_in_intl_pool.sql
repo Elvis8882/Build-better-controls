@@ -23,6 +23,7 @@ insert into public.teams (
 	offense,
 	defense,
 	goalie,
+	ovr_tier,
 	active
 )
 select
@@ -38,6 +39,7 @@ select
 	offense,
 	defense,
 	goalie,
+	ovr_tier,
 	true
 from public.teams
 where code = 'FRA'
@@ -57,6 +59,7 @@ insert into public.teams (
 	offense,
 	defense,
 	goalie,
+	ovr_tier,
 	active
 )
 select
@@ -72,6 +75,7 @@ select
 	offense,
 	defense,
 	goalie,
+	ovr_tier,
 	true
 from public.teams
 where code = 'POL'

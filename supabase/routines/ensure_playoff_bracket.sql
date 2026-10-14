@@ -966,12 +966,11 @@ begin
   end if;
 
   if v_is_full_with_losers and v_n between 9 and 16 then
+    -- The lateral join emits one row per occupied side. Count those references
+    -- directly; summing match occupancy here counts full matches twice.
     select
-      coalesce(sum(
-        (case when m.home_participant_id is not null then 1 else 0 end) +
-        (case when m.away_participant_id is not null then 1 else 0 end)
-      ), 0),
-      coalesce(count(distinct x.pid), 0)
+      count(x.pid),
+      count(distinct x.pid)
     into v_assigned_refs, v_distinct_assigned
     from public.matches m
     left join lateral (

@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import type { MatchWithResult } from "@/lib/db";
+import { computePlacementByParticipantId } from "@/lib/playoff-placement";
 import { arePlayoffMatchesResolved, computePlayoffStandings } from "@/lib/playoff-standings";
 
 function assert(condition: boolean, message: string): void {
@@ -49,7 +50,7 @@ function match(
 
 export function runUnevenPlacementStandingsAssertions(): void {
 	// Ten-player completed graph: six R1 BYEs, two played R1 games,
-	// and seven placement games. Every winner and drop has one path forward.
+	// seven placement games and four visible placement BYEs. Every source has one path forward.
 	const winners = [
 		...Array.from({ length: 6 }, (_, index) => match(`bye-${index}`, "WINNERS", 1, `${index + 1}`, null, "qf")),
 		match("r1-a", "WINNERS", 1, "8", "9", "qf"),
@@ -62,14 +63,23 @@ export function runUnevenPlacementStandingsAssertions(): void {
 		match("sf-b", "WINNERS", 3, "2", "3", "gold"),
 		match("gold", "WINNERS", 4, "1", "2"),
 	];
+	const placementBye = (id: string, round: number, participant: string, next: string) => {
+		const bye = match(id, "LOSERS", round, participant, null, next);
+		bye.metadata = { placement_graph_version: 2, placement_bye: true };
+		return bye;
+	};
 	const placement = [
-		match("intake-a", "LOSERS", 1, "9", "6", "consolidate-a"),
-		match("intake-b", "LOSERS", 1, "10", "5", "consolidate-b"),
-		match("consolidate-a", "LOSERS", 2, "9", "7", "intake-c"),
-		match("consolidate-b", "LOSERS", 2, "10", "8", "intake-d"),
-		match("intake-c", "LOSERS", 3, "9", "3", "bronze"),
-		match("intake-d", "LOSERS", 3, "10", "4", "bronze"),
-		match("bronze", "LOSERS", 4, "9", "10"),
+		placementBye("r16-bye-a", 1, "9", "intake-a"),
+		placementBye("r16-bye-b", 1, "10", "intake-b"),
+		match("intake-a", "LOSERS", 2, "9", "6", "consolidate-a"),
+		match("intake-b", "LOSERS", 2, "10", "5", "consolidate-b"),
+		placementBye("qf-bye-a", 2, "7", "consolidate-a"),
+		placementBye("qf-bye-b", 2, "8", "consolidate-b"),
+		match("consolidate-a", "LOSERS", 3, "9", "7", "intake-c"),
+		match("consolidate-b", "LOSERS", 3, "10", "8", "intake-d"),
+		match("intake-c", "LOSERS", 4, "9", "3", "bronze"),
+		match("intake-d", "LOSERS", 4, "10", "4", "bronze"),
+		match("bronze", "LOSERS", 5, "9", "10"),
 	];
 	const standings = computePlayoffStandings(winners, placement);
 	assert(standings.get("1") === 1 && standings.get("2") === 2, "Gold final determines #1/#2");
@@ -116,6 +126,27 @@ export function runUnevenPlacementStandingsAssertions(): void {
 		!arePlayoffMatchesResolved([firstBye, unresolvedFeeder, higherBye]),
 		"A pending feeder must block a later BYE",
 	);
+
+	const waitingBye = placementBye("waiting-bye", 1, "9", "intake-a");
+	waitingBye.home_participant_id = null;
+	assert(!arePlayoffMatchesResolved([waitingBye]), "A placeholder BYE must wait for its actual loser source");
+	const byeOnlyRanks = computePlacementByParticipantId(
+		placement.filter((item) => item.metadata?.placement_bye),
+		() => null,
+	);
+	assert(byeOnlyRanks.size === 0, "Advancing through a nonterminal placement BYE must not award a medal");
+
+	const undrawnOpeningBye = placementBye("undrawn-opening", 1, "9", "intake-a");
+	undrawnOpeningBye.next_match_id = null;
+	undrawnOpeningBye.metadata = { placement_graph_version: 2, placement_bye: true, advances_to_round: 2 };
+	assert(
+		computePlacementByParticipantId([undrawnOpeningBye], () => null).size === 0,
+		"An opening loser waiting for the ranked draw must not receive bronze",
+	);
+	const pendingDraw = match("pending-quarter-draw", "LOSERS", 2, "", null, "qualifier");
+	pendingDraw.home_participant_id = null;
+	pendingDraw.metadata = { placement_graph_version: 2, placement_seed_pending: true };
+	assert(!arePlayoffMatchesResolved([pendingDraw]), "An incomplete ranked quarter-final pool must prevent completion");
 
 	const threeWinners = [
 		match("bye", "WINNERS", 1, "1", null, "gold"),

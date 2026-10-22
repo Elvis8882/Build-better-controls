@@ -68,8 +68,9 @@ begin
       -- those matches until the corresponding winners match is locked and the
       -- drop side is actually known.
       if r.bracket_type = 'LOSERS' then
-        if r.metadata->>'placement_graph_version' = '2' then
-          continue; -- Every generated nonterminal placement node has two real sources.
+        if r.metadata->>'placement_graph_version' = '2'
+           and not coalesce((r.metadata->>'placement_bye')::boolean, false) then
+          continue; -- Two-source nodes must wait for their second source.
         end if;
 
         if r.home_participant_id is null

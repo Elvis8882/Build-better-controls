@@ -53,7 +53,7 @@ declare
   v_pair_count int;
   v_side_index int;
   v_display_round int;
-  v_created_in_phase int;
+  v_round_label text;
 begin
   -- Developer note:
   -- Group Stage qualification/seeding flow is intentionally preserved.
@@ -800,9 +800,9 @@ begin
       or bracket_type='LOSERS'
     );
 
-  -- A placement match has exactly two sources. Alternate loser intake and
-  -- consolidation; collapse empty/BYE nodes symbolically before creating rows.
-  -- Tokens represent a real WB loser or the winner of a real placement match.
+  -- A placement match that is played has two sources. Alternate loser intake and
+  -- consolidation. Preserve one-source BYE nodes in their original round;
+  -- only wholly empty nodes are omitted. Each token has exactly one path.
   if v_is_full_with_losers and v_n between 3 and 16 then
     delete from public.playoff_placement_entrants where tournament_id = p_tournament_id;
     delete from public.matches where tournament_id = p_tournament_id and stage = 'PLAYOFF' and bracket_type = 'LOSERS';
@@ -821,7 +821,13 @@ begin
     v_display_round := 0;
     for v_phase in 1..(2 * v_rounds - 3) loop
       v_next_tokens := '{}'::jsonb[];
-      v_created_in_phase := 0;
+      v_round_label := case
+        when v_phase = 2 * v_rounds - 3 then 'Final placement'
+        when v_phase > 1 and mod(v_phase, 2) = 1 then 'Placement qualifier'
+        when v_phase = 1 then case v_rounds when 4 then 'Round of 16' when 3 then 'Quarter-finals' else 'Final placement' end
+        when v_phase = 2 and v_rounds = 4 then 'Quarter-finals'
+        else 'Semi-finals'
+      end;
       if v_phase = 1 or mod(v_phase, 2) = 0 then
         v_round := case when v_phase = 1 then 1 else v_phase / 2 + 1 end;
         v_drops := '{}'::jsonb[];
@@ -849,18 +855,21 @@ begin
         else
           v_sources := array[v_tokens[v_slot * 2 - 1], v_tokens[v_slot * 2]];
         end if;
-        if v_sources[1] is null or v_sources[2] is null then
-          v_next_tokens := array_append(v_next_tokens, coalesce(v_sources[1], v_sources[2]));
+        if v_sources[1] is null and v_sources[2] is null then
+          v_next_tokens := array_append(v_next_tokens, null::jsonb);
           continue;
         end if;
 
-        v_created_in_phase := v_created_in_phase + 1;
         insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot, metadata)
-        values (p_tournament_id, 'PLAYOFF', 'LOSERS', v_display_round + 1, v_created_in_phase,
-                jsonb_build_object('placement_graph_version', 2))
+        values (p_tournament_id, 'PLAYOFF', 'LOSERS', v_phase, v_slot,
+                jsonb_build_object('placement_graph_version', 2, 'round_label', v_round_label,
+                  'placement_bye', v_sources[1] is null or v_sources[2] is null))
         returning id into v_mid;
         for v_side_index in 1..2 loop
           v_token := v_sources[v_side_index];
+          if v_token is null then
+            continue;
+          end if;
           v_drop_side := case when v_side_index = 1 then 'HOME' else 'AWAY' end;
           if v_token->>'kind' = 'drop' then
             update public.matches
@@ -876,19 +885,20 @@ begin
         end loop;
         v_next_tokens := array_append(v_next_tokens, jsonb_build_object('kind', 'winner', 'id', v_mid));
       end loop;
-      if v_created_in_phase > 0 then
-        v_display_round := v_display_round + 1;
-      end if;
+      v_display_round := v_phase;
       v_tokens := v_next_tokens;
     end loop;
 
-    if v_tokens[1]->>'kind' = 'drop' then
-      -- Three entrants: the sole semifinal loser receives bronze without a game.
-      insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot, metadata)
-      values (p_tournament_id, 'PLAYOFF', 'LOSERS', 1, 1,
-        jsonb_build_object('placement_graph_version', 2, 'placement_bye', true,
-          'wb_drop_home_round', (v_tokens[1]->>'round')::int,
-          'wb_drop_home_slot', (v_tokens[1]->>'slot')::int));
+    if v_n between 9 and 11 then
+      -- Quarter-final BYEs depend on the actual losers' overall group ranks.
+      -- Keep all four match placeholders unassigned until the pool is complete.
+      update public.matches set next_match_id = null, next_match_side = null,
+        metadata = metadata || jsonb_build_object('advances_to_round',2)
+      where tournament_id = p_tournament_id and stage = 'PLAYOFF' and bracket_type = 'LOSERS' and round = 1;
+      update public.matches
+      set metadata = (metadata - 'wb_drop_home_round' - 'wb_drop_home_slot' - 'wb_drop_away_round' - 'wb_drop_away_slot')
+        || jsonb_build_object('placement_seed_by_group',true,'placement_seed_pending',true,'placement_bye',false)
+      where tournament_id = p_tournament_id and stage = 'PLAYOFF' and bracket_type = 'LOSERS' and round = 2;
     end if;
 
     -- Preserve explicit 5/6 and 7/8 classification games for eight entrants.

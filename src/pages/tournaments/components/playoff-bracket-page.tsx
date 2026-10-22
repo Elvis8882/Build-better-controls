@@ -57,14 +57,14 @@ function isEmptySlotMatch(match: MatchWithResult | null): boolean {
 function isSkippedMatch(match: MatchWithResult): boolean {
 	if (match.metadata?.placement_graph_version === 2 && !match.metadata?.placement_bye) return false;
 	if (match.result?.locked) return false;
-	if (match.round > 1) return false;
+	if (match.round > 1 && !match.metadata?.placement_bye) return false;
 	const hasHome = Boolean(match.home_participant_id);
 	const hasAway = Boolean(match.away_participant_id);
 	return hasHome !== hasAway;
 }
 
 function isUnplayableMatch(match: MatchWithResult): boolean {
-	if (match.metadata?.placement_graph_version === 2 && !match.metadata?.placement_bye) return false;
+	if (match.metadata?.placement_graph_version === 2) return false;
 	if (match.result?.locked) return false;
 	const hasHome = Boolean(match.home_participant_id);
 	const hasAway = Boolean(match.away_participant_id);
@@ -160,6 +160,8 @@ function buildBracketSlots(
 			const slots: BracketSlot[] = [];
 			for (let slot = 1; slot <= slotCount; slot += 1) {
 				const slotEntry = { round, slot, match: bySlot.get(slot) ?? null };
+				// Omitted branches have no entrants; keep actual BYE rows visible.
+				if (!slotEntry.match && roundMatches.some((match) => match.metadata?.placement_graph_version === 2)) continue;
 				if (hideUnplayableMatches && slotEntry.match && isUnplayableMatch(slotEntry.match)) continue;
 				if (omitTbdOnlySlots && isEmptySlotMatch(slotEntry.match)) continue;
 				slots.push(slotEntry);
@@ -307,13 +309,17 @@ export function BracketDiagram({
 						<div className="relative flex" style={{ gap: BRACKET_COLUMN_GAP }}>
 							{roundSlots.map((slots, roundIndex) => {
 								const currentRound = slots[0]?.round ?? roundIndex + 1;
+								const sourceRoundLabel = slots.find((entry) => typeof entry.match?.metadata?.round_label === "string")
+									?.match?.metadata?.round_label;
 								return (
 									<div key={`round-${roundIndex + 1}`} className="space-y-3" style={{ width: BRACKET_COLUMN_WIDTH }}>
 										<h3 className="text-center text-sm font-semibold text-muted-foreground">
 											{hasVersionedPlacementGraph
-												? roundIndex === totalRoundCount - 1
-													? "Final placement"
-													: `Placement round ${roundIndex + 1}`
+												? typeof sourceRoundLabel === "string"
+													? sourceRoundLabel
+													: roundIndex === totalRoundCount - 1
+														? "Final placement"
+														: `Placement round ${roundIndex + 1}`
 												: getRoundLabel(Math.min(currentRound, totalRoundCount), totalRoundCount)}
 										</h3>
 										{slots.map((entry) => {

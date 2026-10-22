@@ -380,7 +380,7 @@ export function GroupStandings({
 			if (b.points !== a.points) return b.points - a.points;
 			if (b.goal_diff !== a.goal_diff) return b.goal_diff - a.goal_diff;
 			if (b.shots_diff !== a.shots_diff) return b.shots_diff - a.shots_diff;
-			return a.rank_in_group - b.rank_in_group;
+			return a.rank_in_group - b.rank_in_group || a.participant_id.localeCompare(b.participant_id);
 		});
 		return new Map(sorted.map((row, index) => [row.participant_id, index + 1]));
 	}, [standings, showPlacement]);

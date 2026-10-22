@@ -55,6 +55,7 @@ function isEmptySlotMatch(match: MatchWithResult | null): boolean {
 }
 
 function isSkippedMatch(match: MatchWithResult): boolean {
+	if (match.metadata?.placement_graph_version === 2 && !match.metadata?.placement_bye) return false;
 	if (match.result?.locked) return false;
 	if (match.round > 1) return false;
 	const hasHome = Boolean(match.home_participant_id);
@@ -63,6 +64,7 @@ function isSkippedMatch(match: MatchWithResult): boolean {
 }
 
 function isUnplayableMatch(match: MatchWithResult): boolean {
+	if (match.metadata?.placement_graph_version === 2 && !match.metadata?.placement_bye) return false;
 	if (match.result?.locked) return false;
 	const hasHome = Boolean(match.home_participant_id);
 	const hasAway = Boolean(match.away_participant_id);
@@ -217,6 +219,7 @@ export function BracketDiagram({
 		[matches, hideUnplayableMatches],
 	);
 	const totalRoundCount = useMemo(() => roundSlots.length || 1, [roundSlots]);
+	const hasVersionedPlacementGraph = matches.some((match) => match.metadata?.placement_graph_version === 2);
 	const nodePositionById = useMemo(() => {
 		const positions = new Map<string, BracketNodePosition>();
 		roundSlots.forEach((slots, roundIndex) => {
@@ -307,7 +310,11 @@ export function BracketDiagram({
 								return (
 									<div key={`round-${roundIndex + 1}`} className="space-y-3" style={{ width: BRACKET_COLUMN_WIDTH }}>
 										<h3 className="text-center text-sm font-semibold text-muted-foreground">
-											{getRoundLabel(Math.min(currentRound, totalRoundCount), totalRoundCount)}
+											{hasVersionedPlacementGraph
+												? roundIndex === totalRoundCount - 1
+													? "Final placement"
+													: `Placement round ${roundIndex + 1}`
+												: getRoundLabel(Math.min(currentRound, totalRoundCount), totalRoundCount)}
 										</h3>
 										{slots.map((entry) => {
 											if (!entry.match) {

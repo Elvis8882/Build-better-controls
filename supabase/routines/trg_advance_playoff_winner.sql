@@ -46,7 +46,8 @@ begin
     -- into AWAY when that slot is still free.
     if v_rows_updated = 0
       and v_preset = 'full_with_losers'
-      and m.bracket_type = 'LOSERS' then
+      and m.bracket_type = 'LOSERS'
+      and coalesce(m.metadata->>'placement_graph_version', '') <> '2' then
       update public.matches
       set away_participant_id = winner
       where id = m.next_match_id
@@ -64,7 +65,8 @@ begin
 
     if v_rows_updated = 0
       and v_preset = 'full_with_losers'
-      and m.bracket_type = 'LOSERS' then
+      and m.bracket_type = 'LOSERS'
+      and coalesce(m.metadata->>'placement_graph_version', '') <> '2' then
       update public.matches
       set home_participant_id = winner
       where id = m.next_match_id

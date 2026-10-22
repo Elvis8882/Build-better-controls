@@ -77,7 +77,7 @@ export function computePlacementByParticipantId(
 	// describe scheduling, not a final placement, and must never imply #5/#6.
 	if (placementMatches.some((match) => match.metadata?.placement_graph_version === 2)) {
 		for (const match of placementMatches) {
-			if (match.next_match_id) continue;
+			if (match.next_match_id || match.metadata?.advances_to_round) continue;
 			const classification = resolvePlacementClassification(match);
 			if (classification === "extra_7th_place_game") assignRankBand(resolveOutcome(match), 7, 8);
 			else if (FIFTH_SIXTH_CLASSIFICATIONS.has(classification ?? "")) assignRankBand(resolveOutcome(match), 5, 6);

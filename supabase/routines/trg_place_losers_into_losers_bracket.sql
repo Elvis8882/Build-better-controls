@@ -79,6 +79,8 @@ begin
         perform public.sync_match_identities_from_participants(v_classification.id);
         perform public.balance_match_home_away(v_classification.id);
       end loop;
+      -- A just-advanced winner may feed a structural BYE in a later round.
+      perform public.advance_playoff_byes(m.tournament_id);
       return new;
     end if;
 
@@ -275,6 +277,13 @@ begin
     and bracket_type = 'WINNERS';
 
   if v_is_full_with_losers and v_max_round >= 2 then
+    if m.round = 2 and exists (select 1 from public.matches
+        where tournament_id = m.tournament_id and stage = 'PLAYOFF' and bracket_type = 'LOSERS'
+          and round = 2 and coalesce((metadata->>'placement_seed_by_group')::boolean,false)) then
+      perform public.seed_placement_quarterfinals(m.tournament_id);
+      return new;
+    end if;
+
     -- Winners losers are routed via precomputed metadata mapping authored by
     -- ensure_playoff_bracket. This keeps bracket progression deterministic for
     -- all sizes 3..16 and prevents BYE-only winners nodes from emitting losers.
@@ -345,6 +354,7 @@ begin
       perform public.balance_match_home_away(target);
     end if;
 
+    perform public.seed_placement_quarterfinals(m.tournament_id);
     perform public.advance_playoff_byes(m.tournament_id);
     return new;
   end if;

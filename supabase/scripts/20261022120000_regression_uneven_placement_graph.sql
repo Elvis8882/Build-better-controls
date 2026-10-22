@@ -11,10 +11,12 @@ create temporary table matches (
   unique(tournament_id, stage, bracket_type, round, bracket_slot)
 );
 create temporary table match_results (match_id uuid primary key, locked boolean, home_score int, away_score int);
-create temporary table tournaments (id uuid, preset_id text);
+create temporary table tournaments (id uuid, preset_id text, status text default 'Active');
 create temporary table tournament_participants (id uuid, tournament_id uuid, team_id uuid);
 create temporary table tournament_groups (tournament_id uuid);
 create temporary table v_playoff_seeds (tournament_id uuid, participant_id uuid, seed int);
+create temporary table tournament_playoff_seeds (tournament_id uuid, participant_id uuid, seed int);
+create temporary table v_group_standings (tournament_id uuid, participant_id uuid, rank_in_group int, points int, goal_diff int, shots_diff int);
 create temporary table playoff_placement_entrants (tournament_id uuid);
 create function pg_temp.sync_match_identities_from_participants(uuid) returns void language plpgsql as 'begin return; end;';
 create function pg_temp.preset_is_full_with_losers(text) returns boolean language sql as 'select true';
@@ -43,11 +45,11 @@ begin
     || 'v_is_full_with_losers := true;' || graph || E'\nend; $body$';
 
   foreach name in array array['trg_advance_playoff_winner', 'trg_place_losers_into_losers_bracket',
-    'advance_playoff_byes', 'balance_match_home_away'] loop
+    'advance_playoff_byes', 'balance_match_home_away', 'seed_placement_quarterfinals'] loop
     definition := pg_get_functiondef(('public.' || name || case when name like 'trg_%' then '()' else '(uuid)' end)::regprocedure);
     definition := replace(definition, 'public.' || name, 'pg_temp.' || name);
     foreach relation in array array['matches','match_results','tournaments','tournament_participants',
-      'tournament_groups','v_playoff_seeds','sync_match_identities_from_participants',
+      'tournament_groups','v_playoff_seeds','tournament_playoff_seeds','v_group_standings','seed_placement_quarterfinals','sync_match_identities_from_participants',
       'advance_playoff_byes','balance_match_home_away','preset_is_full_with_losers','preset_is_team_based'] loop
       definition := replace(definition, 'public.' || relation, 'pg_temp.' || relation);
     end loop;
@@ -75,13 +77,23 @@ declare
   played int;
   source_count int;
   expected int;
+  v_expected_byes uuid[];
+  v_actual_byes uuid[];
+  v_pool_size int;
 begin
   for n in 3..16 loop
     -- Test WB-first and interleaved reverse-slot lock ordering, alternating scores.
     for scenario in 1..2 loop
-      truncate matches, match_results, tournaments, tournament_participants;
-      insert into tournaments values(t, 'full_with_losers');
+      truncate matches, match_results, tournaments, tournament_participants, tournament_groups, tournament_playoff_seeds, v_group_standings;
+      insert into tournaments(id,preset_id) values(t, 'full_with_losers');
       insert into tournament_participants select md5(i::text)::uuid, t, null from generate_series(1,n) i;
+      -- Deliberately oppose playoff seeds and overall group placement. BYEs
+      -- must follow group points, never the source branch or stored WB seed.
+      insert into tournament_playoff_seeds select t,md5(i::text)::uuid,n+1-i from generate_series(1,n) i;
+      if n between 9 and 11 then
+        insert into tournament_groups values(t);
+        insert into v_group_standings select t,md5(i::text)::uuid,i,mod(i*7,n+1),0,0 from generate_series(1,n) i;
+      end if;
       size := 1;
       rounds := 0;
       while size < n loop size := size * 2; rounds := rounds + 1; end loop;
@@ -111,12 +123,23 @@ begin
       from matches parent where child.round < rounds and parent.round = child.round+1
         and parent.bracket_slot = ceil(child.bracket_slot/2.0)::int;
       perform pg_temp.build_placement(t,n,size,rounds);
-      -- Every ordinary placement game has two distinct, exclusive incoming sources.
-      for m in select * from matches where bracket_type='LOSERS' and not (metadata ? 'lb_loss_home_round') loop
+      -- Real games have two sources; preserved BYEs have one exclusive source.
+      if n=10 then
+        if (select count(*) from matches where bracket_type='LOSERS' and round=1
+          and (metadata->>'placement_bye')::boolean) <> 2 then
+          raise exception 'Ten entrants must have two visible round-of-16 placement BYEs';
+        end if;
+        if (select count(*) from matches where bracket_type='LOSERS' and round=2) <> 4 then
+          raise exception 'Six quarter-final entrants must occupy four placement matches';
+        end if;
+      end if;
+      for m in select * from matches where bracket_type='LOSERS' and not (metadata ? 'lb_loss_home_round')
+        and not coalesce((metadata->>'placement_seed_pending')::boolean,false)
+        and not (metadata ? 'advances_to_round') loop
         select count(*) into source_count from matches where next_match_id=m.id;
         source_count := source_count + case when m.metadata ? 'wb_drop_home_round' then 1 else 0 end
           + case when m.metadata ? 'wb_drop_away_round' then 1 else 0 end;
-        expected := case when n=3 then 1 else 2 end;
+        expected := case when coalesce((m.metadata->>'placement_bye')::boolean,false) then 1 else 2 end;
         if source_count <> expected then raise exception 'n=% source count % expected %', n,source_count,expected; end if;
         if exists (select 1 from matches where next_match_id=m.id group by next_match_side having count(*)>1) then
           raise exception 'n=% colliding winner edges',n;
@@ -133,8 +156,70 @@ begin
         exit when not found;
         if m.home_participant_id=m.away_participant_id then raise exception 'Self match'; end if;
         insert into match_results values(m.id,true,
-          case when mod(played+scenario,2)=0 then 3 else 1 end,
-          case when mod(played+scenario,2)=0 then 1 else 3 end);
+          case when mod(m.round+m.bracket_slot,2)=0 then 3 else 1 end,
+          case when mod(m.round+m.bracket_slot,2)=0 then 1 else 3 end);
+        if n=10 and m.bracket_type='WINNERS' and m.round=1
+           and (select count(*) from matches wb join match_results mr on mr.match_id=wb.id
+             where wb.bracket_type='WINNERS' and wb.round=1) = 2 then
+          if (select count(*) from matches where bracket_type='LOSERS' and round=1
+              and (home_participant_id is not null or away_participant_id is not null)) <> 2 then
+            raise exception 'Each opening loser must populate its own placement placeholder';
+          end if;
+          if exists(select 1 from matches where bracket_type='LOSERS' and round=2
+              and (home_participant_id is not null or away_participant_id is not null)) then
+            raise exception 'Do not draw quarter-final match sides before the complete pool is ranked';
+          end if;
+          if exists(select 1 from matches lb join match_results mr on mr.match_id=lb.id
+              where lb.bracket_type='LOSERS' and lb.round=1) then
+            raise exception 'A placement BYE must not fabricate a scored or locked result';
+          end if;
+        end if;
+        if n between 9 and 11 and m.bracket_type='WINNERS' and m.round=2 then
+          if (select count(*) from matches wb join match_results r on r.match_id=wb.id
+              where wb.bracket_type='WINNERS' and wb.round=2) < 4 then
+            if exists(select 1 from matches where bracket_type='LOSERS' and round=2
+                and (home_participant_id is not null or away_participant_id is not null)) then
+              raise exception 'Draw occurred before the final quarter-final loser was known';
+            end if;
+          else
+            v_pool_size := n-4;
+            with pool as (
+              select case when r.home_score>r.away_score then wb.away_participant_id else wb.home_participant_id end as participant_id
+              from matches wb join match_results r on r.match_id=wb.id
+              where wb.bracket_type='WINNERS' and wb.round in(1,2)
+            ), best as (
+              select p.participant_id, gs.points, gs.goal_diff, gs.shots_diff, gs.rank_in_group
+              from pool p join v_group_standings gs on gs.participant_id=p.participant_id
+              order by gs.points desc,gs.goal_diff desc,gs.shots_diff desc,gs.rank_in_group,p.participant_id
+              limit (8-v_pool_size)
+            ) select array_agg(participant_id order by participant_id) into v_expected_byes from best;
+            select array_agg(coalesce(home_participant_id,away_participant_id)
+              order by coalesce(home_participant_id,away_participant_id)) into v_actual_byes
+            from matches where bracket_type='LOSERS' and round=2 and (metadata->>'placement_bye')::boolean;
+            if v_actual_byes is distinct from v_expected_byes then
+              raise exception 'n=% scenario=% incorrect group-ranked BYEs: actual=% expected=%',n,scenario,v_actual_byes,v_expected_byes;
+            end if;
+            if (select sum((home_participant_id is not null)::int+(away_participant_id is not null)::int)
+                from matches where bracket_type='LOSERS' and round=2) <> v_pool_size then
+              raise exception 'Quarter-final pool has missing or duplicate assignments';
+            end if;
+            if (select count(distinct pid) from matches lb
+                cross join lateral (values(lb.home_participant_id),(lb.away_participant_id)) p(pid)
+                where lb.bracket_type='LOSERS' and lb.round=2 and pid is not null) <> v_pool_size then
+              raise exception 'Quarter-final entrant assigned more than once';
+            end if;
+            if exists(select 1 from matches where bracket_type='LOSERS' and round=2
+                and (metadata->>'placement_seed_pending')::boolean) then
+              raise exception 'Complete quarter-final pool was not finalized';
+            end if;
+            -- An explicit second call must preserve the finalized draw.
+            perform pg_temp.seed_placement_quarterfinals(t);
+            select array_agg(coalesce(home_participant_id,away_participant_id)
+              order by coalesce(home_participant_id,away_participant_id)) into v_actual_byes
+            from matches where bracket_type='LOSERS' and round=2 and (metadata->>'placement_bye')::boolean;
+            if v_actual_byes is distinct from v_expected_byes then raise exception 'Repeated seeding changed BYEs'; end if;
+          end if;
+        end if;
         played := played+1;
         if played>50 then raise exception 'Nonterminating bracket'; end if;
       end loop;
@@ -142,7 +227,12 @@ begin
         where mx.bracket_type='LOSERS' and r.match_id is null and not coalesce((mx.metadata->>'placement_bye')::boolean,false)) then
         raise exception 'n=% scenario=% stranded placement game',n,scenario;
       end if;
-      if played <> (n-1)+greatest(n-3,0)+case when n=8 then 2 else 0 end then
+      if exists(select 1 from matches where bracket_type='LOSERS'
+        and coalesce((metadata->>'placement_bye')::boolean,false)
+        and home_participant_id is null and away_participant_id is null) then
+        raise exception 'n=% scenario=% stranded BYE placeholder',n,scenario;
+      end if;
+      if played <> ((n-1)+greatest(n-3,0)+(case when n=8 then 2 else 0 end)) then
         raise exception 'n=% scenario=% unexpected played count %',n,scenario,played;
       end if;
       -- No championship finalist may appear in placement.

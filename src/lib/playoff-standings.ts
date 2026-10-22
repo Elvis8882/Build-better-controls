@@ -34,6 +34,7 @@ export const arePlayoffMatchesResolved = (matches: PlayoffStandingsMatch[]): boo
 		);
 	};
 	return matches.every((match) => {
+		if (match.metadata?.placement_seed_pending) return false;
 		if (match.result?.locked) return true;
 		const occupiedSides = Number(Boolean(match.home_participant_id)) + Number(Boolean(match.away_participant_id));
 		if (match.metadata?.placement_bye) return occupiedSides === 1;

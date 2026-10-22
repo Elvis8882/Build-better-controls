@@ -23,27 +23,7 @@ declare
   v_is_full_with_losers boolean := false;
   v_leaf_alive int[];
   v_next_alive int[];
-  v_wb_drop_counts int[] := '{}'::int[];
-  v_child_a int;
-  v_child_b int;
-  v_drop_matches int;
-  v_lb_prev_winners int := 0;
-  v_lb_entrants int;
-  v_lb_round int;
-  v_lb_round_count int := 0;
-  v_lb_matches int[] := '{}'::int[];
-  v_drop_round_by_wb int[] := '{}'::int[];
-  v_from_slot int;
-  v_to_slot int;
   v_drop_side text;
-  v_drop_round_key text;
-  v_drop_slot_key text;
-  v_active_slots int[];
-  v_active_pos int;
-  v_active_total int;
-  v_mirrored_pos int;
-  v_mirrored_slot int;
-  v_parent_metadata jsonb;
   v_group_count int := 0;
   v_group_a uuid;
   v_group_b uuid;
@@ -64,11 +44,21 @@ declare
   v_seed_occurrences int;
   v_expected_home uuid;
   v_expected_away uuid;
+  v_tokens jsonb[];
+  v_next_tokens jsonb[];
+  v_drops jsonb[];
+  v_sources jsonb[];
+  v_token jsonb;
+  v_phase int;
+  v_pair_count int;
+  v_side_index int;
+  v_display_round int;
+  v_created_in_phase int;
 begin
   -- Developer note:
   -- Group Stage qualification/seeding flow is intentionally preserved.
-  -- Playoff generation for full_with_losers is rebuilt as one generalized
-  -- double-elimination engine (4..16 entrants) with BYE-aware losers routing.
+  -- Full-with-losers placement supports 3..16 entrants. Build it after seeding
+  -- so source occupancy reflects the actual group-specific winners layout.
 
   select preset_id, status, public.preset_is_team_based(preset_id), public.preset_is_full_with_losers(preset_id)
   into v_preset, v_status, v_team_based, v_is_full_with_losers
@@ -197,283 +187,6 @@ begin
     end loop;
   end loop;
 
-  -- Generalized double-elimination graph for full_with_losers presets.
-  -- Supported participant counts: 3..16.
-  --
-  -- Mapping model:
-  -- - Normalize entrants to the next power-of-two winners tree (4/8/16 slots).
-  -- - Count only *real* winners matches (both sides occupied) as loser drops.
-  -- - Compose placement by compact display rounds (no separate consolidation-only rounds):
-  --     <5 participants  => 2 placement rounds total
-  --     5..8 participants => 3 placement rounds total
-  --     9..16 participants => 4 placement rounds total
-  -- - Keep structural shell rows for BYE-driven holes by sizing rounds from bracket size.
-  --
-  -- Size notes:
-  -- - 3/4 normalize to 4-slot WB.
-  -- - 5..8 normalize to 8-slot WB.
-  -- - 9..16 normalize to 16-slot WB.
-  -- BYEs only reduce real drop counts; they never produce phantom losers.
-  if v_is_full_with_losers and v_n >= 3 and v_n <= 16 then
-    delete from public.playoff_placement_entrants where tournament_id = p_tournament_id;
-    delete from public.matches where tournament_id = p_tournament_id and stage = 'PLAYOFF' and bracket_type = 'LOSERS';
-
-    -- Compute real loser drops from each winners round using seeded occupancy,
-    -- so odd-size tournaments do not materialize unreachable placement nodes.
-    v_seed_positions := array[1, 2];
-    while array_length(v_seed_positions, 1) < v_s loop
-      v_next_positions := '{}'::int[];
-      foreach v_pos in array v_seed_positions loop
-        v_next_positions := array_append(v_next_positions, v_pos);
-        v_next_positions := array_append(v_next_positions, array_length(v_seed_positions, 1) * 2 + 1 - v_pos);
-      end loop;
-      v_seed_positions := v_next_positions;
-    end loop;
-
-    v_leaf_alive := '{}'::int[];
-    for v_pos in 1..v_s loop
-      if v_seed_positions[v_pos] <= v_n then
-        v_leaf_alive := array_append(v_leaf_alive, 1);
-      else
-        v_leaf_alive := array_append(v_leaf_alive, 0);
-      end if;
-    end loop;
-
-    for v_round in 1..v_rounds loop
-      v_next_alive := '{}'::int[];
-      v_drop_matches := 0;
-
-      for v_slot in 1..(array_length(v_leaf_alive, 1) / 2) loop
-        v_child_a := v_leaf_alive[(v_slot * 2) - 1];
-        v_child_b := v_leaf_alive[v_slot * 2];
-
-        if v_child_a = 1 and v_child_b = 1 then
-          v_drop_matches := v_drop_matches + 1;
-          v_next_alive := array_append(v_next_alive, 1);
-        elsif v_child_a = 1 or v_child_b = 1 then
-          v_next_alive := array_append(v_next_alive, 1);
-        else
-          v_next_alive := array_append(v_next_alive, 0);
-        end if;
-      end loop;
-
-      v_wb_drop_counts := array_append(v_wb_drop_counts, v_drop_matches);
-      v_leaf_alive := v_next_alive;
-    end loop;
-
-    -- Compact placement display rounds:
-    -- R1 is intake of WB-R1 losers paired internally.
-    -- R2+ merge prior placement winners with same-index WB loser drops.
-    -- Round sizes are structural shells derived from normalized bracket size.
-    v_lb_round_count := v_rounds;
-    for v_round in 1..v_lb_round_count loop
-      v_lb_round := v_round;
-      if v_round = 1 then
-        v_lb_matches := array_append(v_lb_matches, greatest(v_s / 4, 1));
-      else
-        v_lb_matches := array_append(v_lb_matches, greatest(v_s / (2^v_round), 1));
-      end if;
-      v_drop_round_by_wb[v_round] := v_lb_round;
-    end loop;
-
-    for v_round in 1..v_lb_round_count loop
-      for v_slot in 1..v_lb_matches[v_round] loop
-        insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot)
-        select p_tournament_id, 'PLAYOFF', 'LOSERS', v_round, v_slot
-        where not exists (
-          select 1
-          from public.matches mx
-          where mx.tournament_id = p_tournament_id
-            and mx.stage = 'PLAYOFF'
-            and mx.bracket_type = 'LOSERS'
-            and mx.round = v_round
-            and mx.bracket_slot = v_slot
-        );
-      end loop;
-    end loop;
-
-    for v_round in 1..(v_lb_round_count - 1) loop
-      for v_slot in 1..v_lb_matches[v_round] loop
-        select id into v_mid
-        from public.matches
-        where tournament_id = p_tournament_id
-          and stage='PLAYOFF' and bracket_type='LOSERS'
-          and round=v_round and bracket_slot=v_slot;
-
-        if v_lb_matches[v_round + 1] = v_lb_matches[v_round] then
-          v_to_slot := v_slot;
-        else
-          v_to_slot := ceil(v_slot / 2.0)::int;
-        end if;
-        select id into v_parent
-        from public.matches
-        where tournament_id = p_tournament_id
-          and stage='PLAYOFF' and bracket_type='LOSERS'
-          and round=(v_round + 1)
-          and bracket_slot=v_to_slot;
-
-        select metadata into v_parent_metadata
-        from public.matches
-        where id = v_parent;
-
-        -- Intake rounds reserve sides for WB drops via metadata.
-        if (v_parent_metadata ? 'wb_drop_home_round') and not (v_parent_metadata ? 'wb_drop_away_round') then
-          v_parent_side := 'AWAY';
-        elsif (v_parent_metadata ? 'wb_drop_away_round') and not (v_parent_metadata ? 'wb_drop_home_round') then
-          v_parent_side := 'HOME';
-        else
-          v_parent_side := case when mod(v_slot, 2)=1 then 'HOME' else 'AWAY' end;
-        end if;
-
-        update public.matches
-        set next_match_id = v_parent,
-            next_match_side = v_parent_side
-        where id = v_mid;
-      end loop;
-    end loop;
-
-    -- Tag exact WB round/slot -> LB round/slot/side drop mapping.
-    if array_length(v_drop_round_by_wb, 1) is not null then
-      update public.matches
-      set metadata = coalesce(metadata, '{}'::jsonb)
-        - 'wb_drop_round' - 'wb_drop_slot'
-        - 'wb_drop_home_round' - 'wb_drop_home_slot'
-        - 'wb_drop_away_round' - 'wb_drop_away_slot'
-      where tournament_id = p_tournament_id
-        and stage = 'PLAYOFF'
-        and bracket_type = 'LOSERS';
-
-      v_seed_positions := array[1, 2];
-      while array_length(v_seed_positions, 1) < v_s loop
-        v_next_positions := '{}'::int[];
-        foreach v_pos in array v_seed_positions loop
-          v_next_positions := array_append(v_next_positions, v_pos);
-          v_next_positions := array_append(v_next_positions, array_length(v_seed_positions, 1) * 2 + 1 - v_pos);
-        end loop;
-        v_seed_positions := v_next_positions;
-      end loop;
-
-      v_leaf_alive := '{}'::int[];
-      for v_pos in 1..v_s loop
-        if v_seed_positions[v_pos] <= v_n then
-          v_leaf_alive := array_append(v_leaf_alive, 1);
-        else
-          v_leaf_alive := array_append(v_leaf_alive, 0);
-        end if;
-      end loop;
-
-      for v_round in 1..greatest(v_rounds - 1, 1) loop
-        v_next_alive := '{}'::int[];
-        v_active_slots := '{}'::int[];
-
-        -- Build ordered WB slots that have real matches this round.
-        for v_pos in 1..(array_length(v_leaf_alive, 1) / 2) loop
-          if v_leaf_alive[(v_pos * 2) - 1] = 1 and v_leaf_alive[v_pos * 2] = 1 then
-            v_active_slots := array_append(v_active_slots, v_pos);
-          end if;
-        end loop;
-
-        for v_slot in 1..(array_length(v_leaf_alive, 1) / 2) loop
-          v_child_a := v_leaf_alive[(v_slot * 2) - 1];
-          v_child_b := v_leaf_alive[v_slot * 2];
-
-          if v_child_a = 1 and v_child_b = 1 then
-            if array_length(v_drop_round_by_wb, 1) >= v_round and v_drop_round_by_wb[v_round] is not null then
-              -- Round-1 drops pair into same LB slot to preserve intake structure.
-              -- Fairness rule: for WB rounds after first, drops are mirrored to opposite placement branch.
-              if v_round = 1 then
-                v_to_slot := ceil(v_slot / 2.0)::int;
-                v_mirrored_slot := v_slot;
-                v_drop_side := case when mod(v_slot, 2)=1 then 'HOME' else 'AWAY' end;
-              else
-                v_active_pos := array_position(v_active_slots, v_slot);
-                v_active_total := coalesce(array_length(v_active_slots, 1), 0);
-                v_mirrored_pos := (v_active_total - v_active_pos + 1);
-                v_mirrored_slot := v_active_slots[v_mirrored_pos];
-                if v_lb_matches[v_round] = v_lb_matches[v_round - 1] then
-                  v_to_slot := v_mirrored_slot;
-                else
-                  v_to_slot := ceil(v_mirrored_slot / 2.0)::int;
-                end if;
-                -- Side reservation follows mirrored ordering so LB winner wiring fills the opposite open side.
-                v_drop_side := case when mod(v_mirrored_pos, 2)=1 then 'HOME' else 'AWAY' end;
-              end if;
-
-              v_drop_round_key := case when v_drop_side = 'HOME' then 'wb_drop_home_round' else 'wb_drop_away_round' end;
-              v_drop_slot_key := case when v_drop_side = 'HOME' then 'wb_drop_home_slot' else 'wb_drop_away_slot' end;
-
-              update public.matches
-              set metadata = coalesce(metadata, '{}'::jsonb)
-                || jsonb_build_object(
-                  'wb_drop_round', v_round,
-                  'wb_drop_slot', v_slot
-                )
-                || jsonb_build_object(v_drop_round_key, v_round)
-                || jsonb_build_object(v_drop_slot_key, v_slot)
-              where tournament_id = p_tournament_id
-                and stage = 'PLAYOFF'
-                and bracket_type = 'LOSERS'
-                and round = v_drop_round_by_wb[v_round]
-                and bracket_slot = v_to_slot;
-            end if;
-
-            v_next_alive := array_append(v_next_alive, 1);
-          elsif v_child_a = 1 or v_child_b = 1 then
-            v_next_alive := array_append(v_next_alive, 1);
-          else
-            v_next_alive := array_append(v_next_alive, 0);
-          end if;
-        end loop;
-
-        v_leaf_alive := v_next_alive;
-      end loop;
-    end if;
-
-    -- Re-apply LB winner wiring after WB drop metadata exists.
-    -- This is full_with_losers-only and ensures placement winners do not
-    -- consume sides reserved for future winners-bracket loser drops.
-    for v_round in 1..(v_lb_round_count - 1) loop
-      for v_slot in 1..v_lb_matches[v_round] loop
-        select id into v_mid
-        from public.matches
-        where tournament_id = p_tournament_id
-          and stage='PLAYOFF' and bracket_type='LOSERS'
-          and round=v_round and bracket_slot=v_slot;
-
-        if v_lb_matches[v_round + 1] = v_lb_matches[v_round] then
-          v_to_slot := v_slot;
-        else
-          v_to_slot := ceil(v_slot / 2.0)::int;
-        end if;
-        select id into v_parent
-        from public.matches
-        where tournament_id = p_tournament_id
-          and stage='PLAYOFF' and bracket_type='LOSERS'
-          and round=(v_round + 1)
-          and bracket_slot=v_to_slot;
-
-        select metadata into v_parent_metadata
-        from public.matches
-        where id = v_parent;
-
-        if (v_parent_metadata ? 'wb_drop_home_round') and not (v_parent_metadata ? 'wb_drop_away_round') then
-          v_parent_side := 'AWAY';
-        elsif (v_parent_metadata ? 'wb_drop_away_round') and not (v_parent_metadata ? 'wb_drop_home_round') then
-          v_parent_side := 'HOME';
-        else
-          v_parent_side := case when mod(v_slot, 2)=1 then 'HOME' else 'AWAY' end;
-        end if;
-
-        update public.matches
-        set next_match_id = v_parent,
-            next_match_side = v_parent_side
-        where id = v_mid;
-      end loop;
-    end loop;
-
-  else
-    perform public.ensure_losers_bracket(p_tournament_id);
-  end if;
 
   select exists (
     select 1
@@ -1086,6 +799,115 @@ begin
       (bracket_type='WINNERS' and round > 1)
       or bracket_type='LOSERS'
     );
+
+  -- A placement match has exactly two sources. Alternate loser intake and
+  -- consolidation; collapse empty/BYE nodes symbolically before creating rows.
+  -- Tokens represent a real WB loser or the winner of a real placement match.
+  if v_is_full_with_losers and v_n between 3 and 16 then
+    delete from public.playoff_placement_entrants where tournament_id = p_tournament_id;
+    delete from public.matches where tournament_id = p_tournament_id and stage = 'PLAYOFF' and bracket_type = 'LOSERS';
+
+    -- Use the actual seeded layout, including group-specific pairings.
+    v_leaf_alive := '{}'::int[];
+    for v_slot in 1..(v_s / 2) loop
+      select home_participant_id, away_participant_id into v_home, v_away
+      from public.matches where tournament_id = p_tournament_id and stage = 'PLAYOFF'
+        and bracket_type = 'WINNERS' and round = 1 and bracket_slot = v_slot;
+      v_leaf_alive := array_append(v_leaf_alive, case when v_home is null then 0 else 1 end);
+      v_leaf_alive := array_append(v_leaf_alive, case when v_away is null then 0 else 1 end);
+    end loop;
+
+    v_tokens := '{}'::jsonb[];
+    v_display_round := 0;
+    for v_phase in 1..(2 * v_rounds - 3) loop
+      v_next_tokens := '{}'::jsonb[];
+      v_created_in_phase := 0;
+      if v_phase = 1 or mod(v_phase, 2) = 0 then
+        v_round := case when v_phase = 1 then 1 else v_phase / 2 + 1 end;
+        v_drops := '{}'::jsonb[];
+        v_next_alive := '{}'::int[];
+        for v_slot in 1..(array_length(v_leaf_alive, 1) / 2) loop
+          v_token := null;
+          if v_leaf_alive[v_slot * 2 - 1] = 1 and v_leaf_alive[v_slot * 2] = 1 then
+            v_token := jsonb_build_object('kind', 'drop', 'round', v_round, 'slot', v_slot);
+          end if;
+          v_drops := array_append(v_drops, v_token);
+          v_next_alive := array_append(v_next_alive, greatest(v_leaf_alive[v_slot * 2 - 1], v_leaf_alive[v_slot * 2]));
+        end loop;
+        v_leaf_alive := v_next_alive;
+        v_pair_count := case when v_phase = 1 then array_length(v_drops, 1) / 2 else array_length(v_drops, 1) end;
+      else
+        v_pair_count := array_length(v_tokens, 1) / 2;
+      end if;
+
+      for v_slot in 1..v_pair_count loop
+        if v_phase = 1 then
+          v_sources := array[v_drops[v_slot * 2 - 1], v_drops[v_slot * 2]];
+        elsif mod(v_phase, 2) = 0 then
+          -- Cross WB drops to the opposite branch to delay rematches.
+          v_sources := array[v_tokens[v_slot], v_drops[array_length(v_drops, 1) - v_slot + 1]];
+        else
+          v_sources := array[v_tokens[v_slot * 2 - 1], v_tokens[v_slot * 2]];
+        end if;
+        if v_sources[1] is null or v_sources[2] is null then
+          v_next_tokens := array_append(v_next_tokens, coalesce(v_sources[1], v_sources[2]));
+          continue;
+        end if;
+
+        v_created_in_phase := v_created_in_phase + 1;
+        insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot, metadata)
+        values (p_tournament_id, 'PLAYOFF', 'LOSERS', v_display_round + 1, v_created_in_phase,
+                jsonb_build_object('placement_graph_version', 2))
+        returning id into v_mid;
+        for v_side_index in 1..2 loop
+          v_token := v_sources[v_side_index];
+          v_drop_side := case when v_side_index = 1 then 'HOME' else 'AWAY' end;
+          if v_token->>'kind' = 'drop' then
+            update public.matches
+            set metadata = metadata || jsonb_build_object(
+              'wb_drop_' || lower(v_drop_side) || '_round', (v_token->>'round')::int,
+              'wb_drop_' || lower(v_drop_side) || '_slot', (v_token->>'slot')::int)
+            where id = v_mid;
+          else
+            update public.matches
+            set next_match_id = v_mid, next_match_side = v_drop_side
+            where id = (v_token->>'id')::uuid;
+          end if;
+        end loop;
+        v_next_tokens := array_append(v_next_tokens, jsonb_build_object('kind', 'winner', 'id', v_mid));
+      end loop;
+      if v_created_in_phase > 0 then
+        v_display_round := v_display_round + 1;
+      end if;
+      v_tokens := v_next_tokens;
+    end loop;
+
+    if v_tokens[1]->>'kind' = 'drop' then
+      -- Three entrants: the sole semifinal loser receives bronze without a game.
+      insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot, metadata)
+      values (p_tournament_id, 'PLAYOFF', 'LOSERS', 1, 1,
+        jsonb_build_object('placement_graph_version', 2, 'placement_bye', true,
+          'wb_drop_home_round', (v_tokens[1]->>'round')::int,
+          'wb_drop_home_slot', (v_tokens[1]->>'slot')::int));
+    end if;
+
+    -- Preserve explicit 5/6 and 7/8 classification games for eight entrants.
+    if v_n = 8 then
+      for v_slot in 2..3 loop
+        insert into public.matches(tournament_id, stage, bracket_type, round, bracket_slot, metadata)
+        values (p_tournament_id, 'PLAYOFF', 'LOSERS', v_display_round, v_slot,
+          jsonb_build_object('placement_graph_version', 2,
+            'classification', case when v_slot = 2 then 'extra_7th_place_game' else 'fifth_sixth_place_game' end,
+            'is_additional_placement', v_slot = 2,
+            'lb_loss_home_round', case when v_slot = 2 then 1 else 2 end,
+            'lb_loss_home_slot', 1,
+            'lb_loss_away_round', case when v_slot = 2 then 1 else 2 end,
+            'lb_loss_away_slot', 2));
+      end loop;
+    end if;
+  else
+    perform public.ensure_losers_bracket(p_tournament_id);
+  end if;
 
   if v_is_full_with_losers and v_n >= 3 and v_n <= 16 then
     perform public.advance_playoff_byes(p_tournament_id);

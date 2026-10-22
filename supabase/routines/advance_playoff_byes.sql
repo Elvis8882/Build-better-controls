@@ -3,7 +3,11 @@ declare
   r record;
   v_advancer uuid;
   v_source_locked boolean;
+  v_missing_source_has_entrant boolean;
+  v_versioned_placement boolean;
 begin
+  select exists (select 1 from public.matches where tournament_id = p_tournament_id
+    and stage = 'PLAYOFF' and metadata->>'placement_graph_version' = '2') into v_versioned_placement;
   while v_changed loop
     v_changed := false;
 
@@ -29,19 +33,33 @@ begin
         continue;
       end if;
 
-      -- Prevent multi-round WINNERS auto-skips before results are locked.
-      -- Round-1 BYEs can still prefill round-2, but round-2+ BYE propagation
-      -- requires the source match to be locked (actual played/confirmed winner).
+      -- A missing side is a BYE only when its complete feeder subtree is empty.
+      -- A not-yet-played feeder with real entrants must block advancement.
       if r.bracket_type = 'WINNERS' and coalesce(r.round, 0) > 1 then
-        select exists (
-          select 1
-          from public.match_results wr
-          where wr.match_id = r.id
-            and wr.locked = true
-        ) into v_source_locked;
-
-        if not coalesce(v_source_locked, false) then
-          continue;
+        if v_versioned_placement then
+          with recursive missing_sources as (
+            select mx.id, mx.home_participant_id, mx.away_participant_id
+            from public.matches mx
+            where mx.tournament_id = p_tournament_id and mx.stage = 'PLAYOFF' and mx.bracket_type = 'WINNERS'
+              and mx.next_match_id = r.id
+              and mx.next_match_side = case when r.home_participant_id is null then 'HOME' else 'AWAY' end
+            union all
+            select mx.id, mx.home_participant_id, mx.away_participant_id
+            from public.matches mx join missing_sources parent on mx.next_match_id = parent.id
+            where mx.tournament_id = p_tournament_id and mx.stage = 'PLAYOFF' and mx.bracket_type = 'WINNERS'
+          )
+          select exists (select 1 from missing_sources
+            where home_participant_id is not null or away_participant_id is not null)
+          into v_missing_source_has_entrant;
+          if v_missing_source_has_entrant then
+            continue;
+          end if;
+        else
+          select exists (select 1 from public.match_results wr where wr.match_id = r.id and wr.locked = true)
+          into v_source_locked;
+          if not coalesce(v_source_locked, false) then
+            continue;
+          end if;
         end if;
       end if;
 
@@ -50,6 +68,10 @@ begin
       -- those matches until the corresponding winners match is locked and the
       -- drop side is actually known.
       if r.bracket_type = 'LOSERS' then
+        if r.metadata->>'placement_graph_version' = '2' then
+          continue; -- Every generated nonterminal placement node has two real sources.
+        end if;
+
         if r.home_participant_id is null
           and (r.metadata ? 'wb_drop_home_round')
           and (r.metadata ? 'wb_drop_home_slot') then

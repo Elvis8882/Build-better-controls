@@ -141,6 +141,17 @@ export function runPlacementFixtureAssertions(): void {
 			home_participant_id: "E",
 			away_participant_id: "F",
 		},
+		// Without metadata, the earliest placement feeder path distinguishes this
+		// from an ordinary terminal 5/6 game. A bare slot number is ambiguous.
+		{
+			id: "extra-78-feeder",
+			round: 1,
+			bracket_type: "LOSERS",
+			next_match_id: "extra-78-no-meta",
+			bracket_slot: 1,
+			home_participant_id: "E",
+			away_participant_id: null,
+		},
 	];
 	const extraPlacementRoundWithoutMetadataPlacements = runFixture(extraPlacementRoundWithoutMetadataMatches, {
 		gold: { home_score: 4, away_score: 2 },

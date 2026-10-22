@@ -1,5 +1,6 @@
 declare
   m record;
+  v_classification record;
   loser uuid;
   winner uuid;
   target uuid;
@@ -56,6 +57,28 @@ begin
     end if;
 
     if winner is null then
+      return new;
+    end if;
+
+    if m.metadata->>'placement_graph_version' = '2' then
+      -- Classification losers have their own explicit edges; never guess a free side.
+      for v_classification in
+        select id, metadata from public.matches
+        where tournament_id = m.tournament_id and stage = 'PLAYOFF' and bracket_type = 'LOSERS'
+          and ((metadata->>'lb_loss_home_round')::int = m.round and (metadata->>'lb_loss_home_slot')::int = m.bracket_slot
+            or (metadata->>'lb_loss_away_round')::int = m.round and (metadata->>'lb_loss_away_slot')::int = m.bracket_slot)
+      loop
+        if (v_classification.metadata->>'lb_loss_home_round')::int = m.round
+           and (v_classification.metadata->>'lb_loss_home_slot')::int = m.bracket_slot then
+          update public.matches set home_participant_id = coalesce(home_participant_id, loser)
+          where id = v_classification.id and away_participant_id is distinct from loser;
+        else
+          update public.matches set away_participant_id = coalesce(away_participant_id, loser)
+          where id = v_classification.id and home_participant_id is distinct from loser;
+        end if;
+        perform public.sync_match_identities_from_participants(v_classification.id);
+        perform public.balance_match_home_away(v_classification.id);
+      end loop;
       return new;
     end if;
 

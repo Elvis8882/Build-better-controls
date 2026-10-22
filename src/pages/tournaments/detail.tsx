@@ -37,6 +37,7 @@ import {
 	updateTournamentStatus,
 	upsertMatchResult,
 } from "@/lib/db";
+import { arePlayoffMatchesResolved } from "@/lib/playoff-standings";
 import { GoalDifferenceDuelPage } from "@/pages/tournaments/components/goal-difference-duel-page";
 import {
 	GroupMatchesTable,
@@ -49,8 +50,8 @@ import {
 	PlayoffBracketPage,
 	PlayoffMatchesTable,
 } from "@/pages/tournaments/components/playoff-bracket-page";
-import { buildGoalDifferenceHistory } from "@/pages/tournaments/goal-difference-duel";
 import { computeTournamentDetailPlayoffStandings } from "@/pages/tournaments/detail.playoff-standings";
+import { buildGoalDifferenceHistory } from "@/pages/tournaments/goal-difference-duel";
 import {
 	hasLosersProgressionFlow,
 	isGoalDifferenceDuelFlow,
@@ -112,6 +113,7 @@ const isSkippedPlayoffMatch = (match: MatchWithResult) => {
 };
 
 const isMatchDisplayable = (match: MatchWithResult) => {
+	if (match.metadata?.placement_graph_version === 2) return true;
 	if (isSkippedPlayoffMatch(match)) return false;
 	const hasResult = Boolean(match.result?.locked);
 	const hasHome = Boolean(match.home_participant_id);
@@ -326,9 +328,12 @@ export default function TournamentDetailPage() {
 		for (const match of playoffMatches) visit(match.id);
 		return memo;
 	}, [playoffMatches, playoffDependencyChildrenByMatchId, lockedPlayoffMatchIds]);
+	const hasVersionedPlacementGraph = playoffMatches.some((match) => match.metadata?.placement_graph_version === 2);
 	const allPlayoffMatchesLockedByStage =
 		playoffMatches.length > 0 &&
-		playoffMatches.filter(isMatchDisplayable).every((match) => Boolean(match.result?.locked));
+		(hasVersionedPlacementGraph
+			? arePlayoffMatchesResolved(playoffMatches)
+			: playoffMatches.filter(isMatchDisplayable).every((match) => Boolean(match.result?.locked)));
 	const tournamentStarted =
 		allLockedWithTeams &&
 		(fullPreset || roundRobinTiersPreset || goalDifferenceDuelPreset
@@ -1230,9 +1235,7 @@ export default function TournamentDetailPage() {
 	const placementBracketMatches = placementBracketMatchesRaw.filter(isMatchDisplayable);
 	const shouldShowPlacementBracket =
 		hasLosersProgressionFlow(tournament.preset_id) || placementBracketMatchesRaw.length > 0;
-	const allPlayoffMatchesLocked =
-		(winnersBracketMatches.length > 0 || placementBracketMatches.length > 0) &&
-		[...winnersBracketMatches, ...placementBracketMatches].every((match) => Boolean(match.result?.locked));
+	const allPlayoffMatchesLocked = allPlayoffMatchesLockedByStage;
 	const inviteableFriends = friends.filter(
 		(friend) =>
 			!members.some((member) => member.user_id === friend.id) &&
@@ -1240,8 +1243,8 @@ export default function TournamentDetailPage() {
 	);
 
 	const standingByParticipantId = computeTournamentDetailPlayoffStandings(
-		winnersBracketMatches,
-		placementBracketMatches,
+		hasVersionedPlacementGraph ? winnersBracketMatchesRaw : winnersBracketMatches,
+		hasVersionedPlacementGraph ? placementBracketMatchesRaw : placementBracketMatches,
 	);
 
 	const placementRevealKeys = new Set<string>();

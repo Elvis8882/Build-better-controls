@@ -13,6 +13,7 @@ create temporary table matches (
 create temporary table match_results (match_id uuid primary key, locked boolean, home_score int, away_score int);
 create temporary table tournaments (id uuid, preset_id text, status text default 'Active');
 create temporary table tournament_participants (id uuid, tournament_id uuid, team_id uuid);
+create temporary table tournament_group_members(group_id uuid, participant_id uuid);
 create temporary table tournament_groups (tournament_id uuid);
 create temporary table v_playoff_seeds (tournament_id uuid, participant_id uuid, seed int);
 create temporary table tournament_playoff_seeds (tournament_id uuid, participant_id uuid, seed int);
@@ -49,7 +50,7 @@ begin
     definition := pg_get_functiondef(('public.' || name || case when name like 'trg_%' then '()' else '(uuid)' end)::regprocedure);
     definition := replace(definition, 'public.' || name, 'pg_temp.' || name);
     foreach relation in array array['matches','match_results','tournaments','tournament_participants',
-      'tournament_groups','v_playoff_seeds','tournament_playoff_seeds','v_group_standings','seed_placement_quarterfinals','sync_match_identities_from_participants',
+      'tournament_groups','tournament_group_members','v_playoff_seeds','tournament_playoff_seeds','v_group_standings','seed_placement_quarterfinals','sync_match_identities_from_participants',
       'advance_playoff_byes','balance_match_home_away','preset_is_full_with_losers','preset_is_team_based'] loop
       definition := replace(definition, 'public.' || relation, 'pg_temp.' || relation);
     end loop;

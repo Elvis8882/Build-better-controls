@@ -471,9 +471,13 @@ export function PlayoffMatchesTable({
 	medalByParticipantId?: Map<string, "gold" | "silver" | "bronze">;
 	placementRevealKeys?: Set<string>;
 }) {
-	// Structural BYEs belong in the diagram, not in the score-entry list.
-	// Preserve any existing locked result, and keep games awaiting an opponent.
-	const playableMatches = matches.filter((match) => !match.metadata?.placement_bye || match.result?.locked);
+	// Keep structural BYEs and empty placement placeholders in the diagram.
+	// Show placement forms once a participant arrives, preserving locked history.
+	const playableMatches = matches.filter((match) => {
+		if (match.result?.locked) return true;
+		if (match.metadata?.placement_bye) return false;
+		return match.bracket_type !== "LOSERS" || Boolean(match.home_participant_id || match.away_participant_id);
+	});
 	if (playableMatches.length === 0) {
 		return (
 			<section className="space-y-3 rounded-lg border p-3 md:p-4">

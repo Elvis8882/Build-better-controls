@@ -25,6 +25,7 @@ declare
   v_next_alive int[];
   v_drop_side text;
   v_group_count int := 0;
+  v_mixed_draw boolean := false;
   v_group_a uuid;
   v_group_b uuid;
   v_max_group_rank int := 0;
@@ -678,6 +679,11 @@ begin
     end loop;
   end if;
 
+  if v_is_full_with_losers and v_n between 3 and 16 and v_group_count > 1 then
+    v_seeded := public.seed_cross_group_winners_round1(p_tournament_id, v_seeded);
+    v_mixed_draw := true;
+  end if;
+
   if v_is_full_with_losers and v_n between 9 and 16 then
     -- The lateral join emits one row per occupied side. Count those references
     -- directly; summing match occupancy here counts full matches twice.
@@ -747,7 +753,7 @@ begin
         v_expected_null_null_slots := v_expected_null_null_slots + 1;
       end if;
 
-      if exists (
+      if not v_mixed_draw and exists (
         select 1
         from public.matches m
         where m.tournament_id = p_tournament_id

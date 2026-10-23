@@ -6,6 +6,11 @@ declare
   v_rank_count int;
   v_positions int[] := array[1,8,4,5,2,7,3,6];
   v_slot int;
+  v_byes int;
+  v_pairs int;
+  v_opponents int[];
+  v_home_rank int;
+  v_away_rank int;
   v_home uuid;
   v_away uuid;
   v_target uuid;
@@ -78,17 +83,46 @@ begin
     raise exception 'Placement draw requires a complete, uniquely ranked group-stage pool';
   end if;
 
+  v_byes := 8 - cardinality(v_ranked);
+  v_pairs := cardinality(v_ranked) - 4;
+  -- BYE recipients and stronger/weaker seed bands stay fixed. Among valid
+  -- opponents prefer another group, then avoid a repeat playoff opponent.
+  with recursive draw(opponents, same_group, rematches, deviation) as (
+    select array[]::int[], 0, 0, 0
+    union all
+    select d.opponents || x.rank,
+      d.same_group + case when exists (
+        select 1 from public.tournament_group_members a
+        join public.tournament_group_members b on a.group_id = b.group_id
+        where a.participant_id = v_ranked[v_byes + cardinality(d.opponents) + 1]
+          and b.participant_id = v_ranked[x.rank]) then 1 else 0 end,
+      d.rematches + case when exists (
+        select 1 from public.matches m join public.match_results r on r.match_id = m.id
+        where m.tournament_id = p_tournament_id and m.stage = 'PLAYOFF' and r.locked
+          and (m.home_participant_id, m.away_participant_id) in (
+            (v_ranked[v_byes + cardinality(d.opponents) + 1], v_ranked[x.rank]),
+            (v_ranked[x.rank], v_ranked[v_byes + cardinality(d.opponents) + 1]))) then 1 else 0 end,
+      d.deviation + abs(v_byes + cardinality(d.opponents) + 1 + x.rank - 9)
+    from draw d cross join generate_series(5, cardinality(v_ranked)) x(rank)
+    where cardinality(d.opponents) < v_pairs and not x.rank = any(d.opponents)
+  )
+  select opponents into v_opponents from draw where cardinality(opponents) = v_pairs
+    order by same_group, rematches, deviation, opponents limit 1;
+
   -- Seed six/five/seven entrants into an eight-slot tree. The strongest
   -- 8 - pool_size entrants receive the only BYEs; the remaining entrants play.
   for v_slot in 1..4 loop
-    v_home := v_ranked[v_positions[v_slot*2-1]];
-    v_away := v_ranked[v_positions[v_slot*2]];
+    v_home_rank := v_positions[v_slot*2-1];
+    v_away_rank := case when v_home_rank > v_byes
+      then v_opponents[v_home_rank-v_byes] else v_positions[v_slot*2] end;
+    v_home := v_ranked[v_home_rank];
+    v_away := v_ranked[v_away_rank];
     update public.matches
     set home_participant_id = v_home, away_participant_id = v_away,
         metadata = metadata || jsonb_build_object('placement_seed_pending',false,
           'placement_bye',v_home is null or v_away is null,
-          'placement_pool_seed_home',case when v_home is not null then v_positions[v_slot*2-1] end,
-          'placement_pool_seed_away',case when v_away is not null then v_positions[v_slot*2] end)
+          'placement_pool_seed_home',case when v_home is not null then v_home_rank end,
+          'placement_pool_seed_away',case when v_away is not null then v_away_rank end)
     where tournament_id = p_tournament_id and stage = 'PLAYOFF' and bracket_type = 'LOSERS'
       and round = 2 and bracket_slot = v_slot
     returning id into v_target;

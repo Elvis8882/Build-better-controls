@@ -471,7 +471,10 @@ export function PlayoffMatchesTable({
 	medalByParticipantId?: Map<string, "gold" | "silver" | "bronze">;
 	placementRevealKeys?: Set<string>;
 }) {
-	if (matches.length === 0) {
+	// Structural BYEs belong in the diagram, not in the score-entry list.
+	// Preserve any existing locked result, and keep games awaiting an opponent.
+	const playableMatches = matches.filter((match) => !match.metadata?.placement_bye || match.result?.locked);
+	if (playableMatches.length === 0) {
 		return (
 			<section className="space-y-3 rounded-lg border p-3 md:p-4">
 				<h2 className="text-lg font-semibold">{title}</h2>
@@ -484,7 +487,7 @@ export function PlayoffMatchesTable({
 		<section className="space-y-3 rounded-lg border p-3 md:p-4">
 			<h2 className="text-lg font-semibold">{title}</h2>
 			<div className="space-y-3">
-				{matches.map((match) => {
+				{playableMatches.map((match) => {
 					const draft = resultDrafts[match.id] ?? {
 						home_score: "",
 						away_score: "",
